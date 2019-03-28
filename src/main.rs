@@ -5,7 +5,6 @@ extern crate env_logger;
 extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
-extern crate rustyline;
 
 use clap::{App, Arg};
 use rustpython_parser::error::ParseError;
@@ -13,7 +12,8 @@ use rustpython_vm::{
     compile, error::CompileError, frame::Scope, import, obj::objstr, print_exception,
     pyobject::PyResult, util, VirtualMachine,
 };
-use rustyline::{error::ReadlineError, Editor};
+// use rustyline::{error::ReadlineError, Editor};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -158,65 +158,81 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
     );
     let vars = vm.ctx.new_scope();
 
-    // Read a single line:
-    let mut input = String::new();
-    let mut repl = Editor::<()>::new();
+    // // Read a single line:
+    // let mut input = String::new();
+    // let mut repl = Editor::<()>::new();
 
-    // Retrieve a `history_path_str` dependent on the OS
-    let repl_history_path_str = &get_history_path();
-    if repl.load_history(repl_history_path_str).is_err() {
-        println!("No previous history.");
+    // // Retrieve a `history_path_str` dependent on the OS
+    // let repl_history_path_str = &get_history_path();
+    // if repl.load_history(repl_history_path_str).is_err() {
+    //     println!("No previous history.");
+    // }
+
+    // let mut continuing = false;
+
+    // loop {
+    //     let prompt = if continuing {
+    //         get_prompt(vm, "ps2")
+    //     } else {
+    //         get_prompt(vm, "ps1")
+    //     };
+    //     match repl.readline(&prompt) {
+    //         Ok(line) => {
+    //             debug!("You entered {:?}", line);
+    //             input.push_str(&line);
+    //             input.push('\n');
+    //             repl.add_history_entry(line.trim_end());
+
+    //             if continuing {
+    //                 if line.is_empty() {
+    //                     continuing = false;
+    //                 } else {
+    //                     continue;
+    //                 }
+    //             }
+
+    //             match shell_exec(vm, &input, vars.clone()) {
+    //                 Err(CompileError::Parse(ParseError::EOF(_))) => {
+    //                     continuing = true;
+    //                     continue;
+    //                 }
+    //                 _ => {
+    //                     input = String::new();
+    //                 }
+    //             }
+    //         }
+    //         Err(ReadlineError::Interrupted) => {
+    //             // TODO: Raise a real KeyboardInterrupt exception
+    //             println!("^C");
+    //             continuing = false;
+    //             continue;
+    //         }
+    //         Err(ReadlineError::Eof) => {
+    //             break;
+    //         }
+    //         Err(err) => {
+    //             println!("Error: {:?}", err);
+    //             break;
+    //         }
+    //     };
+    // }
+    // repl.save_history(repl_history_path_str).unwrap();
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+
+    // print!("{}", get_prompt(vm, "ps1"));
+
+    print!("{}", get_prompt(vm, "ps1"));
+    stdout.flush().expect("flush failed");
+    for line in stdin.lock().lines() {
+        let mut line = line.expect("line failed");
+        line.push('\n');
+        let _ = shell_exec(vm, &line, vars.clone());
+        print!("{}", get_prompt(vm, "ps1"));
+        stdout.flush().expect("flush failed");
     }
-
-    let mut continuing = false;
-
-    loop {
-        let prompt = if continuing {
-            get_prompt(vm, "ps2")
-        } else {
-            get_prompt(vm, "ps1")
-        };
-        match repl.readline(&prompt) {
-            Ok(line) => {
-                debug!("You entered {:?}", line);
-                input.push_str(&line);
-                input.push('\n');
-                repl.add_history_entry(line.trim_end());
-
-                if continuing {
-                    if line.is_empty() {
-                        continuing = false;
-                    } else {
-                        continue;
-                    }
-                }
-
-                match shell_exec(vm, &input, vars.clone()) {
-                    Err(CompileError::Parse(ParseError::EOF(_))) => {
-                        continuing = true;
-                        continue;
-                    }
-                    _ => {
-                        input = String::new();
-                    }
-                }
-            }
-            Err(ReadlineError::Interrupted) => {
-                // TODO: Raise a real KeyboardInterrupt exception
-                println!("^C");
-                continuing = false;
-                continue;
-            }
-            Err(ReadlineError::Eof) => {
-                break;
-            }
-            Err(err) => {
-                println!("Error: {:?}", err);
-                break;
-            }
-        };
-    }
-    repl.save_history(repl_history_path_str).unwrap();
 
     Ok(vm.get_none())
 }
