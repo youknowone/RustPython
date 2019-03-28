@@ -779,7 +779,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::FormatValue { conversion, spec } => {
-                use ast::ConversionFlag::*;
+                use self::ast::ConversionFlag::*;
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),

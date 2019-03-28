@@ -11,6 +11,7 @@
     clippy::let_and_return,
     clippy::implicit_hasher
 )]
+#![feature(arbitrary_self_types)]
 
 #[macro_use]
 extern crate bitflags;
