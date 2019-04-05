@@ -6,14 +6,14 @@ use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
-use super::objfloat;
-use super::objstr;
+use super::objfloat::{self, PyFloat};
+use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
@@ -351,7 +351,7 @@ impl PyIntRef {
         self.value.to_string()
     }
 
-    fn format(self, spec: PyRef<objstr::PyString>, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
         let format_spec = FormatSpec::parse(&spec.value);
         match format_spec.format_int(&self.value) {
             Ok(string) => Ok(string),
@@ -372,52 +372,60 @@ impl PyIntRef {
     }
 }
 
-fn int_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(val_option, None)]
-    );
+#[derive(FromArgs)]
+#[__inside_vm]
+struct IntOptions {
+    #[pyarg(positional_only, optional = true)]
+    val_options: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    base: OptionalArg<u32>,
+}
 
-    let base = match args.get_optional_kwarg("base") {
-        Some(argument) => get_value(&argument).to_u32().unwrap(),
-        None => 10,
-    };
-    let val = match val_option {
-        Some(val) => to_int(vm, val, base)?,
-        None => Zero::zero(),
-    };
-    Ok(PyInt::new(val)
-        .into_ref_with_type(vm, cls.clone().downcast().unwrap())?
-        .into_object())
+impl IntOptions {
+    fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let OptionalArg::Present(val) = self.val_options {
+            let base = if let OptionalArg::Present(base) = self.base {
+                if !objtype::isinstance(&val, &vm.ctx.str_type) {
+                    return Err(vm.new_type_error(
+                        "int() can't convert non-string with explicit base".to_string(),
+                    ));
+                }
+                base
+            } else {
+                10
+            };
+            to_int(vm, &val, base)
+        } else if let OptionalArg::Present(_) = self.base {
+            Err(vm.new_type_error("int() missing string argument".to_string()))
+        } else {
+            Ok(Zero::zero())
+        }
+    }
+}
+
+fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
 }
 
 // Casting function:
+// TODO: this should just call `__int__` on the object
 pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
-    let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
-        get_value(obj).clone()
-    } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
-        objfloat::get_value(obj).to_bigint().unwrap()
-    } else if objtype::isinstance(obj, &vm.ctx.str_type()) {
-        let s = objstr::get_value(obj);
-        match i32::from_str_radix(&s, base) {
-            Ok(v) => v.to_bigint().unwrap(),
-            Err(err) => {
-                trace!("Error occurred during int conversion {:?}", err);
-                return Err(vm.new_value_error(format!(
+    match_class!(obj.clone(),
+        i @ PyInt => Ok(i.as_bigint().clone()),
+        f @ PyFloat => Ok(f.to_f64().to_bigint().unwrap()),
+        s @ PyString => {
+            i32::from_str_radix(s.as_str(), base)
+                .map(|i| BigInt::from(i))
+                .map_err(|_|vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
                     base, s
-                )));
-            }
-        }
-    } else {
-        return Err(vm.new_type_error(format!(
+                )))
+        },
+        obj => Err(vm.new_type_error(format!(
             "int() argument must be a string or a number, not '{}'",
             obj.class().name
-        )));
-    };
-    Ok(val)
+        )))
+    )
 }
 
 // Retrieve inner int value:

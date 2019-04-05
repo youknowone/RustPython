@@ -2,47 +2,64 @@ extern crate proc_macro;
 
 use crate::proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
+use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields};
+use syn::{parse_macro_input, AttributeArgs, DeriveInput, Item};
 
-#[proc_macro_derive(FromArgs)]
+mod from_args;
+mod pyclass;
+
+fn rustpython_path(inside_vm: bool) -> syn::Path {
+    let path = if inside_vm {
+        quote!(crate)
+    } else {
+        quote!(::rustpython_vm)
+    };
+    syn::parse2(path).unwrap()
+}
+
+/// Does the item have the #[__inside_vm] attribute on it, signifying that the derive target is
+/// being derived from inside the `rustpython_vm` crate.
+fn rustpython_path_derive(input: &DeriveInput) -> syn::Path {
+    rustpython_path(
+        input
+            .attrs
+            .iter()
+            .any(|attr| attr.path.is_ident("__inside_vm")),
+    )
+}
+
+fn rustpython_path_attr(attr: &AttributeArgs) -> syn::Path {
+    rustpython_path(attr.iter().any(|meta| {
+        if let syn::NestedMeta::Meta(meta) = meta {
+            if let syn::Meta::Word(ident) = meta {
+                ident == "__inside_vm"
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }))
+}
+
+#[proc_macro_derive(FromArgs, attributes(__inside_vm, pyarg))]
 pub fn derive_from_args(input: TokenStream) -> TokenStream {
     let ast: DeriveInput = syn::parse(input).unwrap();
 
-    let gen = impl_from_args(&ast);
-    gen.to_string().parse().unwrap()
+    from_args::impl_from_args(ast).into()
 }
 
-fn impl_from_args(input: &DeriveInput) -> TokenStream2 {
-    // FIXME: This references types using `crate` instead of `rustpython_vm`
-    //        so that it can be used in the latter. How can we support both?
-    let fields = match input.data {
-        Data::Struct(ref data) => {
-            match data.fields {
-                Fields::Named(ref fields) => fields.named.iter().map(|field| {
-                    let name = &field.ident;
-                    quote! {
-                        #name: crate::pyobject::TryFromObject::try_from_object(
-                            vm,
-                            args.take_keyword(stringify!(#name)).unwrap_or_else(|| vm.ctx.none())
-                        )?,
-                    }
-                }),
-                Fields::Unnamed(_) | Fields::Unit => unimplemented!(), // TODO: better error message
-            }
-        }
-        Data::Enum(_) | Data::Union(_) => unimplemented!(), // TODO: better error message
-    };
+#[proc_macro_attribute]
+pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    pyclass::impl_pyclass(attr, item).into()
+}
 
-    let name = &input.ident;
-    quote! {
-        impl crate::function::FromArgs for #name {
-            fn from_args(
-                vm: &crate::vm::VirtualMachine,
-                args: &mut crate::function::PyFuncArgs
-            ) -> Result<Self, crate::function::ArgumentError> {
-                Ok(#name { #(#fields)* })
-            }
-        }
-    }
+#[proc_macro_attribute]
+pub fn pyimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    pyclass::impl_pyimpl(attr, item).into()
 }

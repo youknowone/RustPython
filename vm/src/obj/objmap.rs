@@ -1,5 +1,5 @@
-use crate::function::{Args, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::Args;
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
@@ -35,23 +35,20 @@ fn map_new(
     .into_ref_with_type(vm, cls.clone())
 }
 
-fn map_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
-
-    if let Some(PyMap {
-        ref mapper,
-        ref iterators,
-    }) = map.payload()
-    {
-        let next_objs = iterators
+impl PyMapRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        let next_objs = self
+            .iterators
             .iter()
             .map(|iterator| objiter::call_next(vm, iterator))
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(mapper.clone(), next_objs)
-    } else {
-        panic!("map doesn't have correct payload");
+        vm.invoke(self.mapper.clone(), next_objs)
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
     }
 }
 
@@ -62,10 +59,10 @@ pub fn init(context: &PyContext) {
                    Make an iterator that computes the function using arguments from\n\
                    each of the iterables.  Stops when the shortest iterable is exhausted.";
 
-    objiter::iter_type_init(context, map_type);
     extend_class!(context, map_type, {
         "__new__" => context.new_rustfunc(map_new),
-        "__next__" => context.new_rustfunc(map_next),
+        "__next__" => context.new_rustfunc(PyMapRef::next),
+        "__iter__" => context.new_rustfunc(PyMapRef::iter),
         "__doc__" => context.new_str(map_doc.to_string())
     });
 }

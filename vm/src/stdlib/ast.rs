@@ -151,8 +151,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "Return");
 
             let py_value = if let Some(value) = value {
-                vm.ctx
-                    .new_tuple(value.iter().map(|v| expression_to_ast(vm, v)).collect())
+                expression_to_ast(vm, value)
             } else {
                 vm.ctx.none()
             };
@@ -189,7 +188,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let py_target = expression_to_ast(vm, target);
             vm.ctx.set_attr(&node, "target", py_target);
 
-            let py_iter = expressions_to_ast(vm, iter);
+            let py_iter = expression_to_ast(vm, iter);
             vm.ctx.set_attr(&node, "iter", py_iter);
 
             let py_body = statements_to_ast(vm, body);
@@ -327,14 +326,14 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
 
             node
         }
-        ast::Expression::Compare { a, op, b } => {
+        ast::Expression::Compare { vals, ops } => {
             let node = create_node(vm, "Compare");
 
-            let py_a = expression_to_ast(vm, a);
+            let py_a = expression_to_ast(vm, &vals[0]);
             vm.ctx.set_attr(&node, "left", py_a);
 
             // Operator:
-            let str_op = match op {
+            let to_operator = |op: &ast::Comparison| match op {
                 ast::Comparison::Equal => "Eq",
                 ast::Comparison::NotEqual => "NotEq",
                 ast::Comparison::Less => "Lt",
@@ -346,10 +345,20 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                 ast::Comparison::Is => "Is",
                 ast::Comparison::IsNot => "IsNot",
             };
-            let py_ops = vm.ctx.new_list(vec![vm.ctx.new_str(str_op.to_string())]);
+            let py_ops = vm.ctx.new_list(
+                ops.iter()
+                    .map(|x| vm.ctx.new_str(to_operator(x).to_string()))
+                    .collect(),
+            );
+
             vm.ctx.set_attr(&node, "ops", py_ops);
 
-            let py_b = vm.ctx.new_list(vec![expression_to_ast(vm, b)]);
+            let py_b = vm.ctx.new_list(
+                vals.iter()
+                    .skip(1)
+                    .map(|x| expression_to_ast(vm, x))
+                    .collect(),
+            );
             vm.ctx.set_attr(&node, "comparators", py_b);
             node
         }

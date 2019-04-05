@@ -353,19 +353,8 @@ impl Compiler {
                     return Err(CompileError::InvalidReturn);
                 }
                 match value {
-                    Some(e) => {
-                        let size = e.len();
-                        for v in e {
-                            self.compile_expression(v)?;
-                        }
-
-                        // If we have more than 1 return value, make it a tuple:
-                        if size > 1 {
-                            self.emit(Instruction::BuildTuple {
-                                size,
-                                unpack: false,
-                            });
-                        }
+                    Some(v) => {
+                        self.compile_expression(v)?;
                     }
                     None => {
                         self.emit(Instruction::LoadConst {
@@ -597,7 +586,10 @@ impl Compiler {
         self.in_loop = false;
         self.in_function_def = true;
         let mut flags = self.enter_function(name, args)?;
-        self.compile_statements(body)?;
+
+        let (new_body, doc_str) = get_doc(body);
+
+        self.compile_statements(new_body)?;
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
@@ -662,6 +654,20 @@ impl Compiler {
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+
+        if let Some(doc_string) = doc_str {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+            self.emit(Instruction::LoadName {
+                name: name.to_string(),
+            });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
         Ok(())
@@ -689,13 +695,17 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
-        self.compile_statements(body)?;
+
+        let (new_body, doc_str) = get_doc(body);
+
+        self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
         });
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
@@ -755,6 +765,19 @@ impl Compiler {
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+        if let Some(doc_string) = doc_str {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+            self.emit(Instruction::LoadName {
+                name: name.to_string(),
+            });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
         self.in_loop = was_in_loop;
         Ok(())
     }
@@ -762,7 +785,7 @@ impl Compiler {
     fn compile_for(
         &mut self,
         target: &ast::Expression,
-        iter: &[ast::Expression],
+        iter: &ast::Expression,
         body: &[ast::LocatedStatement],
         orelse: &Option<Vec<ast::LocatedStatement>>,
     ) -> Result<(), CompileError> {
@@ -776,9 +799,7 @@ impl Compiler {
         });
 
         // The thing iterated:
-        for i in iter {
-            self.compile_expression(i)?;
-        }
+        self.compile_expression(iter)?;
 
         // Retrieve Iterator
         self.emit(Instruction::GetIter);
@@ -803,6 +824,79 @@ impl Compiler {
             self.compile_statements(orelse)?;
         }
         self.set_label(end_label);
+        Ok(())
+    }
+
+    fn compile_chained_comparison(
+        &mut self,
+        vals: &[ast::Expression],
+        ops: &[ast::Comparison],
+    ) -> Result<(), CompileError> {
+        assert!(ops.len() > 0);
+        assert!(vals.len() == ops.len() + 1);
+
+        let to_operator = |op: &ast::Comparison| match op {
+            ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
+            ast::Comparison::NotEqual => bytecode::ComparisonOperator::NotEqual,
+            ast::Comparison::Less => bytecode::ComparisonOperator::Less,
+            ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
+            ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
+            ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
+            ast::Comparison::In => bytecode::ComparisonOperator::In,
+            ast::Comparison::NotIn => bytecode::ComparisonOperator::NotIn,
+            ast::Comparison::Is => bytecode::ComparisonOperator::Is,
+            ast::Comparison::IsNot => bytecode::ComparisonOperator::IsNot,
+        };
+
+        // a == b == c == d
+        // compile into (pseudocode):
+        // result = a == b
+        // if result:
+        //   result = b == c
+        //   if result:
+        //     result = c == d
+
+        // initialize lhs outside of loop
+        self.compile_expression(&vals[0])?;
+
+        let break_label = self.new_label();
+        let last_label = self.new_label();
+
+        // for all comparisons except the last (as the last one doesn't need a conditional jump)
+        let ops_slice = &ops[0..ops.len()];
+        let vals_slice = &vals[1..ops.len()];
+        for (op, val) in ops_slice.iter().zip(vals_slice.iter()) {
+            self.compile_expression(val)?;
+            // store rhs for the next comparison in chain
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::Rotate { amount: 3 });
+
+            self.emit(Instruction::CompareOperation {
+                op: to_operator(op),
+            });
+
+            // if comparison result is false, we break with this value; if true, try the next one.
+            // (CPython compresses these three opcodes into JUMP_IF_FALSE_OR_POP)
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::JumpIfFalse {
+                target: break_label,
+            });
+            self.emit(Instruction::Pop);
+        }
+
+        // handle the last comparison
+        self.compile_expression(vals.last().unwrap())?;
+        self.emit(Instruction::CompareOperation {
+            op: to_operator(ops.last().unwrap()),
+        });
+        self.emit(Instruction::Jump { target: last_label });
+
+        // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
+        self.set_label(break_label);
+        self.emit(Instruction::Rotate { amount: 2 });
+        self.emit(Instruction::Pop);
+
+        self.set_label(last_label);
         Ok(())
     }
 
@@ -988,24 +1082,8 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Expression::Compare { a, op, b } => {
-                self.compile_expression(a)?;
-                self.compile_expression(b)?;
-
-                let i = match op {
-                    ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
-                    ast::Comparison::NotEqual => bytecode::ComparisonOperator::NotEqual,
-                    ast::Comparison::Less => bytecode::ComparisonOperator::Less,
-                    ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
-                    ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
-                    ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
-                    ast::Comparison::In => bytecode::ComparisonOperator::In,
-                    ast::Comparison::NotIn => bytecode::ComparisonOperator::NotIn,
-                    ast::Comparison::Is => bytecode::ComparisonOperator::Is,
-                    ast::Comparison::IsNot => bytecode::ComparisonOperator::IsNot,
-                };
-                let i = Instruction::CompareOperation { op: i };
-                self.emit(i);
+            ast::Expression::Compare { vals, ops } => {
+                self.compile_chained_comparison(vals, ops)?;
             }
             ast::Expression::Number { value } => {
                 let const_value = match value {
@@ -1509,6 +1587,21 @@ impl Compiler {
     fn mark_generator(&mut self) {
         self.current_code_object().is_generator = true;
     }
+}
+
+fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<String>) {
+    if let Some(val) = body.get(0) {
+        if let ast::Statement::Expression { ref expression } = val.node {
+            if let ast::Expression::String { ref value } = expression {
+                if let ast::StringGroup::Constant { ref value } = value {
+                    if let Some((_, body_rest)) = body.split_first() {
+                        return (body_rest, Some(value.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    (body, None)
 }
 
 #[cfg(test)]
