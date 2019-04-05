@@ -1,8 +1,6 @@
 extern crate proc_macro;
 
 use crate::proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
-use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, AttributeArgs, DeriveInput, Item};
 
