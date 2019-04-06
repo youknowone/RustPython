@@ -17,7 +17,7 @@ use super::objtype::PyClassRef;
 pub struct PyBytes {
     value: Vec<u8>,
 }
-type PyBytesRef = PyRef<PyBytes>;
+pub type PyBytesRef = PyRef<PyBytes>;
 
 impl PyBytes {
     pub fn new(data: Vec<u8>) -> Self {
@@ -43,8 +43,6 @@ impl PyValue for PyBytes {
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let bytes_type = context.bytes_type.as_object();
-
     let bytes_doc =
         "bytes(iterable_of_ints) -> bytes\n\
          bytes(string, encoding[, errors]) -> bytes\n\
@@ -56,7 +54,7 @@ pub fn init(context: &PyContext) {
          - any object implementing the buffer API.\n  \
          - an integer";
 
-    extend_class!(context, bytes_type, {
+    extend_class!(context, &context.bytes_type, {
         "__new__" => context.new_rustfunc(bytes_new),
         "__eq__" => context.new_rustfunc(PyBytesRef::eq),
         "__lt__" => context.new_rustfunc(PyBytesRef::lt),
