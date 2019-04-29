@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::ops::{Add, Mul};
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -64,22 +65,28 @@ impl PyRange {
     }
 
     #[inline]
-    pub fn get(&self, index: &BigInt) -> Option<BigInt> {
+    pub fn get<'a, 'b, T>(&'a self, index: &'b T) -> Option<BigInt>
+    where
+        T: Signed,
+        &'a BigInt: Mul<&'a BigInt, Output = BigInt>
+            + Mul<&'b T, Output = BigInt>
+            + Add<&'a BigInt, Output = BigInt>
+            + Add<&'b T, Output = BigInt>,
+    {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
 
-        let index = if index < &BigInt::zero() {
-            let index = stop + index;
-            if index < BigInt::zero() {
-                return None;
-            }
-            index
-        } else {
-            index.clone()
-        };
-
-        let result = start + step * &index;
+        let result = start
+            + if index.is_negative() {
+                let new_index = stop + index;
+                if new_index.is_negative() {
+                    return None;
+                }
+                step * new_index
+            } else {
+                step * index
+            };
 
         if (self.forward() && !self.is_empty() && &result < stop)
             || (!self.forward() && !self.is_empty() && &result > stop)
@@ -357,8 +364,7 @@ type PyRangeIteratorRef = PyRef<PyRangeIterator>;
 
 impl PyRangeIteratorRef {
     fn next(self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let position = BigInt::from(self.position.get());
-        if let Some(int) = self.range.get(&position) {
+        if let Some(int) = self.range.get(&(self.position.get() as isize)) {
             self.position.set(self.position.get() + 1);
             Ok(int)
         } else {
