@@ -58,7 +58,10 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
                 )
             })
             .collect(),
-        None => vec![],
+        None => vec![
+            ctx.new_str("Lib".to_string()),
+            ctx.new_str("/Users/youknowone/.pyenv/versions/3.7.0/lib/python3.7".to_string()),
+        ],
     };
     let path = ctx.new_list(path_list);
 
