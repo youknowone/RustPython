@@ -1,7 +1,8 @@
 use super::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
+#[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyClassMethod {
     pub callable: PyObjectRef,
@@ -16,7 +17,9 @@ impl PyValue for PyClassMethod {
     }
 }
 
-impl PyClassMethodRef {
+#[pyimpl]
+impl PyClassMethod {
+    #[pymethod(name = "__new__")]
     fn new(
         cls: PyClassRef,
         callable: PyObjectRef,
@@ -28,7 +31,8 @@ impl PyClassMethodRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn get(self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__get__")]
+    fn get(&self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Ok(vm
             .ctx
             .new_bound_method(self.callable.clone(), owner.clone()))
@@ -36,9 +40,5 @@ impl PyClassMethodRef {
 }
 
 pub fn init(context: &PyContext) {
-    let classmethod_type = &context.classmethod_type;
-    extend_class!(context, classmethod_type, {
-        "__get__" => context.new_rustfunc(PyClassMethodRef::get),
-        "__new__" => context.new_rustfunc(PyClassMethodRef::new)
-    });
+    PyClassMethod::extend_class(context, &context.classmethod_type);
 }
