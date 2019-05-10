@@ -847,6 +847,12 @@ impl PyString {
             false
         }
     }
+
+    // placeholder
+    #[pymethod]
+    fn maketrans(&self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_not_implemented_error("str.maketrans".to_string()))
+    }
 }
 
 impl PyValue for PyString {
