@@ -40,6 +40,10 @@ fn allocate_lock(vm: &VirtualMachine) -> PyResult {
     vm.invoke(&lock_class.into_object(), vec![])
 }
 
+fn unimplemented(_vm: &VirtualMachine) {
+    unimplemented!()
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -54,5 +58,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "RLock" => rlock_type,
         "get_ident" => ctx.new_rustfunc(get_ident),
         "allocate_lock" => ctx.new_rustfunc(allocate_lock),
+        "start_new_thread" => ctx.new_rustfunc(unimplemented),
+        "_set_sentinel" => ctx.new_rustfunc(unimplemented),
+        "error" => ctx.exceptions.base_exception_type.clone(),
+        "TIMEOUT_MAX" => ctx.new_float((2.0_f64).powf(63.0) / 1000000000.0),
+        "stack_size" => ctx.new_rustfunc(unimplemented),
     })
 }

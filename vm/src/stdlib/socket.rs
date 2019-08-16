@@ -598,6 +598,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "inet_ntoa" => ctx.new_rustfunc(socket_inet_ntoa),
         "gethostname" => ctx.new_rustfunc(socket_gethostname),
         "htonl" => ctx.new_rustfunc(socket_htonl),
+        "has_ipv6" => ctx.new_bool(false),
     });
 
     extend_module_platform_specific(vm, module)

@@ -395,6 +395,7 @@ impl PyContext {
         )
     }
 
+    #[inline(always)]
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         if b {
             self.true_value.clone().into_object()
