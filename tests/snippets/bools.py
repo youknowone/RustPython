@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 assert True
 assert not False
@@ -133,7 +133,7 @@ class TestBoolThrowError:
     def __bool__(self):
         return object()
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bool(TestBoolThrowError())
 
 class TestLenThrowError:
@@ -141,5 +141,5 @@ class TestLenThrowError:
         return object()
 
 
-with assertRaises(TypeError):
+with assert_raises(TypeError):
     bool(TestLenThrowError())
