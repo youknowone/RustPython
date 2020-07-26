@@ -12,7 +12,7 @@ use super::objfloat;
 use super::objmemory::PyMemoryView;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype::{self, PyClassRef};
-use crate::bytesinner::PyBytesInner;
+use crate::byteslike::PyBytesLike;
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
@@ -554,14 +554,14 @@ impl PyInt {
         };
 
         let x = match args.byteorder.as_str() {
-            "big" => match signed {
-                true => BigInt::from_signed_bytes_be(&args.bytes.elements),
-                false => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
-            },
-            "little" => match signed {
-                true => BigInt::from_signed_bytes_le(&args.bytes.elements),
-                false => BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements),
-            },
+            "big" => args.bytes.with_ref(|bytes| match signed {
+                true => BigInt::from_signed_bytes_be(bytes),
+                false => BigInt::from_bytes_be(Sign::Plus, bytes),
+            }),
+            "little" => args.bytes.with_ref(|bytes| match signed {
+                true => BigInt::from_signed_bytes_le(bytes),
+                false => BigInt::from_bytes_le(Sign::Plus, bytes),
+            }),
             _ => {
                 return Err(
                     vm.new_value_error("byteorder must be either 'little' or 'big'".to_owned())
@@ -714,7 +714,7 @@ impl IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     #[pyarg(positional_or_keyword)]
-    bytes: PyBytesInner,
+    bytes: PyBytesLike,
     #[pyarg(positional_or_keyword)]
     byteorder: PyStringRef,
     #[pyarg(keyword_only, optional = true)]
