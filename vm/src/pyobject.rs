@@ -1145,6 +1145,24 @@ pub trait TryFromObject: Sized {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
+pub trait TryFromObjectWithMessage: Sized {
+    type Error: ?Sized;
+
+    fn try_from_object_with_message(
+        vm: &VirtualMachine,
+        obj: PyObjectRef,
+        error: Self::Error,
+    ) -> PyResult<Self>;
+
+    fn default_error() -> Self::Error;
+}
+
+impl<T, F> TryFromObject for T where Self: Sized,  T: TryFromObjectWithMessage<Error=F>, F: Fn(&VirtualMachine, PyObjectRef) -> PyBaseExceptionRef {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Self::try_from_object_with_message(vm, obj, Self::default_error())
+    }
+}
+
 /// Implemented by any type that can be returned from a built-in Python function.
 ///
 /// `IntoPyObject` has a blanket implementation for any built-in object payload,
