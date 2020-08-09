@@ -153,3 +153,47 @@ impl ArgStrOrBytesLike {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum PyAsciiBytesLike {
+    String(PyStringRef),
+    Buffer(PyBytesLike),
+}
+
+impl TryFromObject for PyAsciiBytesLike {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match obj.downcast::<PyString>() {
+            Ok(string) => {
+                if string.as_str().is_ascii() {
+                    Ok(PyAsciiBytesLike::String(string))
+                } else {
+                    Err(vm.new_value_error(
+                        "string argument should contain only ASCII characters".to_owned(),
+                    ))
+                }
+            }
+            Err(obj) => PyBytesLike::try_from_object(vm, obj).map(PyAsciiBytesLike::Buffer),
+        }
+    }
+}
+
+impl PyAsciiBytesLike {
+    pub fn len(&self) -> usize {
+        match self {
+            PyAsciiBytesLike::String(s) => s.as_str().len(),
+            PyAsciiBytesLike::Buffer(buffer) => buffer.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
+    pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        match self {
+            PyAsciiBytesLike::String(s) => f(s.as_str().as_bytes()),
+            PyAsciiBytesLike::Buffer(buffer) => buffer.with_ref(f),
+        }
+    }
+}
