@@ -94,6 +94,9 @@ class CodecInfo(tuple):
     def __new__(cls, encode, decode, streamreader=None, streamwriter=None,
         incrementalencoder=None, incrementaldecoder=None, name=None,
         *, _is_text_encoding=None):
+        assert type.__new__
+        assert tuple.__new__
+        assert type(type.__new__) == type(tuple.__new__)
         self = tuple.__new__(cls, (encode, decode, streamreader, streamwriter))
         self.name = name
         self.encode = encode

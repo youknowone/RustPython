@@ -174,7 +174,7 @@ pub trait Callable: PyValue {
         if let Some(zelf) = zelf.downcast_ref() {
             Self::call(zelf, args, vm)
         } else {
-            Err(vm.new_type_error("unexpected payload for __call__".to_owned()))
+            Err(vm.new_type_error(format!("'{}' has unexpected payload for __call__", zelf.class().name())))
         }
     }
     #[pymethod]

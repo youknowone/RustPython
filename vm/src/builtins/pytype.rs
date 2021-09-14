@@ -239,7 +239,7 @@ impl PyTypeRef {
 
 #[pyimpl(with(SlotGetattro, SlotSetattro, Callable), flags(BASETYPE))]
 impl PyType {
-    #[pymethod]
+    // #[pymethod]
     fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
         call_tp_new(zelf, subtype, args, vm)
@@ -731,6 +731,17 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
 
 pub(crate) fn init(ctx: &PyContext) {
     PyType::extend_class(ctx, &ctx.types.type_type);
+
+    let cls = &ctx.types.type_type;
+    let new_str = "__new__";
+    let tp_new_wrapper = PyRef::new_ref(
+        ctx.make_funcdef(new_str, PyType::__new__).into_function(),
+        cls.clone(),
+        None,
+    )
+    .into_object();
+    let bound = ctx.new_bound_method(tp_new_wrapper, cls.clone().into_object());
+    cls.set_str_attr(new_str, bound);
 }
 
 impl PyLease<'_, PyType> {
