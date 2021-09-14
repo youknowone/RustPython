@@ -99,6 +99,8 @@ impl SlotConstructor for PySuper {
     }
 }
 
+use itertools::Itertools;
+
 #[pyimpl(with(SlotGetattro, SlotDescriptor, SlotConstructor))]
 impl PySuper {
     fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
@@ -134,6 +136,7 @@ impl SlotGetattro for PySuper {
         if name.as_str() == "__class__" {
             return skip(zelf, name);
         }
+        println!("getattro name: {}", name.as_str());
 
         // skip the classes in start_type.mro up to and including zelf.typ
         let mro: Vec<_> = start_type
@@ -141,7 +144,9 @@ impl SlotGetattro for PySuper {
             .skip_while(|cls| !cls.is(&zelf.typ))
             .skip(1) // skip su->type (if any)
             .collect();
+        println!("mro: {}", mro.iter().map(|o| o.name()).join(" "));
         for cls in mro {
+            println!("cls in mro: {}", &cls.name());
             if let Some(descr) = cls.get_direct_attr(name.as_str()) {
                 return vm
                     .call_get_descriptor_specific(

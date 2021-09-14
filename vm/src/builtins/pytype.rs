@@ -777,8 +777,10 @@ pub(crate) fn call_tp_new(
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
+    println!("call_tp_new: {} for {}", typ.name(), subtype.name());
     for cls in typ.deref().iter_mro() {
         if let Some(tp_new) = cls.slots.new.load() {
+            println!("call_tp_new found: {}", cls.name());
             return tp_new(subtype, args, vm);
         }
     }

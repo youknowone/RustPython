@@ -37,6 +37,7 @@ impl PyBaseObject {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
+        println!("cls: {}", cls.name());
         let dict = if cls.is(&vm.ctx.types.object_type) {
             None
         } else {
