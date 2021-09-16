@@ -37,6 +37,7 @@ mod decl {
         IdProtocol, ItemProtocol, PyArithmaticValue, PyCallable, PyClassImpl, PyIterable,
         PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
     };
+    use itertools::Itertools;
     use num_traits::{Signed, Zero};
 
     #[pyfunction]
@@ -552,20 +553,19 @@ mod decl {
                 Ok(u32::from(bytes[0]))
             }),
             Either::B(string) => {
-                let string = string.as_str();
-                let string_len = string.chars().count();
-                if string_len != 1 {
-                    return Err(vm.new_type_error(format!(
+                let s = string.as_str();
+                let c = s.chars().exactly_one().map_err(|_| {
+                    vm.new_type_error(format!(
                         "ord() expected a character, but string of length {} found",
-                        string_len
-                    )));
-                }
-                match string.chars().next() {
-                    Some(character) => Ok(character as u32),
-                    None => Err(vm.new_type_error(
+                        string.char_len()
+                    ))
+                })?;
+                if c.len_utf8() != s.len() {
+                    return Err(vm.new_type_error(
                         "ord() could not guess the integer representing this character".to_owned(),
-                    )),
+                    ));
                 }
+                Ok(c as u32)
             }
         }
     }
