@@ -411,20 +411,6 @@ pub(super) mod _os {
         O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SEEK_CUR, SEEK_END,
         SEEK_SET,
     };
-    #[cfg(not(any(windows, target_os = "wasi")))]
-    #[pyattr]
-    use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
-    #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
-    #[pyattr]
-    use libc::{SEEK_DATA, SEEK_HOLE};
-    #[pyattr]
-    pub(crate) const F_OK: u8 = 0;
-    #[pyattr]
-    pub(crate) const R_OK: u8 = 4;
-    #[pyattr]
-    pub(crate) const W_OK: u8 = 2;
-    #[pyattr]
-    pub(crate) const X_OK: u8 = 1;
 
     #[pyfunction]
     fn close(fileno: i32, vm: &VirtualMachine) -> PyResult<()> {
@@ -451,8 +437,14 @@ pub(super) mod _os {
         dir_fd: DirFd<{ OPEN_DIR_FD as usize }>,
     }
 
-    #[cfg(any(unix, windows, target_os = "wasi"))]
-    const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    #[cfg(unix)]
+    const OPEN_DIR_FD: bool = cfg!(not(target_os = "redox"));
+
+    #[cfg(target_os = "wasi")]
+    const OPEN_DIR_FD: bool = true;
+
+    #[cfg(windows)]
+    const OPEN_DIR_FD: bool = false;
 
     #[pyfunction]
     fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<i32> {
@@ -539,6 +531,7 @@ pub(super) mod _os {
 
     const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
 
+    #[cfg(not(windows))]
     #[pyfunction]
     fn mkdir(
         path: PyPathLike,
@@ -547,39 +540,21 @@ pub(super) mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mode = mode.unwrap_or(0o777);
-        #[cfg(windows)]
-        {
-            let [] = dir_fd.0;
-            let _ = mode;
-            let wide = path.to_widecstring(vm)?;
-            let res = unsafe {
-                winapi::um::fileapi::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut())
-            };
-            if res == 0 {
-                Err(errno_err(vm))
-            } else {
-                Ok(())
-            }
+        let path = path.into_cstring(vm)?;
+        #[cfg(not(target_os = "redox"))]
+        if let Some(fd) = dir_fd.get_opt() {
+            let res = unsafe { libc::mkdirat(fd, path.as_ptr(), mode as _) };
+            let res = if res < 0 { Err(errno_err(vm)) } else { Ok(()) };
+            return res;
         }
-        #[cfg(not(windows))]
-        {
-            let path = path.into_cstring(vm)?;
-            #[cfg(not(target_os = "redox"))]
-            if let Some(fd) = dir_fd.get_opt() {
-                let res = unsafe { libc::mkdirat(fd, path.as_ptr(), mode as _) };
-                let res = if res < 0 { Err(errno_err(vm)) } else { Ok(()) };
-                return res;
-            }
-            #[cfg(target_os = "redox")]
-            let [] = dir_fd.0;
-            let res = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-            if res < 0 {
-                Err(errno_err(vm))
-            } else {
-                Ok(())
-            }
+        #[cfg(target_os = "redox")]
+        let [] = dir_fd.0;
+        let res = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
+        if res < 0 {
+            Err(errno_err(vm))
+        } else {
+            Ok(())
         }
-        // fs::create_dir(path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2113,6 +2088,25 @@ mod nt {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.into_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn mkdir(
+        path: PyPathLike,
+        mode: OptionalArg<i32>,
+        dir_fd: DirFd<{ MKDIR_DIR_FD as usize }>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let mode = mode.unwrap_or(0o777);
+        let [] = dir_fd.0;
+        let _ = mode;
+        let wide = path.to_widecstring(vm)?;
+        let res =
+            unsafe { winapi::um::fileapi::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+        if res == 0 {
+            return Err(errno_err(vm));
+        }
+        Ok(())
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {

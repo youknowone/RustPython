@@ -1,3 +1,5 @@
+//! `posix` compatible module for `not(any(unix, windows))`
+
 #[pymodule(name = "posix")]
 mod posix {
     use crate::builtins::PyDictRef;
