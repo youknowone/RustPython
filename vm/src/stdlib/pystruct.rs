@@ -968,4 +968,4 @@ pub(crate) mod _struct {
     }
 }
 
-pub(crate) use _struct::make_module;
+pub(crate) use _struct::{make_module, FormatSpec};
