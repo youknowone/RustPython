@@ -87,14 +87,11 @@ impl PyDict {
             }
         } else {
             let iter = other.get_iter(vm)?;
-            loop {
+            for element in iter.iter_without_hint(vm)? {
+                let element: PyObjectRef = element?;
                 fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
                     vm.new_value_error("Iterator must have exactly two elements".to_owned())
                 }
-                let element = match iter.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(_) => break,
-                };
                 let elem_iter = element.get_iter(vm)?;
                 let key = match elem_iter.next(vm)? {
                     PyIterReturn::Return(obj) => obj,
