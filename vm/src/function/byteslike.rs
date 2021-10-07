@@ -1,4 +1,4 @@
-use crate::builtins::PyStrRef;
+use crate::builtins::{PyStr, PyStrRef};
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::protocol::PyBuffer;
 use crate::vm::VirtualMachine;
@@ -155,33 +155,33 @@ impl ArgStrOrBytesLike {
 }
 
 #[derive(Debug)]
-pub enum PyAsciiBytesLike {
-    String(PyStringRef),
-    Buffer(PyBytesLike),
+pub enum ArgAsciiBuffer {
+    String(PyStrRef),
+    Buffer(ArgBytesLike),
 }
 
-impl TryFromObject for PyAsciiBytesLike {
+impl TryFromObject for ArgAsciiBuffer {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        match obj.downcast::<PyString>() {
+        match obj.downcast::<PyStr>() {
             Ok(string) => {
                 if string.as_str().is_ascii() {
-                    Ok(PyAsciiBytesLike::String(string))
+                    Ok(ArgAsciiBuffer::String(string))
                 } else {
                     Err(vm.new_value_error(
                         "string argument should contain only ASCII characters".to_owned(),
                     ))
                 }
             }
-            Err(obj) => PyBytesLike::try_from_object(vm, obj).map(PyAsciiBytesLike::Buffer),
+            Err(obj) => ArgBytesLike::try_from_object(vm, obj).map(ArgAsciiBuffer::Buffer),
         }
     }
 }
 
-impl PyAsciiBytesLike {
+impl ArgAsciiBuffer {
     pub fn len(&self) -> usize {
         match self {
-            PyAsciiBytesLike::String(s) => s.as_str().len(),
-            PyAsciiBytesLike::Buffer(buffer) => buffer.len(),
+            Self::String(s) => s.as_str().len(),
+            Self::Buffer(buffer) => buffer.len(),
         }
     }
 
@@ -192,8 +192,8 @@ impl PyAsciiBytesLike {
     #[inline]
     pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
-            PyAsciiBytesLike::String(s) => f(s.as_str().as_bytes()),
-            PyAsciiBytesLike::Buffer(buffer) => buffer.with_ref(f),
+            Self::String(s) => f(s.as_str().as_bytes()),
+            Self::Buffer(buffer) => buffer.with_ref(f),
         }
     }
 }
