@@ -4,7 +4,8 @@ use crate::{
         PyDictRef, PyList,
     },
     function::IntoPyObject,
-    IdProtocol, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol, VirtualMachine,
+    IdProtocol, ItemProtocol, PyObjectRef, PyObjectWrap, PyResult, TryFromObject, TypeProtocol,
+    VirtualMachine,
 };
 use std::borrow::Borrow;
 
@@ -124,5 +125,40 @@ impl TryFromObject for PyMapping<PyObjectRef> {
         } else {
             Err(vm.new_type_error(format!("{} is not a mapping object", mapping.class())))
         }
+    }
+}
+
+impl<K> ItemProtocol<K> for PyMapping
+where
+    K: IntoPyObject,
+{
+    fn get_item(&self, key: K, vm: &VirtualMachine) -> PyResult {
+        let getitem = self.methods(vm).subscript.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' object is not subscriptable",
+                self.0.class().name()
+            ))
+        })?;
+        getitem(self.0.clone(), key.into_pyobject(vm), vm)
+    }
+
+    fn set_item(&self, key: K, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let setitem = self.methods(vm).ass_subscript.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' does not support item assignment",
+                self.0.class().name()
+            ))
+        })?;
+        setitem(self.0.clone(), key.into_pyobject(vm), Some(value), vm)
+    }
+
+    fn del_item(&self, key: K, vm: &VirtualMachine) -> PyResult<()> {
+        let setitem = self.methods(vm).ass_subscript.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "'{}' does not support item deletion",
+                self.0.class().name()
+            ))
+        })?;
+        setitem(self.0.clone(), key.into_pyobject(vm), None, vm)
     }
 }
