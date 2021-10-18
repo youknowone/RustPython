@@ -939,11 +939,9 @@ pub mod module {
         }
     }
 
-    impl TryFromObject for Uid {
+    impl TryFromObject for Option<Uid> {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            Ok(Uid::from_raw(
-                try_from_id(vm, obj, "uid")?.unwrap_or(libc::uid_t::MAX),
-            ))
+            Ok(try_from_id(vm, obj, "uid")?.map(Uid::from_raw))
         }
     }
 
@@ -956,23 +954,25 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn setuid(uid: Uid, vm: &VirtualMachine) -> PyResult<()> {
+    fn setuid(uid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
+        let uid = uid.ok_or_else(|| vm.new_os_error("TODO".to_owned()))?;
         unistd::setuid(uid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn seteuid(euid: Uid, vm: &VirtualMachine) -> PyResult<()> {
+    fn seteuid(euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
+        let euid = euid.ok_or_else(|| vm.new_os_error("TODO".to_owned()))?;
         unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn setreuid(ruid: Uid, euid: Uid, vm: &VirtualMachine) -> PyResult<()> {
-        if ruid.as_raw() != libc::uid_t::MAX {
+    fn setreuid(ruid: Option<Uid>, euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(ruid) = ruid {
             unistd::setuid(ruid).map_err(|err| err.into_pyexception(vm))?;
         }
-        if euid.as_raw() != libc::uid_t::MAX {
+        if let Some(euid) = euid {
             unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))?;
         }
         Ok(())
@@ -986,7 +986,15 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn setresuid(ruid: Uid, euid: Uid, suid: Uid, vm: &VirtualMachine) -> PyResult<()> {
+    fn setresuid(
+        ruid: Option<Uid>,
+        euid: Option<Uid>,
+        suid: Option<Uid>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let ruid = ruid.expect("TODO: error handling");
+        let euid = euid.expect("TODO: error handling");
+        let suid = suid.expect("TODO: error handling");
         unistd::setresuid(ruid, euid, suid).map_err(|err| err.into_pyexception(vm))
     }
 
