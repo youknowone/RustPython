@@ -199,41 +199,35 @@ impl PySetInner {
     }
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut repr_len = class_name.map_or(0, |name| name.len() + 2);
-        let mut parts = Vec::with_capacity(self.content.len());
-        for key in self.elements() {
-            let part = vm.to_repr(&key)?;
-            repr_len += part.as_str().len() + 2;
-            parts.push(part);
-        }
-        let (parts, repr_len) = (parts, repr_len);
-
-        let mut repr = String::with_capacity(repr_len);
+        let mut repr = Vec::new();
         if let Some(name) = class_name {
-            repr.push_str(name);
-            repr.push('(');
+            repr.extend(name.as_bytes());
+            repr.push(b'(');
         }
-        repr.push('{');
+
+        repr.push(b'{');
         {
-            let mut parts_iter = parts.into_iter();
-            repr.push_str(
+            let mut parts_iter = self.elements().into_iter().map(|o| vm.to_repr(&o));
+            repr.extend(
                 parts_iter
                     .next()
+                    .transpose()?
                     .expect("this is not called for empty set")
-                    .as_str(),
+                    .as_str()
+                    .as_bytes(),
             );
+            let mut offset = repr.len();
             for part in parts_iter {
-                repr.push_str(", ");
-                repr.push_str(part.as_str());
+                repr.extend(b", ");
+                repr.extend(part?.as_str().as_bytes());
             }
         }
-        repr.push('}');
+        repr.push(b'}');
         if class_name.is_some() {
-            repr.push(')');
+            repr.push(b')');
         }
-        debug_assert_eq!(repr.len(), repr_len);
 
-        Ok(repr)
+        Ok(unsafe { String::from_utf8_unchecked(repr) })
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
