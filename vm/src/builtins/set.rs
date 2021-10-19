@@ -199,40 +199,18 @@ impl PySetInner {
     }
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut repr_len = class_name.map_or(0, |name| name.len() + 2);
         let mut parts = Vec::with_capacity(self.content.len());
         for key in self.elements() {
             let part = vm.to_repr(&key)?;
-            repr_len += part.as_str().len() + 2;
-            parts.push(part);
+            parts.push(part.as_str().to_owned());
         }
-        let (parts, repr_len) = (parts, repr_len);
-
-        let mut repr = String::with_capacity(repr_len);
-        if let Some(name) = class_name {
-            repr.push_str(name);
-            repr.push('(');
-        }
-        repr.push('{');
-        {
-            let mut parts_iter = parts.into_iter();
-            repr.push_str(
-                parts_iter
-                    .next()
-                    .expect("this is not called for empty set")
-                    .as_str(),
-            );
-            for part in parts_iter {
-                repr.push_str(", ");
-                repr.push_str(part.as_str());
-            }
-        }
-        repr.push('}');
-        if class_name.is_some() {
-            repr.push(')');
-        }
-        debug_assert_eq!(repr.len(), repr_len);
-
+        let parts = parts;
+        let joined = parts.join(", ");
+        let repr = if let Some(name) = class_name {
+            format!("{}({{{}}})", name, joined)
+        } else {
+            format!("{{{}}}", joined)
+        };
         Ok(repr)
     }
 
