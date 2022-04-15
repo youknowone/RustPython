@@ -280,8 +280,8 @@ impl PyType {
     }
 
     #[pyproperty]
-    fn __name__(&self) -> String {
-        self.name().to_string()
+    fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
+        vm.intern_string(&*self.name())
     }
 
     pub fn name(&self) -> BorrowedValue<str> {
@@ -297,11 +297,11 @@ impl PyType {
     }
 
     #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> String {
+    fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
         let module = self.module(vm);
         let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
 
-        match module {
+        let repr = match module {
             Some(module) if module != "builtins" => {
                 let name = self.name();
                 format!(
@@ -314,7 +314,8 @@ impl PyType {
                 )
             }
             _ => format!("<class '{}'>", self.slot_name()),
-        }
+        };
+        vm.intern_string(repr)
     }
 
     #[pyproperty(magic)]
@@ -331,7 +332,7 @@ impl PyType {
                     Some(found)
                 }
             })
-            .unwrap_or_else(|| vm.ctx.new_str(self.name().deref()).into())
+            .unwrap_or_else(|| vm.intern_string(&*self.name()).into())
     }
 
     #[pyproperty(magic)]

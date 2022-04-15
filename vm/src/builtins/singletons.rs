@@ -1,4 +1,4 @@
-use super::PyTypeRef;
+use super::{PyStrRef, PyTypeRef};
 use crate::{
     function::IntoPyObject, types::Constructor, PyClassImpl, PyContext, PyObjectRef, PyResult,
     PyValue, TypeProtocol, VirtualMachine,
@@ -42,8 +42,8 @@ impl Constructor for PyNone {
 #[pyimpl(with(Constructor))]
 impl PyNone {
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        "None".to_owned()
+    fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
+        vm.intern_string("None")
     }
 
     #[pymethod(magic)]
@@ -81,8 +81,8 @@ impl PyNotImplemented {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        "NotImplemented".to_owned()
+    fn repr(&self, vm: &VirtualMachine) -> PyStrRef {
+        vm.intern_string("NotImplemented")
     }
 }
 

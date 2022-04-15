@@ -112,8 +112,8 @@ impl Constructor for PyBool {
 #[pyimpl(with(Constructor))]
 impl PyBool {
     #[pymethod(magic)]
-    fn repr(zelf: bool) -> String {
-        if zelf { "True" } else { "False" }.to_owned()
+    fn repr(zelf: bool, vm: &VirtualMachine) -> PyStrRef {
+        vm.intern_string(if zelf { "True" } else { "False" })
     }
 
     #[pymethod(magic)]

@@ -121,22 +121,21 @@ mod sys {
     }
 
     #[pyattr]
-    fn byteorder(_vm: &VirtualMachine) -> String {
+    fn byteorder(vm: &VirtualMachine) -> PyStrRef {
         // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
-        if cfg!(target_endian = "little") {
-            "little".to_owned()
+        vm.intern_string(if cfg!(target_endian = "little") {
+            "little"
         } else if cfg!(target_endian = "big") {
-            "big".to_owned()
+            "big"
         } else {
-            "unknown".to_owned()
-        }
+            "unknown"
+        })
     }
 
     #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> PyObjectRef {
-        let ctx = &vm.ctx;
         if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
-            ctx.new_str(var).into()
+            vm.intern_string(var).into()
         } else {
             executable(vm)
         }
