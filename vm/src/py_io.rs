@@ -55,13 +55,14 @@ impl Write for PyWriter<'_> {
     type Error = PyBaseExceptionRef;
     fn write_fmt(&mut self, args: fmt::Arguments) -> Result<(), Self::Error> {
         let PyWriter(obj, vm) = self;
-        vm.call_method(obj, "write", (args.to_string(),)).map(drop)
+        vm.call_method(obj.to_owned(), "write", (args.to_string(),))
+            .map(drop)
     }
 }
 
 pub fn file_readline(obj: &PyObject, size: Option<usize>, vm: &VirtualMachine) -> PyResult {
     let args = size.map_or_else(Vec::new, |size| vec![vm.ctx.new_int(size).into()]);
-    let ret = vm.call_method(obj, "readline", args)?;
+    let ret = vm.call_method(obj.to_owned(), "readline", args)?;
     let eof_err = || {
         vm.new_exception(
             vm.ctx.exceptions.eof_error.clone(),

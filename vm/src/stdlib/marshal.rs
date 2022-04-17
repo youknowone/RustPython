@@ -148,7 +148,7 @@ mod decl {
     #[pyfunction]
     fn dump(value: PyObjectRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let dumped = dumps(value, vm)?;
-        vm.call_method(&f, "write", (dumped,))?;
+        vm.call_method(f, "write", (dumped,))?;
         Ok(())
     }
 
@@ -318,7 +318,7 @@ mod decl {
 
     #[pyfunction]
     fn load(f: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let read_res = vm.call_method(&f, "read", ())?;
+        let read_res = vm.call_method(f, "read", ())?;
         let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
         loads(PyBuffer::from(bytes), vm)
     }

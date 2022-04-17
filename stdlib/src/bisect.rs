@@ -129,7 +129,7 @@ mod _bisect {
             },
             vm,
         )?;
-        vm.call_method(&a, "insert", (index, x))
+        vm.call_method(a, "insert", (index, x))
     }
 
     /// Insert item x in list a, and keep it sorted assuming a is sorted.
@@ -149,6 +149,6 @@ mod _bisect {
             },
             vm,
         )?;
-        vm.call_method(&a, "insert", (index, x))
+        vm.call_method(a, "insert", (index, x))
     }
 }

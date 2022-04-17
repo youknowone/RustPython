@@ -832,7 +832,7 @@ mod array {
             let n = vm.check_repeat_or_overflow_error(itemsize, n)?;
             let nbytes = n * itemsize;
 
-            let b = vm.call_method(&f, "read", (nbytes,))?;
+            let b = vm.call_method(f, "read", (nbytes,))?;
             let b = b
                 .downcast::<PyBytes>()
                 .map_err(|_| vm.new_type_error("read() didn't return bytes".to_owned()))?;
@@ -898,7 +898,7 @@ mod array {
 
             for b in bytes.chunks(BLOCKSIZE) {
                 let b = PyBytes::from(b.to_vec()).into_ref(vm);
-                vm.call_method(&f, "write", (b,))?;
+                vm.call_method(f.clone(), "write", (b,))?;
             }
             Ok(())
         }

@@ -490,7 +490,7 @@ mod _sre {
                 } else {
                     vm.ctx.new_str(ascii!("")).into()
                 };
-                let ret = vm.call_method(&join_type, "join", (list,))?;
+                let ret = vm.call_method(join_type, "join", (list,))?;
 
                 Ok(if subn {
                     (ret, n).into_pyobject(vm)

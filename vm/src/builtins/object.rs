@@ -230,7 +230,7 @@ impl PyBaseObject {
 
         // Get instance attributes:
         if let Some(object_dict) = obj.dict() {
-            vm.call_method(dict.as_object(), "update", (object_dict,))?;
+            vm.call_method(dict.clone(), "update", (object_dict,))?;
         }
 
         let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();

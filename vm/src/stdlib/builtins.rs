@@ -306,7 +306,7 @@ mod builtins {
             .into_option()
             .unwrap_or_else(|| PyStr::from("").into_ref(vm));
 
-        vm.call_method(&value, "__format__", (format_spec,))?
+        vm.call_method(value, "__format__", (format_spec,))?
             .downcast()
             .map_err(|obj| {
                 vm.new_type_error(format!(
@@ -364,7 +364,7 @@ mod builtins {
         let stdout = sys::get_stdout(vm)?;
         let stderr = sys::get_stderr(vm)?;
 
-        let _ = vm.call_method(&stderr, "flush", ());
+        let _ = vm.call_method(stderr, "flush", ());
 
         let fd_matches = |obj, expected| {
             vm.call_method(obj, "fileno", ())
@@ -374,7 +374,10 @@ mod builtins {
         };
 
         // everything is normalish, we can just rely on rustyline to use stdin/stdout
-        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && atty::is(atty::Stream::Stdin) {
+        if fd_matches(stdin.clone(), 0)
+            && fd_matches(stdout.clone(), 1)
+            && atty::is(atty::Stream::Stdin)
+        {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
@@ -393,9 +396,9 @@ mod builtins {
             }
         } else {
             if let OptionalArg::Present(prompt) = prompt {
-                vm.call_method(&stdout, "write", (prompt,))?;
+                vm.call_method(stdout.clone(), "write", (prompt,))?;
             }
-            let _ = vm.call_method(&stdout, "flush", ());
+            let _ = vm.call_method(stdout, "flush", ());
             py_io::file_readline(&stdin, None, vm)
         }
     }
@@ -648,7 +651,7 @@ mod builtins {
             Some(f) => f,
             None => sys::get_stdout(vm)?,
         };
-        let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
+        let write = |obj: PyStrRef| vm.call_method(file.clone(), "write", (obj,));
 
         let sep = options.sep.unwrap_or_else(|| PyStr::from(" ").into_ref(vm));
 
@@ -669,7 +672,7 @@ mod builtins {
         write(end)?;
 
         if options.flush.to_bool() {
-            vm.call_method(&file, "flush", ())?;
+            vm.call_method(file, "flush", ())?;
         }
 
         Ok(())

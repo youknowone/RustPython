@@ -106,7 +106,7 @@ impl PyCodec {
             Some(e) => vec![e.into()],
             None => vec![],
         };
-        vm.call_method(self.0.as_object(), "incrementalencoder", args)
+        vm.call_method(self.0.clone(), "incrementalencoder", args)
     }
 
     pub fn get_incremental_decoder(
@@ -118,7 +118,7 @@ impl PyCodec {
             Some(e) => vec![e.into()],
             None => vec![],
         };
-        vm.call_method(self.0.as_object(), "incrementaldecoder", args)
+        vm.call_method(self.0.clone(), "incrementaldecoder", args)
     }
 }
 

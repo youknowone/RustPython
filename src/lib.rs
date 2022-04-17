@@ -152,10 +152,10 @@ where
 
 fn flush_std(vm: &VirtualMachine) {
     if let Ok(stdout) = sys::get_stdout(vm) {
-        let _ = vm.call_method(&stdout, "flush", ());
+        let _ = vm.call_method(stdout, "flush", ());
     }
     if let Ok(stderr) = sys::get_stderr(vm) {
-        let _ = vm.call_method(&stderr, "flush", ());
+        let _ = vm.call_method(stderr, "flush", ());
     }
 }
 
@@ -666,7 +666,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
 
 fn insert_sys_path(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
     let sys_path = vm.sys_module.clone().get_attr("path", vm).unwrap();
-    vm.call_method(&sys_path, "insert", (0, obj))?;
+    vm.call_method(sys_path, "insert", (0, obj))?;
     Ok(())
 }
 
