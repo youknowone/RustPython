@@ -288,10 +288,11 @@ mod _io {
         }
     }
 
-    fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)
+    fn file_closed(file: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        file.get_attr("closed", vm)?.try_to_bool(vm)
     }
-    fn check_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+
+    fn check_closed(file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
             Err(io_closed_error(vm))
         } else {
@@ -299,7 +300,7 @@ mod _io {
         }
     }
 
-    fn check_readable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_readable(file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if vm.call_method(file, "readable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
@@ -310,7 +311,7 @@ mod _io {
         }
     }
 
-    fn check_writable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_writable(file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if vm.call_method(file, "writable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
@@ -321,7 +322,7 @@ mod _io {
         }
     }
 
-    fn check_seekable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_seekable(file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if vm.call_method(file, "seekable", ())?.try_to_bool(vm)? {
             Ok(())
         } else {
@@ -359,7 +360,7 @@ mod _io {
         }
         #[pymethod]
         fn tell(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(&zelf, "seek", (0, 1))
+            vm.call_method(zelf, "seek", (0, 1))
         }
         #[pymethod]
         fn truncate(zelf: PyObjectRef, _pos: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -377,20 +378,20 @@ mod _io {
 
         #[pymethod(magic)]
         fn enter(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            check_closed(&instance, vm)?;
+            check_closed(instance.clone(), vm)?;
             Ok(instance)
         }
 
         #[pymethod(magic)]
         fn exit(instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            vm.call_method(&instance, "close", ())?;
+            vm.call_method(instance, "close", ())?;
             Ok(())
         }
 
         #[pymethod]
         fn flush(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // just check if this is closed; if it isn't, do nothing
-            check_closed(&instance, vm)
+            check_closed(instance, vm)
         }
 
         #[pymethod]
@@ -418,7 +419,7 @@ mod _io {
 
         #[pymethod]
         fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            iobase_close(&instance, vm)
+            iobase_close(instance, vm)
         }
 
         #[pymethod]
@@ -475,37 +476,37 @@ mod _io {
             lines: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            check_closed(&instance, vm)?;
+            check_closed(instance.clone(), vm)?;
             for line in lines.iter(vm)? {
-                vm.call_method(&instance, "write", (line?,))?;
+                vm.call_method(instance.clone(), "write", (line?,))?;
             }
             Ok(())
         }
 
         #[pymethod(name = "_checkClosed")]
         fn check_closed(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_closed(&instance, vm)
+            check_closed(instance, vm)
         }
 
         #[pymethod(name = "_checkReadable")]
         fn check_readable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_readable(&instance, vm)
+            check_readable(instance, vm)
         }
 
         #[pymethod(name = "_checkWritable")]
         fn check_writable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_writable(&instance, vm)
+            check_writable(instance, vm)
         }
 
         #[pymethod(name = "_checkSeekable")]
         fn check_seekable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_seekable(&instance, vm)
+            check_seekable(instance, vm)
         }
     }
 
     impl Destructor for _IOBase {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let _ = vm.call_method(zelf, "close", ());
+            let _ = vm.call_method(zelf.to_owned(), "close", ());
             Ok(())
         }
 
@@ -517,7 +518,7 @@ mod _io {
 
     impl Iterable for _IOBase {
         fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            check_closed(&zelf, vm)?;
+            check_closed(zelf.clone(), vm)?;
             Ok(zelf)
         }
 
@@ -528,7 +529,7 @@ mod _io {
 
     impl IterNext for _IOBase {
         fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let line = vm.call_method(zelf, "readline", ())?;
+            let line = vm.call_method(zelf.to_owned(), "readline", ())?;
             Ok(if !line.clone().try_to_bool(vm)? {
                 PyIterReturn::StopIteration(None)
             } else {
@@ -541,9 +542,9 @@ mod _io {
         }
     }
 
-    pub(super) fn iobase_close(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if !file_closed(file, vm)? {
-            let res = vm.call_method(file, "flush", ());
+    pub(super) fn iobase_close(file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !file_closed(file.clone(), vm)? {
+            let res = vm.call_method(file.clone(), "flush", ());
             file.set_attr("__closed", vm.new_pyobj(true), vm)?;
             res?;
         }
@@ -563,7 +564,7 @@ mod _io {
                 let b = PyByteArray::from(vec![0; size]).into_ref(vm);
                 let n = <Option<usize>>::try_from_object(
                     vm,
-                    vm.call_method(&instance, "readinto", (b.clone(),))?,
+                    vm.call_method(instance, "readinto", (b.clone(),))?,
                 )?;
                 Ok(n.map(|n| {
                     let mut bytes = b.borrow_buf_mut();
@@ -573,7 +574,7 @@ mod _io {
                 })
                 .into_pyobject(vm))
             } else {
-                vm.call_method(&instance, "readall", ())
+                vm.call_method(instance, "readall", ())
             }
         }
 
@@ -582,7 +583,7 @@ mod _io {
             let mut chunks = Vec::new();
             let mut total_len = 0;
             loop {
-                let data = vm.call_method(&instance, "read", (DEFAULT_BUFFER_SIZE,))?;
+                let data = vm.call_method(instance.clone(), "read", (DEFAULT_BUFFER_SIZE,))?;
                 let data = <Option<PyBytesRef>>::try_from_object(vm, data)?;
                 match data {
                     None => {
@@ -630,7 +631,7 @@ mod _io {
         ) -> PyResult<usize> {
             let b = ArgMemoryBuffer::try_from_borrowed_object(vm, &bufobj)?;
             let l = b.len();
-            let data = vm.call_method(&zelf, method, (l,))?;
+            let data = vm.call_method(zelf, method, (l,))?;
             if data.is(&bufobj) {
                 return Ok(l);
             }
@@ -800,7 +801,7 @@ mod _io {
         }
 
         fn raw_seek(&mut self, pos: Offset, whence: i32, vm: &VirtualMachine) -> PyResult<Offset> {
-            let ret = vm.call_method(self.check_init(vm)?, "seek", (pos, whence))?;
+            let ret = vm.call_method(self.check_init(vm)?.to_owned(), "seek", (pos, whence))?;
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
@@ -845,7 +846,7 @@ mod _io {
         }
 
         fn raw_tell(&mut self, vm: &VirtualMachine) -> PyResult<Offset> {
-            let ret = vm.call_method(self.check_init(vm)?, "tell", ())?;
+            let ret = vm.call_method(self.check_init(vm)?.to_owned(), "tell", ())?;
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
@@ -876,7 +877,7 @@ mod _io {
                 let memobj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?.into_pyobject(vm);
 
                 // TODO: loop if write() raises an interrupt
-                vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj,))?
+                vm.call_method(self.raw.clone().unwrap(), "write", (memobj,))?
             } else {
                 let v = std::mem::take(&mut self.buffer);
                 let writebuf = VecBuffer::from(v).into_ref(vm);
@@ -888,7 +889,7 @@ mod _io {
                 .into_ref(vm);
 
                 // TODO: loop if write() raises an interrupt
-                let res = vm.call_method(self.raw.as_ref().unwrap(), "write", (memobj.clone(),));
+                let res = vm.call_method(self.raw.clone().unwrap(), "write", (memobj.clone(),));
 
                 memobj.release();
                 self.buffer = writebuf.take();
@@ -1114,7 +1115,7 @@ mod _io {
 
                     // TODO: loop if readinto() raises an interrupt
                     let res =
-                        vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj.clone(),));
+                        vm.call_method(self.raw.clone().unwrap(), "readinto", (memobj.clone(),));
 
                     memobj.release();
                     std::mem::swap(v, &mut readbuf.take());
@@ -1124,7 +1125,7 @@ mod _io {
                 Either::B(buf) => {
                     let memobj = PyMemoryView::from_buffer_range(buf, buf_range, vm)?;
                     // TODO: loop if readinto() raises an interrupt
-                    vm.call_method(self.raw.as_ref().unwrap(), "readinto", (memobj,))?
+                    vm.call_method(self.raw.clone().unwrap(), "readinto", (memobj,))?
                 }
             };
 
@@ -1179,7 +1180,7 @@ mod _io {
 
             let mut read_size = 0;
             loop {
-                let read_data = vm.call_method(self.raw.as_ref().unwrap(), "read", ())?;
+                let read_data = vm.call_method(self.raw.clone().unwrap(), "read", ())?;
                 let read_data = <Option<PyBytesRef>>::try_from_object(vm, read_data)?;
 
                 match read_data {
@@ -1366,15 +1367,15 @@ mod _io {
             };
 
             if Self::SEEKABLE {
-                check_seekable(&raw, vm)?;
+                check_seekable(raw.clone(), vm)?;
             }
             if Self::READABLE {
                 data.flags.insert(BufferedFlags::READABLE);
-                check_readable(&raw, vm)?;
+                check_readable(raw.clone(), vm)?;
             }
             if Self::WRITABLE {
                 data.flags.insert(BufferedFlags::WRITABLE);
-                check_writable(&raw, vm)?;
+                check_writable(raw.clone(), vm)?;
             }
 
             data.buffer = vec![0; buffer_size];
@@ -1407,7 +1408,7 @@ mod _io {
             let mut data = self.lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "seek of closed file", vm)?;
-            check_seekable(raw, vm)?;
+            check_seekable(raw.to_owned(), vm)?;
             let target = get_offset(target, vm)?;
             data.seek(target, whence, vm)
         }
@@ -1428,13 +1429,13 @@ mod _io {
             if data.writable() {
                 data.flush_rewind(vm)?;
             }
-            let res = vm.call_method(data.raw.as_ref().unwrap(), "truncate", (pos,))?;
+            let res = vm.call_method(data.raw.clone().unwrap(), "truncate", (pos,))?;
             let _ = data.raw_tell(vm);
             Ok(res)
         }
         #[pymethod]
         fn detach(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(zelf.as_object(), "flush", ())?;
+            vm.call_method(zelf.clone(), "flush", ())?;
             let mut data = zelf.lock(vm)?;
             data.flags.insert(BufferedFlags::DETACHED);
             data.raw
@@ -1443,7 +1444,7 @@ mod _io {
         }
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(self.lock(vm)?.check_init(vm)?, "seekable", ())
+            vm.call_method(self.lock(vm)?.check_init(vm)?.to_owned(), "seekable", ())
         }
         #[pyproperty]
         fn raw(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
@@ -1472,11 +1473,11 @@ mod _io {
         }
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(self.lock(vm)?.check_init(vm)?, "fileno", ())
+            vm.call_method(self.lock(vm)?.check_init(vm)?.to_owned(), "fileno", ())
         }
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(self.lock(vm)?.check_init(vm)?, "isatty", ())
+            vm.call_method(self.lock(vm)?.check_init(vm)?.to_owned(), "isatty", ())
         }
 
         #[pymethod(magic)]
@@ -1495,11 +1496,11 @@ mod _io {
         fn close_strict(&self, vm: &VirtualMachine) -> PyResult {
             let mut data = self.lock(vm)?;
             let raw = data.check_init(vm)?;
-            if file_closed(raw, vm)? {
+            if file_closed(raw.to_owned(), vm)? {
                 return Ok(vm.ctx.none());
             }
             let flush_res = data.flush(vm);
-            let close_res = vm.call_method(data.raw.as_ref().unwrap(), "close", ());
+            let close_res = vm.call_method(data.raw.clone().unwrap(), "close", ());
             exeption_chain(flush_res, close_res)
         }
 
@@ -1508,13 +1509,13 @@ mod _io {
             {
                 let data = zelf.lock(vm)?;
                 let raw = data.check_init(vm)?;
-                if file_closed(raw, vm)? {
+                if file_closed(raw.to_owned(), vm)? {
                     return Ok(vm.ctx.none());
                 }
             }
-            let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
+            let flush_res = vm.call_method(zelf.clone(), "flush", ()).map(drop);
             let data = zelf.lock(vm)?;
-            let raw = data.raw.as_ref().unwrap();
+            let raw = data.raw.clone().unwrap();
             let close_res = vm.call_method(raw, "close", ());
             exeption_chain(flush_res, close_res)
         }
@@ -2114,7 +2115,7 @@ mod _io {
             set_field!(self.bytes_to_skip, BYTES_TO_SKIP_OFF);
             num_bigint::BigUint::from_bytes_le(&buf).into()
         }
-        fn set_decoder_state(&self, decoder: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_decoder_state(&self, decoder: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             if self.start_pos == 0 && self.dec_flags == 0 {
                 vm.call_method(decoder, "reset", ())?;
             } else {
@@ -2186,11 +2187,16 @@ mod _io {
             let buffer = args.buffer;
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
-            let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
+            let seekable = vm
+                .call_method(buffer.clone(), "seekable", ())?
+                .try_to_bool(vm)?;
 
             let codec = vm.state.codec_registry.lookup(encoding.as_str(), vm)?;
 
-            let encoder = if vm.call_method(&buffer, "writable", ())?.try_to_bool(vm)? {
+            let encoder = if vm
+                .call_method(buffer.clone(), "writable", ())?
+                .try_to_bool(vm)?
+            {
                 let incremental_encoder =
                     codec.get_incremental_encoder(Some(errors.clone()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
@@ -2206,7 +2212,10 @@ mod _io {
                 None
             };
 
-            let decoder = if vm.call_method(&buffer, "readable", ())?.try_to_bool(vm)? {
+            let decoder = if vm
+                .call_method(buffer.clone(), "readable", ())?
+                .try_to_bool(vm)?
+            {
                 let incremental_decoder =
                     codec.get_incremental_decoder(Some(errors.clone()), vm)?;
                 // TODO: wrap in IncrementalNewlineDecoder if newlines == Universal | Passthrough
@@ -2242,17 +2251,17 @@ mod _io {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
-            vm.call_method(&textio.buffer, "seekable", ())
+            vm.call_method(textio.buffer.clone(), "seekable", ())
         }
         #[pymethod]
         fn readable(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
-            vm.call_method(&textio.buffer, "readable", ())
+            vm.call_method(textio.buffer.clone(), "readable", ())
         }
         #[pymethod]
         fn writable(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
-            vm.call_method(&textio.buffer, "writable", ())
+            vm.call_method(textio.buffer.clone(), "writable", ())
         }
 
         #[pyproperty(name = "_CHUNK_SIZE")]
@@ -2276,7 +2285,7 @@ mod _io {
         ) -> PyResult {
             let how = how.unwrap_or(0);
 
-            let reset_encoder = |encoder, start_of_stream| {
+            let reset_encoder = |encoder: PyObjectRef, start_of_stream| {
                 if start_of_stream {
                     vm.call_method(encoder, "reset", ())
                 } else {
@@ -2299,7 +2308,7 @@ mod _io {
                 // SEEK_CUR
                 1 => {
                     if vm.bool_eq(&cookie, vm.ctx.new_int(0).as_ref())? {
-                        vm.call_method(&textio.buffer, "tell", ())?
+                        vm.call_method(textio.buffer.clone(), "tell", ())?
                     } else {
                         return Err(new_unsupported_operation(
                             vm,
@@ -2311,17 +2320,17 @@ mod _io {
                 2 => {
                     if vm.bool_eq(&cookie, vm.ctx.new_int(0).as_ref())? {
                         drop(textio);
-                        vm.call_method(zelf.as_object(), "flush", ())?;
+                        vm.call_method(zelf.clone(), "flush", ())?;
                         let mut textio = zelf.lock(vm)?;
                         textio.set_decoded_chars(None);
                         textio.snapshot = None;
                         if let Some(decoder) = &textio.decoder {
-                            vm.call_method(decoder, "reset", ())?;
+                            vm.call_method(decoder.clone(), "reset", ())?;
                         }
-                        let res = vm.call_method(&textio.buffer, "seek", (0, 2))?;
+                        let res = vm.call_method(textio.buffer.clone(), "seek", (0, 2))?;
                         if let Some((encoder, _)) = &textio.encoder {
                             let start_of_stream = vm.bool_eq(&res, vm.ctx.new_int(0).as_ref())?;
-                            reset_encoder(encoder, start_of_stream)?;
+                            reset_encoder(encoder.to_owned(), start_of_stream)?;
                         }
                         return Ok(res);
                     } else {
@@ -2343,16 +2352,16 @@ mod _io {
                 );
             }
             drop(textio);
-            vm.call_method(zelf.as_object(), "flush", ())?;
+            vm.call_method(zelf.clone(), "flush", ())?;
             let cookie_obj = crate::builtins::PyIntRef::try_from_object(vm, cookie)?;
             let cookie = TextIOCookie::parse(cookie_obj.as_bigint())
                 .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
             let mut textio = zelf.lock(vm)?;
-            vm.call_method(&textio.buffer, "seek", (cookie.start_pos,))?;
+            vm.call_method(textio.buffer.clone(), "seek", (cookie.start_pos,))?;
             textio.set_decoded_chars(None);
             textio.snapshot = None;
             if let Some(decoder) = &textio.decoder {
-                cookie.set_decoder_state(decoder, vm)?;
+                cookie.set_decoder_state(decoder.to_owned(), vm)?;
             }
             if cookie.chars_to_skip != 0 {
                 let TextIOData {
@@ -2364,7 +2373,8 @@ mod _io {
                 let decoder = decoder
                     .as_ref()
                     .ok_or_else(|| vm.new_value_error("invalid cookie".to_owned()))?;
-                let input_chunk = vm.call_method(buffer, "read", (cookie.bytes_to_feed,))?;
+                let input_chunk =
+                    vm.call_method(buffer.to_owned(), "read", (cookie.bytes_to_feed,))?;
                 let input_chunk: PyBytesRef = input_chunk.downcast().map_err(|obj| {
                     vm.new_type_error(format!(
                         "underlying read() should have returned a bytes object, not '{}'",
@@ -2372,7 +2382,8 @@ mod _io {
                     ))
                 })?;
                 *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
-                let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
+                let decoded =
+                    vm.call_method(decoder.to_owned(), "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
                 let pos_is_valid = decoded
                     .as_str()
@@ -2387,7 +2398,7 @@ mod _io {
             }
             if let Some((encoder, _)) = &textio.encoder {
                 let start_of_stream = cookie.start_pos == 0 && cookie.dec_flags == 0;
-                reset_encoder(encoder, start_of_stream)?;
+                reset_encoder(encoder.clone(), start_of_stream)?;
             }
             Ok(cookie_obj.into())
         }
@@ -2406,9 +2417,9 @@ mod _io {
             }
             textio.write_pending(vm)?;
             drop(textio);
-            vm.call_method(zelf.as_object(), "flush", ())?;
+            vm.call_method(zelf.clone(), "flush", ())?;
             let textio = zelf.lock(vm)?;
-            let pos = vm.call_method(&textio.buffer, "tell", ())?;
+            let pos = vm.call_method(textio.buffer.clone(), "tell", ())?;
             let (decoder, (dec_flags, next_input)) = match (&textio.decoder, &textio.snapshot) {
                 (Some(d), Some(s)) => (d, s),
                 _ => return Ok(pos),
@@ -2423,20 +2434,24 @@ mod _io {
                 return Ok(cookie.build().into_pyobject(vm));
             }
             let decoder_getstate = || {
-                let state = vm.call_method(decoder, "getstate", ())?;
+                let state = vm.call_method(decoder.to_owned(), "getstate", ())?;
                 parse_decoder_state(state, vm)
             };
             let decoder_decode = |b: &[u8]| {
-                let decoded = vm.call_method(decoder, "decode", (vm.ctx.new_bytes(b.to_vec()),))?;
+                let decoded = vm.call_method(
+                    decoder.to_owned(),
+                    "decode",
+                    (vm.ctx.new_bytes(b.to_vec()),),
+                )?;
                 let decoded = check_decoded(decoded, vm)?;
                 Ok(Utf8size::len_pystr(&decoded))
             };
-            let saved_state = vm.call_method(decoder, "getstate", ())?;
+            let saved_state = vm.call_method(decoder.to_owned(), "getstate", ())?;
             let mut num_to_skip = textio.decoded_chars_used;
             let mut skip_bytes = (textio.b2cratio * num_to_skip.chars as f64) as isize;
             let mut skip_back = 1;
             while skip_bytes > 0 {
-                cookie.set_decoder_state(decoder, vm)?;
+                cookie.set_decoder_state(decoder.to_owned(), vm)?;
                 let input = &next_input.as_bytes()[..skip_bytes as usize];
                 let ndecoded = decoder_decode(input)?;
                 if ndecoded.chars <= num_to_skip.chars {
@@ -2455,7 +2470,7 @@ mod _io {
             }
             if skip_bytes <= 0 {
                 skip_bytes = 0;
-                cookie.set_decoder_state(decoder, vm)?;
+                cookie.set_decoder_state(decoder.to_owned(), vm)?;
             }
             let skip_bytes = skip_bytes as usize;
 
@@ -2485,8 +2500,11 @@ mod _io {
                     input = rest;
                 }
                 if input.is_empty() {
-                    let decoded =
-                        vm.call_method(decoder, "decode", (vm.ctx.new_bytes(vec![]), true))?;
+                    let decoded = vm.call_method(
+                        decoder.to_owned(),
+                        "decode",
+                        (vm.ctx.new_bytes(vec![]), true),
+                    )?;
                     let decoded = check_decoded(decoded, vm)?;
                     let final_decoded_chars = ndecoded.chars + decoded.char_len();
                     cookie.need_eof = true;
@@ -2497,7 +2515,7 @@ mod _io {
                     }
                 }
             }
-            vm.call_method(decoder, "setstate", (saved_state,))?;
+            vm.call_method(decoder.to_owned(), "setstate", (saved_state,))?;
             cookie.set_num_to_skip(num_to_skip);
             Ok(cookie.build().into_pyobject(vm))
         }
@@ -2519,7 +2537,7 @@ mod _io {
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {
             let buffer = self.lock(vm)?.buffer.clone();
-            vm.call_method(&buffer, "fileno", ())
+            vm.call_method(buffer, "fileno", ())
         }
 
         #[pymethod]
@@ -2562,8 +2580,8 @@ mod _io {
                     PyStr::from(ret).into_ref(vm)
                 }
             } else {
-                let bytes = vm.call_method(&textio.buffer, "read", ())?;
-                let decoded = vm.call_method(&decoder, "decode", (bytes, true))?;
+                let bytes = vm.call_method(textio.buffer.clone(), "read", ())?;
+                let decoded = vm.call_method(decoder, "decode", (bytes, true))?;
                 let decoded = check_decoded(decoded, vm)?;
                 let ret = textio.take_decoded_chars(Some(decoded), vm);
                 textio.snapshot = None;
@@ -2609,7 +2627,7 @@ mod _io {
             let chunk = if let Some(encodefunc) = *encodefunc {
                 encodefunc(chunk)
             } else {
-                let b = vm.call_method(encoder, "encode", (chunk.clone(),))?;
+                let b = vm.call_method(encoder.to_owned(), "encode", (chunk.clone(),))?;
                 b.downcast::<PyBytes>()
                     .map(PendingWrite::Bytes)
                     .or_else(|obj| {
@@ -2633,7 +2651,7 @@ mod _io {
                 textio.write_pending(vm)?;
             }
             if flush {
-                let _ = vm.call_method(&textio.buffer, "flush", ());
+                let _ = vm.call_method(textio.buffer.clone(), "flush", ());
             }
 
             Ok(char_len)
@@ -2645,14 +2663,14 @@ mod _io {
             textio.check_closed(vm)?;
             textio.telling = textio.seekable;
             textio.write_pending(vm)?;
-            vm.call_method(&textio.buffer, "flush", ())
+            vm.call_method(textio.buffer.clone(), "flush", ())
         }
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
             textio.check_closed(vm)?;
-            vm.call_method(&textio.buffer, "isatty", ())
+            vm.call_method(textio.buffer.clone(), "isatty", ())
         }
 
         #[pymethod]
@@ -2660,7 +2678,7 @@ mod _io {
             let limit = size.to_usize();
 
             let mut textio = self.lock(vm)?;
-            check_closed(&textio.buffer, vm)?;
+            check_closed(textio.buffer.clone(), vm)?;
 
             textio.write_pending(vm)?;
 
@@ -2821,11 +2839,11 @@ mod _io {
         #[pymethod]
         fn close(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
             let buffer = zelf.lock(vm)?.buffer.clone();
-            if file_closed(&buffer, vm)? {
+            if file_closed(buffer.clone(), vm)? {
                 return Ok(());
             }
-            let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
-            let close_res = vm.call_method(&buffer, "close", ()).map(drop);
+            let flush_res = vm.call_method(zelf, "flush", ()).map(drop);
+            let close_res = vm.call_method(buffer, "close", ()).map(drop);
             exeption_chain(flush_res, close_res)
         }
         #[pyproperty]
@@ -2870,18 +2888,18 @@ mod _io {
                 return Ok(());
             }
             let data = self.pending.take(vm);
-            vm.call_method(&self.buffer, "write", (data,))?;
+            vm.call_method(self.buffer.clone(), "write", (data,))?;
             Ok(())
         }
         /// returns true on EOF
         fn read_chunk(&mut self, size_hint: usize, vm: &VirtualMachine) -> PyResult<bool> {
             let decoder = self
                 .decoder
-                .as_ref()
+                .clone()
                 .ok_or_else(|| new_unsupported_operation(vm, "not readable".to_owned()))?;
 
             let dec_state = if self.telling {
-                let state = vm.call_method(decoder, "getstate", ())?;
+                let state = vm.call_method(decoder.clone(), "getstate", ())?;
                 Some(parse_decoder_state(state, vm)?)
             } else {
                 None
@@ -2894,7 +2912,7 @@ mod _io {
                 size_hint
             };
             let chunk_size = std::cmp::max(self.chunk_size, size_hint);
-            let input_chunk = vm.call_method(&self.buffer, method, (chunk_size,))?;
+            let input_chunk = vm.call_method(self.buffer.clone(), method, (chunk_size,))?;
 
             let buf = ArgBytesLike::try_from_borrowed_object(vm, &input_chunk).map_err(|_| {
                 vm.new_type_error(format!(
@@ -2928,7 +2946,7 @@ mod _io {
         }
 
         fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
-            check_closed(&self.buffer, vm)
+            check_closed(self.buffer.clone(), vm)
         }
 
         /// returns str, str.char_len() (it might not be cached in the str yet but we calculate it
@@ -3529,7 +3547,7 @@ mod _io {
         )?;
 
         let isatty = opts.buffering < 0 && {
-            let atty = vm.call_method(&raw, "isatty", ())?;
+            let atty = vm.call_method(raw.clone(), "isatty", ())?;
             bool::try_from_object(vm, atty)?
         };
 
@@ -3986,7 +4004,7 @@ mod fileio {
 
         #[pymethod]
         fn close(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            let res = iobase_close(zelf.as_object(), vm);
+            let res = iobase_close(zelf.clone().into(), vm);
             if !zelf.closefd.load() {
                 zelf.fd.store(-1);
                 return res;

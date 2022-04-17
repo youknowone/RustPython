@@ -114,7 +114,7 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        vm.call_method(&obj, "items", ())
+        vm.call_method(obj, "items", ())
     }
     #[pymethod]
     pub fn keys(&self, vm: &VirtualMachine) -> PyResult {
@@ -124,7 +124,7 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        vm.call_method(&obj, "keys", ())
+        vm.call_method(obj, "keys", ())
     }
     #[pymethod]
     pub fn values(&self, vm: &VirtualMachine) -> PyResult {
@@ -134,12 +134,12 @@ impl PyMappingProxy {
                 PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm)
             }
         };
-        vm.call_method(&obj, "values", ())
+        vm.call_method(obj, "values", ())
     }
     #[pymethod]
     pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
         match &self.mapping {
-            MappingProxyInner::Dict(d) => vm.call_method(d, "copy", ()),
+            MappingProxyInner::Dict(d) => vm.call_method(d.to_owned(), "copy", ()),
             MappingProxyInner::Class(c) => {
                 Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.into_pyobject(vm))
             }

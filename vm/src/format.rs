@@ -891,7 +891,7 @@ fn call_object_format(
         Some(FormatPreconversor::Str) => argument.str(vm)?.into(),
         Some(FormatPreconversor::Repr) => argument.repr(vm)?.into(),
         Some(FormatPreconversor::Ascii) => vm.ctx.new_str(builtins::ascii(argument, vm)?).into(),
-        Some(FormatPreconversor::Bytes) => vm.call_method(&argument, "decode", ())?,
+        Some(FormatPreconversor::Bytes) => vm.call_method(argument, "decode", ())?,
         None => argument,
     };
     let result = vm.call_special_method(argument, "__format__", (format_spec,))?;

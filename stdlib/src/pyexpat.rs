@@ -162,7 +162,7 @@ mod _pyexpat {
         #[pymethod(name = "ParseFile")]
         fn parse_file(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // todo: read chunks at a time
-            let read_res = vm.call_method(&file, "read", ())?;
+            let read_res = vm.call_method(file, "read", ())?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             let reader = Cursor::new(buf);

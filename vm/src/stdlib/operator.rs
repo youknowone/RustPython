@@ -660,7 +660,7 @@ mod _operator {
 
         #[inline]
         fn call(zelf: &PyObjectView<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
-            vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
+            vm.call_method(obj, zelf.name.as_str(), zelf.args.clone())
         }
     }
 }

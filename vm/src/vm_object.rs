@@ -111,18 +111,18 @@ impl VirtualMachine {
     }
 
     #[inline]
-    pub fn call_method<T>(&self, obj: &PyObject, method_name: &str, args: T) -> PyResult
+    pub fn call_method<T>(
+        &self,
+        obj: impl Into<PyObjectRef>,
+        method_name: &str,
+        args: T,
+    ) -> PyResult
     where
         T: IntoFuncArgs,
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        PyMethod::get(
-            obj.to_owned(),
-            PyStr::from(method_name).into_ref(self),
-            self,
-        )?
-        .invoke(args, self)
+        PyMethod::get(obj.into(), PyStr::from(method_name).into_ref(self), self)?.invoke(args, self)
     }
 
     pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
@@ -131,7 +131,7 @@ impl VirtualMachine {
                 .get_special_method(obj, "__dir__")?
                 .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
                 .invoke((), self)?,
-            None => self.call_method(self.current_locals()?.as_object(), "keys", ())?,
+            None => self.call_method(self.current_locals()?, "keys", ())?,
         };
         let items: Vec<_> = seq.try_to_value(self)?;
         let lst = PyList::from(items);
