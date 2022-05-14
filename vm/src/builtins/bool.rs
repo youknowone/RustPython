@@ -116,6 +116,8 @@ impl PyBool {
         } else {
             vm.ctx.false_str.clone()
         }
+        .to_owned()
+        .into_pyref()
     }
 
     #[pymethod(magic)]

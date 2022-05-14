@@ -5,7 +5,7 @@ use crate::atomic::{Ordering::*, PyAtomic, Radium};
 ///
 /// Going above this limit will abort your program (although not
 /// necessarily) at _exactly_ `MAX_REFCOUNT + 1` references.
-const MAX_REFCOUNT: usize = (isize::MAX) as usize;
+const MAX_REFCOUNT: usize = std::usize::MAX - 0x1000;
 
 pub struct RefCount {
     strong: PyAtomic<usize>,
@@ -56,5 +56,21 @@ impl RefCount {
         PyAtomic::<usize>::fence(Acquire);
 
         true
+    }
+}
+
+impl RefCount {
+    // move these functions out and give separated type once type range is stabilized
+
+    pub fn leak(&self) {
+        debug_assert!(!self.is_leaked());
+        const BIT_MARKER: usize = (std::isize::MAX as usize) + 1;
+        debug_assert_eq!(BIT_MARKER.count_ones(), 1);
+        debug_assert_eq!(BIT_MARKER.leading_zeros(), 0);
+        self.strong.fetch_add(BIT_MARKER, Relaxed);
+    }
+
+    pub fn is_leaked(&self) -> bool {
+        (self.strong.load(Acquire) as isize) < 0
     }
 }

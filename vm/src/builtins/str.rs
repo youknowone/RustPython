@@ -16,7 +16,7 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
@@ -111,6 +111,12 @@ impl fmt::Debug for PyStr {
 }
 
 impl AsRef<str> for PyStr {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl AsRef<str> for Py<PyStr> {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
@@ -218,6 +224,13 @@ impl IntoPyStrRef for &str {
     #[inline]
     fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
         PyStr::from(self).into_ref(vm)
+    }
+}
+
+impl IntoPyStrRef for &'static crate::intern::PyStrInterned {
+    #[inline]
+    fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
+        self.to_str()
     }
 }
 
@@ -1502,6 +1515,12 @@ impl SliceableSequenceOp for PyStr {
 
     fn len(&self) -> usize {
         self.char_len()
+    }
+}
+
+impl AsRef<str> for PyRefExact<PyStr> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 
