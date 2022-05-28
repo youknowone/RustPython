@@ -140,7 +140,7 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> PyMappingMethods;
+pub(crate) type AsMappingFunc = fn(&PyObject, &VirtualMachine) -> &'static PyMappingMethods;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
@@ -192,7 +192,7 @@ fn length_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(len as usize)
 }
 
-const fn new_as_mapping_wrapper(
+const fn new_as_mapping_generic(
     has_length: bool,
     has_subscript: bool,
     has_ass_subscript: bool,
@@ -237,17 +237,11 @@ const fn new_as_mapping_wrapper(
     }
 }
 
-fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods {
-    static MAPPING_METHODS: &[PyMappingMethods] = &[
-        new_as_mapping_wrapper(false, false, false),
-        new_as_mapping_wrapper(true, false, false),
-        new_as_mapping_wrapper(false, true, false),
-        new_as_mapping_wrapper(true, true, false),
-        new_as_mapping_wrapper(false, false, true),
-        new_as_mapping_wrapper(true, false, true),
-        new_as_mapping_wrapper(false, true, true),
-        new_as_mapping_wrapper(true, true, true),
-    ];
+pub(crate) fn static_as_mapping_generic(
+    has_length: bool,
+    has_subscript: bool,
+    has_ass_subscript: bool,
+) -> &'static PyMappingMethods {
     const fn bool_int(v: bool) -> usize {
         if v {
             1
@@ -255,16 +249,33 @@ fn as_mapping_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyMappingMethods 
             0
         }
     }
+
+    static MAPPING_METHODS: &[PyMappingMethods] = &[
+        new_as_mapping_generic(false, false, false),
+        new_as_mapping_generic(true, false, false),
+        new_as_mapping_generic(false, true, false),
+        new_as_mapping_generic(true, true, false),
+        new_as_mapping_generic(false, false, true),
+        new_as_mapping_generic(true, false, true),
+        new_as_mapping_generic(false, true, true),
+        new_as_mapping_generic(true, true, true),
+    ];
+
+    let key = (bool_int(has_length) << 0)
+        | (bool_int(has_subscript) << 1)
+        | (bool_int(has_ass_subscript) << 2);
+
+    &MAPPING_METHODS[key]
+}
+
+pub fn as_mapping_generic(zelf: &PyObject, vm: &VirtualMachine) -> &'static PyMappingMethods {
     let (has_length, has_subscript, has_ass_subscript) = (
         zelf.class().has_attr(identifier!(vm, __len__)),
         zelf.class().has_attr(identifier!(vm, __getitem__)),
         zelf.class().has_attr(identifier!(vm, __setitem__))
             | zelf.class().has_attr(identifier!(vm, __delitem__)),
     );
-    let key = (bool_int(has_length) << 0)
-        | (bool_int(has_subscript) << 1)
-        | (bool_int(has_ass_subscript) << 2);
-    MAPPING_METHODS[key].clone()
+    static_as_mapping_generic(has_length, has_subscript, has_ass_subscript)
 }
 
 fn as_sequence_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> Cow<'static, PySequenceMethods> {
@@ -420,7 +431,7 @@ impl PyType {
         }
         match name.as_str() {
             "__len__" | "__getitem__" | "__setitem__" | "__delitem__" => {
-                update_slot!(as_mapping, as_mapping_wrapper);
+                update_slot!(as_mapping, as_mapping_generic);
                 update_slot!(as_sequence, as_sequence_wrapper);
             }
             "__hash__" => {
@@ -936,10 +947,11 @@ pub trait AsMapping: PyPayload {
 
     #[inline]
     #[pyslot]
-    fn as_mapping(_zelf: &PyObject, _vm: &VirtualMachine) -> PyMappingMethods {
-        Self::AS_MAPPING
+    fn as_mapping(_zelf: &PyObject, _vm: &VirtualMachine) -> &'static PyMappingMethods {
+        &Self::AS_MAPPING
     }
 
+    #[inline]
     fn mapping_downcast<'a>(mapping: &'a PyMapping) -> &'a Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
