@@ -234,8 +234,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
                  TESTMOD + pyc_ext: (NOW, badmagic_pyc)}
         self.doTest(".py", files, TESTMOD)
 
-    # TODO: RUSTPYTHON, zipimport.ZipImportError: can't find module 'ziptestmodule'
-    @unittest.expectedFailure
     def testBadMagic2(self):
         # make pyc magic word invalid, causing an ImportError
         badmagic_pyc = bytearray(test_pyc)
@@ -442,8 +440,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         mod = importlib.import_module('.'.join((subpkg, TESTMOD + '3')))
         self.assertEqual('path1.zip', mod.__file__.split(os.sep)[-4])
 
-    # TODO: RUSTPYTHON, AttributeError: 'zipimporter' object has no attribute 'find_spec'
-    @unittest.expectedFailure
     def testZipImporterMethods(self):
         packdir = TESTPACK + os.sep
         packdir2 = packdir + TESTPACK2 + os.sep
@@ -517,8 +513,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         self.assertEqual(zi2.archive, TEMP_ZIP)
         self.assertEqual(zi2.prefix, TESTPACK + os.sep)
 
-    # TODO: RUSTPYTHON, AttributeError: 'zipimporter' object has no attribute 'invalidate_caches'
-    @unittest.expectedFailure
     def testInvalidateCaches(self):
         packdir = TESTPACK + os.sep
         packdir2 = packdir + TESTPACK2 + os.sep
@@ -561,8 +555,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         self.assertIsNone(zipimport._zip_directory_cache.get(zi.archive))
         self.assertIsNone(zi.find_spec("name_does_not_matter"))
 
-    # TODO: RUSTPYTHON, AttributeError: 'zipimporter' object has no attribute 'find_spec'
-    @unittest.expectedFailure
     def testZipImporterMethodsInSubDirectory(self):
         packdir = TESTPACK + os.sep
         packdir2 = packdir + TESTPACK2 + os.sep
