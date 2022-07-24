@@ -467,15 +467,15 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         # PEP 302
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-        find_mod = zi.find_module('spam')
-        self.assertIsNotNone(find_mod)
-        self.assertIsInstance(find_mod, zipimport.zipimporter)
-        self.assertFalse(find_mod.is_package('spam'))
-        load_mod = find_mod.load_module('spam')
-        self.assertEqual(find_mod.get_filename('spam'), load_mod.__file__)
+            find_mod = zi.find_module('spam')
+            self.assertIsNotNone(find_mod)
+            self.assertIsInstance(find_mod, zipimport.zipimporter)
+            self.assertFalse(find_mod.is_package('spam'))
+            load_mod = find_mod.load_module('spam')
+            self.assertEqual(find_mod.get_filename('spam'), load_mod.__file__)
 
-        mod = zi.load_module(TESTPACK)
-        self.assertEqual(zi.get_filename(TESTPACK), mod.__file__)
+            mod = zi.load_module(TESTPACK)
+            self.assertEqual(zi.get_filename(TESTPACK), mod.__file__)
 
         # PEP 451
         spec = zi.find_spec('spam')
@@ -584,8 +584,8 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         # PEP 302
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-        mod = zi.load_module(TESTPACK2)
-        self.assertEqual(zi.get_filename(TESTPACK2), mod.__file__)
+            mod = zi.load_module(TESTPACK2)
+            self.assertEqual(zi.get_filename(TESTPACK2), mod.__file__)
         # PEP 451
         spec = zi.find_spec(TESTPACK2)
         mod = importlib.util.module_from_spec(spec)
@@ -600,13 +600,13 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         # PEP 302
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-        find_mod_dotted = zi2.find_module(TESTMOD)
-        self.assertIsNotNone(find_mod_dotted)
-        self.assertIsInstance(find_mod_dotted, zipimport.zipimporter)
-        self.assertFalse(zi2.is_package(TESTMOD))
-        load_mod = find_mod_dotted.load_module(TESTMOD)
-        self.assertEqual(
-            find_mod_dotted.get_filename(TESTMOD), load_mod.__file__)
+            find_mod_dotted = zi2.find_module(TESTMOD)
+            self.assertIsNotNone(find_mod_dotted)
+            self.assertIsInstance(find_mod_dotted, zipimport.zipimporter)
+            self.assertFalse(zi2.is_package(TESTMOD))
+            load_mod = find_mod_dotted.load_module(TESTMOD)
+            self.assertEqual(
+                find_mod_dotted.get_filename(TESTMOD), load_mod.__file__)
 
         # PEP 451
         spec = zi2.find_spec(TESTMOD)
@@ -844,7 +844,7 @@ class BadFileZipImportTestCase(unittest.TestCase):
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-            self.assertRaises(TypeError, z.load_module, None)
+                self.assertRaises(TypeError, z.load_module, None)
             self.assertRaises(TypeError, z.find_module, None)
             self.assertRaises(TypeError, z.find_spec, None)
             self.assertRaises(TypeError, z.exec_module, None)
@@ -859,7 +859,7 @@ class BadFileZipImportTestCase(unittest.TestCase):
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-            self.assertRaises(error, z.load_module, 'abc')
+                self.assertRaises(error, z.load_module, 'abc')
             self.assertRaises(error, z.get_code, 'abc')
             self.assertRaises(OSError, z.get_data, 'abc')
             self.assertRaises(error, z.get_source, 'abc')
@@ -869,7 +869,7 @@ class BadFileZipImportTestCase(unittest.TestCase):
 
 
 def tearDownModule():
-        os_helper.unlink(TESTMOD)
+    os_helper.unlink(TESTMOD)
 
 
 if __name__ == "__main__":
