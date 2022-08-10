@@ -246,12 +246,6 @@ pub enum Instruction {
     Duplicate,
     Duplicate2,
     GetIter,
-    Continue {
-        target: Label,
-    },
-    Break {
-        target: Label,
-    },
     Jump {
         target: Label,
     },
@@ -302,9 +296,6 @@ pub enum Instruction {
     YieldValue,
     YieldFrom,
     SetupAnnotation,
-    SetupLoop {
-        break_target: Label,
-    },
 
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
@@ -883,9 +874,7 @@ impl Instruction {
             | SetupFinally { handler: l }
             | SetupExcept { handler: l }
             | SetupWith { end: l }
-            | SetupAsyncWith { end: l }
-            | SetupLoop { break_target: l }
-            | Continue { target: l } => Some(l),
+            | SetupAsyncWith { end: l } => Some(l),
             _ => None,
         }
     }
@@ -903,9 +892,22 @@ impl Instruction {
             | SetupFinally { handler: l }
             | SetupExcept { handler: l }
             | SetupWith { end: l }
-            | SetupAsyncWith { end: l }
-            | SetupLoop { break_target: l }
-            | Continue { target: l } => Some(l),
+            | SetupAsyncWith { end: l } => Some(l),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn jump_target(&self) -> Option<&Label> {
+        match self {
+            Jump { target: l }
+            | JumpIfTrue { target: l }
+            | JumpIfFalse { target: l }
+            | ForIter { target: l }
+            | SetupFinally { handler: l }
+            | SetupExcept { handler: l }
+            | SetupWith { end: l }
+            | SetupAsyncWith { end: l } => Some(l),
             _ => None,
         }
     }
@@ -921,10 +923,7 @@ impl Instruction {
     /// assert!(jump_inst.unconditional_branch())
     /// ```
     pub fn unconditional_branch(&self) -> bool {
-        matches!(
-            self,
-            Jump { .. } | Continue { .. } | Break { .. } | ReturnValue | Raise { .. }
-        )
+        matches!(self, Jump { .. } | ReturnValue | Raise { .. })
     }
 
     /// What effect this instruction has on the stack
@@ -965,8 +964,6 @@ impl Instruction {
             Duplicate => 1,
             Duplicate2 => 2,
             GetIter => 0,
-            Continue { .. } => 0,
-            Break { .. } => 0,
             Jump { .. } => 0,
             JumpIfTrue { .. } | JumpIfFalse { .. } => -1,
             JumpIfTrueOrPop { .. } | JumpIfFalseOrPop { .. } => {
@@ -1000,11 +997,7 @@ impl Instruction {
             ReturnValue => -1,
             YieldValue => 0,
             YieldFrom => -1,
-            SetupAnnotation
-            | SetupLoop { .. }
-            | SetupFinally { .. }
-            | EnterFinally
-            | EndFinally => 0,
+            SetupAnnotation | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => {
                 if jump {
                     1
@@ -1152,8 +1145,6 @@ impl Instruction {
             Duplicate => w!(Duplicate),
             Duplicate2 => w!(Duplicate2),
             GetIter => w!(GetIter),
-            Continue { target } => w!(Continue, target),
-            Break { target } => w!(Break, target),
             Jump { target } => w!(Jump, target),
             JumpIfTrue { target } => w!(JumpIfTrue, target),
             JumpIfFalse { target } => w!(JumpIfFalse, target),
@@ -1172,7 +1163,6 @@ impl Instruction {
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop { break_target } => w!(SetupLoop, break_target),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),
