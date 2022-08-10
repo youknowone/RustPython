@@ -695,17 +695,30 @@ impl<C: Constant> CodeObject<C> {
         level: usize,
     ) -> fmt::Result {
         let label_targets = self.label_targets();
-
+        let line_digits = (3).max(self.locations.last().unwrap().row.to_string().len());
+        let offset_digits = (4).max(self.instructions.len().to_string().len());
+        let mut last_line = u32::MAX;
         for (offset, instruction) in self.instructions.iter().enumerate() {
+            let line = self.locations[offset].row;
+            if line != last_line {
+                last_line = line;
+                writeln!(f)?;
+                write!(f, "{line:line_digits$}")?;
+            } else {
+                for _ in 0..line_digits {
+                    write!(f, " ")?;
+                }
+            }
+            write!(f, " ")?;
+            for _ in 0..level {
+                write!(f, "    ")?;
+            }
             let arrow = if label_targets.contains(&Label(offset as u32)) {
                 ">>"
             } else {
                 "  "
             };
-            for _ in 0..level {
-                write!(f, "          ")?;
-            }
-            write!(f, "{} {:5} ", arrow, offset)?;
+            write!(f, "{arrow} {offset:offset_digits$} ")?;
             instruction.fmt_dis(
                 f,
                 &self.constants,
