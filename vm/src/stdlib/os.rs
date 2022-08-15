@@ -60,7 +60,7 @@ pub struct PyPathLike {
 }
 
 impl PyPathLike {
-    pub fn new_str(path: impl Into<PathBuf>) -> Self {
+    pub fn from_str(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
             mode: OutputMode::String,
@@ -585,7 +585,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn listdir(path: OptionalArg<PathOrFd>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let path = path.unwrap_or_else(|| PathOrFd::Path(PyPathLike::new_str(".")));
+        let path = path.unwrap_or_else(|| PathOrFd::Path(PyPathLike::from_str(".")));
         let list = match path {
             PathOrFd::Path(path) => {
                 let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
@@ -920,7 +920,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
-        let path = path.unwrap_or_else(|| PyPathLike::new_str("."));
+        let path = path.unwrap_or_else(|| PyPathLike::from_str("."));
         let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(entries),

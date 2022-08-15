@@ -293,6 +293,30 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    fn _path_splitroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+        let mut buf = path.path.into_os_string().encode_wide();
+        for i in 0..buf.len() {
+            if buf[i] == '/' {
+                buf[i] = '\\';
+            }
+        }
+
+        let mut end = MaybeUninit::new();
+        let ret = PathCchSkipRoot(buf.as_mut_ptr(), len.as_mut_ptr());
+        if ret != OK {
+
+        } else {
+            let end = end.assume_init();
+            let root_len = end - buf.as_ptr();
+            if root_len != 0 {
+
+            } else {
+                PathBuf::new()
+            }
+        }
+    }
+
+    #[pyfunction]
     fn _getdiskusage(path: PyPathLike, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
         use um::fileapi::GetDiskFreeSpaceExW;
         use winapi::shared::{ntdef::ULARGE_INTEGER, winerror};
