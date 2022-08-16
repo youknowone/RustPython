@@ -16,6 +16,11 @@ mod _winapi {
         fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase,
         winnt::HANDLE,
     };
+    use windows::{core::PCWSTR, Win32::Foundation::LPARAM};
+    type DWORD = u32;
+
+    #[pyattr]
+    use windows::Win32::Globalization::{LCMAP_LOWERCASE, LCMAP_UPPERCASE, LOCALE_NAME_INVARIANT};
 
     #[pyattr]
     use winapi::{
@@ -401,5 +406,62 @@ mod _winapi {
             processthreadsapi::TerminateProcess(h as _, exit_code)
         })
         .map(drop)
+    }
+
+    #[pyfunction]
+    fn LCMapStringEx(
+        locale: PyStrRef,
+        flags: DWORD,
+        src: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        use windows::Win32::Globalization::LCMapStringEx;
+
+        let locale: Vec<_> = locale
+            .as_str()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let src: Vec<_> = src.as_str().encode_utf16().collect();
+
+        let dest_size = unsafe {
+            LCMapStringEx(
+                PCWSTR::from_raw(locale.as_ptr()),
+                flags,
+                &src,
+                &mut [],
+                std::ptr::null(),
+                std::ptr::null(),
+                LPARAM(0),
+            )
+        };
+        if dest_size == 0 {
+            // TODO: return Err(PyErr_SetFromWindowsErr(0));
+            return Err(errno_err(vm));
+        }
+
+        let mut dest = Vec::with_capacity(dest_size.try_into().expect("always non-negative"));
+        unsafe {
+            let nmapped = LCMapStringEx(
+                PCWSTR::from_raw(locale.as_ptr()),
+                flags,
+                &src,
+                &mut dest,
+                std::ptr::null(),
+                std::ptr::null(),
+                LPARAM(0),
+            );
+            if nmapped == 0 {
+                // TODO: use error
+                let _error = GetLastError();
+                return Err(errno_err(vm));
+            }
+            dest.set_len(nmapped.try_into().expect("always non-negative"));
+        };
+
+        // TODO: StrKind::u32
+        let s =
+            String::from_utf16(&dest).map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+        Ok(vm.ctx.new_str(s))
     }
 }
