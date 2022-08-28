@@ -517,8 +517,8 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
+    fn rmod(&self, _values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.not_implemented())
     }
 
     /// Return a string decoded from the given bytes.
@@ -604,10 +604,11 @@ impl AsSequence for PyBytes {
                     .map(|x| vm.ctx.new_bytes(x).into())
             }),
             repeat: atomic_func!(|seq, n, vm| {
-                Ok(vm
-                    .ctx
-                    .new_bytes(PyBytes::sequence_downcast(seq).repeat(n))
-                    .into())
+                if let Ok(zelf) = seq.obj.to_owned().downcast::<PyBytes>() {
+                    PyBytes::mul(zelf, n, vm).to_pyresult(vm)
+                } else {
+                    Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
+                }
             }),
             item: atomic_func!(|seq, i, vm| {
                 PyBytes::sequence_downcast(seq)
