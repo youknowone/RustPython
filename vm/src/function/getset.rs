@@ -1,6 +1,8 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
 */
+use std::marker::PhantomData;
+
 use crate::{
     convert::ToPyResult,
     function::{BorrowedParam, OwnedParam, RefParam},
