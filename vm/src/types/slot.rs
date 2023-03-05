@@ -217,6 +217,20 @@ fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>>
 macro_rules! number_binary_op_wrapper {
     ($name:ident) => {
         |num, other, vm| {
+            eprintln!("op wrapper called");
+            vm.call_special_method(
+                num.obj.to_owned(),
+                identifier!(vm, $name),
+                (other.to_owned(),),
+            )
+        }
+    };
+}
+
+macro_rules! number_binary_rop_wrapper {
+    ($name:ident) => {
+        |num, other, vm| {
+            eprintln!("rop wrapper called");
             vm.call_special_method(
                 num.obj.to_owned(),
                 identifier!(vm, $name),
@@ -483,6 +497,10 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __add__) => {
                 toggle_ext_func!(number_methods, add, number_binary_op_wrapper!(__add__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __radd__) => {
+                toggle_ext_func!(number_methods, add, number_binary_rop_wrapper!(__radd__));
                 update_pointer_slot!(as_number, number_methods);
             }
             _ if name == identifier!(ctx, __iadd__) => {

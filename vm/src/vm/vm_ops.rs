@@ -134,44 +134,61 @@ impl VirtualMachine {
     fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: &PyNumberBinaryOpSlot) -> PyResult {
         let num_a = a.to_number();
         let num_b = b.to_number();
+        eprintln!(
+            "{}{} {:?} {}{}",
+            a.class().name(),
+            a.repr(self)?.as_str(),
+            op_slot,
+            b.class().name(),
+            b.repr(self)?.as_str()
+        );
 
         let slot_a = num_a.get_binary_op(op_slot)?.load();
+        eprintln!("slot a: {}", slot_a.map_or(0, |s| s as usize));
         let mut slot_b = if b.class().is(a.class()) {
+            eprintln!("type(a) == type(b)");
             None
         } else {
             match num_b.get_binary_op(op_slot)?.load() {
                 Some(slot_b)
                     if slot_b as usize == slot_a.map(|s| s as usize).unwrap_or_default() =>
                 {
+                    eprintln!("slot_a == slot_b");
                     None
                 }
                 slot_b => slot_b,
             }
         };
+        eprintln!("slot b: {}", slot_b.map_or(0, |s| s as usize));
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b {
                 if b.fast_isinstance(a.class()) {
-                    let x = slot_bb(num_a, b, self)?;
+                    eprintln!("b is subclass of a");
+                    let x = slot_bb(num_a, b, self).expect("slot_bb error");
                     if !x.is(&self.ctx.not_implemented) {
+                        eprintln!("and slot_b call is implemented");
                         return Ok(x);
                     }
                     slot_b = None;
                 }
             }
-            let x = slot_a(num_a, b, self)?;
+            let x = slot_a(num_a, b, self).expect("slot_a error");
             if !x.is(&self.ctx.not_implemented) {
+                eprintln!("slot_a call is implemented");
                 return Ok(x);
             }
         }
 
         if let Some(slot_b) = slot_b {
-            let x = slot_b(num_a, b, self)?;
+            let x = slot_b(num_a, b, self).expect("slot_b error");
             if !x.is(&self.ctx.not_implemented) {
+                eprintln!("slot_b call is implemented");
                 return Ok(x);
             }
         }
 
+        eprintln!("both slot returned NotImplemented!");
         Ok(self.ctx.not_implemented())
     }
 
@@ -182,10 +199,13 @@ impl VirtualMachine {
         op_slot: &PyNumberBinaryOpSlot,
         op: &str,
     ) -> PyResult {
-        let result = self.binary_op1(a, b, op_slot)?;
+        let result = self.binary_op1(a, b, op_slot).expect("binaryop1 failed");
+        eprintln!("result of binary_op1: {}", result.repr(self)?.as_str());
         if !result.is(&self.ctx.not_implemented) {
+            eprintln!("we found result!");
             return Ok(result);
         }
+        eprintln!("going to make error");
         Err(self.new_unsupported_binop_error(a, b, op))
     }
 
@@ -261,6 +281,7 @@ impl VirtualMachine {
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
         let result = self.binary_op1(a, b, &PyNumberBinaryOpSlot::Add)?;
+        eprintln!("result of binary_op1: {}", result.repr(self)?.as_str());
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }

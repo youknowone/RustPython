@@ -231,6 +231,7 @@ impl PyNumberMethods {
     }
 }
 
+#[derive(Debug)]
 pub enum PyNumberBinaryOpSlot {
     Add,
     Subtract,
