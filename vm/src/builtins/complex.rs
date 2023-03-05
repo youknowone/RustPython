@@ -458,14 +458,29 @@ impl AsNumber for PyComplex {
             add: atomic_func!(|number, other, vm| {
                 PyComplex::number_op(number, other, |a, b, _vm| a + b, vm)
             }),
+            right_add: atomic_func!(|number, other, vm| {
+                PyComplex::number_op(number, other, |b, a, _vm| a + b, vm)
+            }),
             subtract: atomic_func!(|number, other, vm| {
                 PyComplex::number_op(number, other, |a, b, _vm| a - b, vm)
+            }),
+            right_subtract: atomic_func!(|number, other, vm| {
+                PyComplex::number_op(number, other, |b, a, _vm| a - b, vm)
             }),
             multiply: atomic_func!(|number, other, vm| {
                 PyComplex::number_op(number, other, |a, b, _vm| a * b, vm)
             }),
+            right_multiply: atomic_func!(|number, other, vm| {
+                PyComplex::number_op(number, other, |b, a, _vm| a * b, vm)
+            }),
             power: atomic_func!(|number, other, vm| PyComplex::number_op(
                 number, other, inner_pow, vm
+            )),
+            right_power: atomic_func!(|number, other, vm| PyComplex::number_op(
+                number,
+                other,
+                |b, a, vm| inner_pow(a, b, vm),
+                vm
             )),
             negative: atomic_func!(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
@@ -483,6 +498,9 @@ impl AsNumber for PyComplex {
                 .is_zero())),
             true_divide: atomic_func!(|number, other, vm| {
                 PyComplex::number_op(number, other, inner_div, vm)
+            }),
+            right_true_divide: atomic_func!(|number, other, vm| {
+                PyComplex::number_op(number, other, |b, a, vm| inner_div(a, b, vm), vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
