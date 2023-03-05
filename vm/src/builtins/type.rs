@@ -1067,6 +1067,9 @@ impl AsNumber for PyType {
             or: atomic_func!(|num, other, vm| {
                 or_(num.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
             }),
+            right_or: atomic_func!(|num, other, vm| {
+                or_(other.to_owned(), num.obj.to_owned(), vm).to_pyresult(vm)
+            }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
         &AS_NUMBER
