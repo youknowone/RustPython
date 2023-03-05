@@ -8,21 +8,28 @@ use crate::{
 use num_traits::ToPrimitive;
 
 macro_rules! binary_func {
-    ($fn:ident, $op_slot:ident, $op:expr) => {
+    ($fn:ident, $op_slot:ident, $rop_slot:ident, $op:expr) => {
         pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {
-            self.binary_op(a, b, &PyNumberBinaryOpSlot::$op_slot, $op)
+            self.binary_op(
+                a,
+                b,
+                &PyNumberBinaryOpSlot::$op_slot,
+                &PyNumberBinaryOpSlot::$rop_slot,
+                $op,
+            )
         }
     };
 }
 
 macro_rules! inplace_binary_func {
-    ($fn:ident, $iop_slot:ident, $op_slot:ident, $op:expr) => {
+    ($fn:ident, $iop_slot:ident, $op_slot:ident, $rop_slot:ident, $op:expr) => {
         pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {
             self.binary_iop(
                 a,
                 b,
                 &PyNumberBinaryOpSlot::$iop_slot,
                 &PyNumberBinaryOpSlot::$op_slot,
+                &PyNumberBinaryOpSlot::$rop_slot,
                 $op,
             )
         }
@@ -128,10 +135,16 @@ impl VirtualMachine {
     /// Calling scheme used for binary operations:
     ///
     /// Order operations are tried until either a valid result or error:
-    ///   b.op(a,b)[*], a.op(a,b), b.op(a,b)
+    ///   b.rop(b,a)[*], a.op(a,b), b.rop(b,a)
     ///
     /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
-    fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: &PyNumberBinaryOpSlot) -> PyResult {
+    fn binary_op1(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        op_slot: &PyNumberBinaryOpSlot,
+        rop_slot: &PyNumberBinaryOpSlot,
+    ) -> PyResult {
         let num_a = a.to_number();
         let num_b = b.to_number();
 
@@ -139,7 +152,7 @@ impl VirtualMachine {
         let mut slot_b = if b.class().is(a.class()) {
             None
         } else {
-            match num_b.get_binary_op(op_slot)?.load() {
+            match num_b.get_binary_op(rop_slot)?.load() {
                 Some(slot_b)
                     if slot_b as usize == slot_a.map(|s| s as usize).unwrap_or_default() =>
                 {
@@ -152,7 +165,7 @@ impl VirtualMachine {
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b {
                 if b.fast_isinstance(a.class()) {
-                    let x = slot_bb(num_a, b, self)?;
+                    let x = slot_bb(num_b, a, self)?;
                     if !x.is(&self.ctx.not_implemented) {
                         return Ok(x);
                     }
@@ -166,7 +179,7 @@ impl VirtualMachine {
         }
 
         if let Some(slot_b) = slot_b {
-            let x = slot_b(num_a, b, self)?;
+            let x = slot_b(num_b, a, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
@@ -180,9 +193,10 @@ impl VirtualMachine {
         a: &PyObject,
         b: &PyObject,
         op_slot: &PyNumberBinaryOpSlot,
+        rop_slot: &PyNumberBinaryOpSlot,
         op: &str,
     ) -> PyResult {
-        let result = self.binary_op1(a, b, op_slot)?;
+        let result = self.binary_op1(a, b, op_slot, rop_slot)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
@@ -208,6 +222,7 @@ impl VirtualMachine {
         b: &PyObject,
         iop_slot: &PyNumberBinaryOpSlot,
         op_slot: &PyNumberBinaryOpSlot,
+        rop_slot: &PyNumberBinaryOpSlot,
     ) -> PyResult {
         let num_a = a.to_number();
         if let Some(slot) = num_a.get_binary_op(iop_slot)?.load() {
@@ -216,7 +231,7 @@ impl VirtualMachine {
                 return Ok(x);
             }
         }
-        self.binary_op1(a, b, op_slot)
+        self.binary_op1(a, b, op_slot, rop_slot)
     }
 
     fn binary_iop(
@@ -225,42 +240,66 @@ impl VirtualMachine {
         b: &PyObject,
         iop_slot: &PyNumberBinaryOpSlot,
         op_slot: &PyNumberBinaryOpSlot,
+        rop_slot: &PyNumberBinaryOpSlot,
         op: &str,
     ) -> PyResult {
-        let result = self.binary_iop1(a, b, iop_slot, op_slot)?;
+        let result = self.binary_iop1(a, b, iop_slot, op_slot, rop_slot)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
         Err(self.new_unsupported_binop_error(a, b, op))
     }
 
-    binary_func!(_sub, Subtract, "-");
-    binary_func!(_mod, Remainder, "%");
-    binary_func!(_divmod, Divmod, "divmod");
-    binary_func!(_pow, Power, "**");
-    binary_func!(_lshift, Lshift, "<<");
-    binary_func!(_rshift, Rshift, ">>");
-    binary_func!(_and, And, "&");
-    binary_func!(_xor, Xor, "^");
-    binary_func!(_or, Or, "|");
-    binary_func!(_floordiv, FloorDivide, "//");
-    binary_func!(_truediv, TrueDivide, "/");
-    binary_func!(_matmul, MatrixMultiply, "@");
+    binary_func!(_sub, Subtract, RightSubtract, "-");
+    binary_func!(_mod, Remainder, RightRemainder, "%");
+    binary_func!(_divmod, Divmod, RightDivmod, "divmod");
+    binary_func!(_pow, Power, RightPower, "**");
+    binary_func!(_lshift, Lshift, RightLshift, "<<");
+    binary_func!(_rshift, Rshift, RightRshift, ">>");
+    binary_func!(_and, And, RightAnd, "&");
+    binary_func!(_xor, Xor, RightXor, "^");
+    binary_func!(_or, Or, RightOr, "|");
+    binary_func!(_floordiv, FloorDivide, RightFloorDivide, "//");
+    binary_func!(_truediv, TrueDivide, RightTrueDivide, "/");
+    binary_func!(_matmul, MatrixMultiply, RightMatrixMultiply, "@");
 
-    inplace_binary_func!(_isub, InplaceSubtract, Subtract, "-=");
-    inplace_binary_func!(_imod, InplaceRemainder, Remainder, "%=");
-    inplace_binary_func!(_ipow, InplacePower, Power, "**=");
-    inplace_binary_func!(_ilshift, InplaceLshift, Lshift, "<<=");
-    inplace_binary_func!(_irshift, InplaceRshift, Rshift, ">>=");
-    inplace_binary_func!(_iand, InplaceAnd, And, "&=");
-    inplace_binary_func!(_ixor, InplaceXor, Xor, "^=");
-    inplace_binary_func!(_ior, InplaceOr, Or, "|=");
-    inplace_binary_func!(_ifloordiv, InplaceFloorDivide, FloorDivide, "//=");
-    inplace_binary_func!(_itruediv, InplaceTrueDivide, TrueDivide, "/=");
-    inplace_binary_func!(_imatmul, InplaceMatrixMultiply, MatrixMultiply, "@=");
+    inplace_binary_func!(_isub, InplaceSubtract, Subtract, RightSubtract, "-=");
+    inplace_binary_func!(_imod, InplaceRemainder, Remainder, RightRemainder, "%=");
+    inplace_binary_func!(_ipow, InplacePower, Power, RightPower, "**=");
+    inplace_binary_func!(_ilshift, InplaceLshift, Lshift, RightLshift, "<<=");
+    inplace_binary_func!(_irshift, InplaceRshift, Rshift, RightRshift, ">>=");
+    inplace_binary_func!(_iand, InplaceAnd, And, RightAnd, "&=");
+    inplace_binary_func!(_ixor, InplaceXor, Xor, RightXor, "^=");
+    inplace_binary_func!(_ior, InplaceOr, Or, RightOr, "|=");
+    inplace_binary_func!(
+        _ifloordiv,
+        InplaceFloorDivide,
+        FloorDivide,
+        RightFloorDivide,
+        "//="
+    );
+    inplace_binary_func!(
+        _itruediv,
+        InplaceTrueDivide,
+        TrueDivide,
+        RightTrueDivide,
+        "/="
+    );
+    inplace_binary_func!(
+        _imatmul,
+        InplaceMatrixMultiply,
+        MatrixMultiply,
+        RightMatrixMultiply,
+        "@="
+    );
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        let result = self.binary_op1(a, b, &PyNumberBinaryOpSlot::Add)?;
+        let result = self.binary_op1(
+            a,
+            b,
+            &PyNumberBinaryOpSlot::Add,
+            &PyNumberBinaryOpSlot::RightAdd,
+        )?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
@@ -279,6 +318,7 @@ impl VirtualMachine {
             b,
             &PyNumberBinaryOpSlot::InplaceAdd,
             &PyNumberBinaryOpSlot::Add,
+            &PyNumberBinaryOpSlot::RightAdd,
         )?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
@@ -293,7 +333,12 @@ impl VirtualMachine {
     }
 
     pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        let result = self.binary_op1(a, b, &PyNumberBinaryOpSlot::Multiply)?;
+        let result = self.binary_op1(
+            a,
+            b,
+            &PyNumberBinaryOpSlot::Multiply,
+            &PyNumberBinaryOpSlot::RightMultiply,
+        )?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
@@ -319,6 +364,7 @@ impl VirtualMachine {
             b,
             &PyNumberBinaryOpSlot::InplaceMultiply,
             &PyNumberBinaryOpSlot::Multiply,
+            &PyNumberBinaryOpSlot::RightMultiply,
         )?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);

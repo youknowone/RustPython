@@ -605,7 +605,13 @@ mod builtins {
             modulus,
         } = args;
         match modulus {
-            None => vm.binary_op(&x, &y, &PyNumberBinaryOpSlot::Power, "pow"),
+            None => vm.binary_op(
+                &x,
+                &y,
+                &PyNumberBinaryOpSlot::Power,
+                &PyNumberBinaryOpSlot::RightPower,
+                "pow",
+            ),
             Some(z) => {
                 let try_pow_value = |obj: &PyObject,
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|

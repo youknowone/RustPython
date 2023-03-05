@@ -485,6 +485,14 @@ impl PyType {
                 toggle_ext_func!(number_methods, add, number_binary_op_wrapper!(__add__));
                 update_pointer_slot!(as_number, number_methods);
             }
+            _ if name == identifier!(ctx, __radd__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_add,
+                    number_binary_op_wrapper!(__radd__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
             _ if name == identifier!(ctx, __iadd__) => {
                 toggle_ext_func!(
                     number_methods,
@@ -497,6 +505,14 @@ impl PyType {
                 toggle_ext_func!(number_methods, subtract, number_binary_op_wrapper!(__sub__));
                 update_pointer_slot!(as_number, number_methods);
             }
+            _ if name == identifier!(ctx, __rsub__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_subtract,
+                    number_binary_op_wrapper!(__rsub__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
             _ if name == identifier!(ctx, __isub__) => {
                 toggle_ext_func!(
                     number_methods,
@@ -507,6 +523,14 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __mul__) => {
                 toggle_ext_func!(number_methods, multiply, number_binary_op_wrapper!(__mul__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rmul__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_multiply,
+                    number_binary_op_wrapper!(__rmul__)
+                );
                 update_pointer_slot!(as_number, number_methods);
             }
             _ if name == identifier!(ctx, __imul__) => {
@@ -522,6 +546,14 @@ impl PyType {
                     number_methods,
                     remainder,
                     number_binary_op_wrapper!(__mod__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rmod__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_remainder,
+                    number_binary_op_wrapper!(__rmod__)
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
@@ -541,8 +573,24 @@ impl PyType {
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
+            _ if name == identifier!(ctx, __rdivmod__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_divmod,
+                    number_binary_op_wrapper!(__rdivmod__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
             _ if name == identifier!(ctx, __pow__) => {
                 toggle_ext_func!(number_methods, power, number_binary_op_wrapper!(__pow__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rpow__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_power,
+                    number_binary_op_wrapper!(__rpow__)
+                );
                 update_pointer_slot!(as_number, number_methods);
             }
             _ if name == identifier!(ctx, __ipow__) => {
@@ -558,6 +606,14 @@ impl PyType {
                     number_methods,
                     lshift,
                     number_binary_op_wrapper!(__lshift__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rlshift__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_lshift,
+                    number_binary_op_wrapper!(__rlshift__)
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
@@ -585,8 +641,24 @@ impl PyType {
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
+            _ if name == identifier!(ctx, __rrshift__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_rshift,
+                    number_binary_op_wrapper!(__rrshift__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
             _ if name == identifier!(ctx, __and__) => {
                 toggle_ext_func!(number_methods, and, number_binary_op_wrapper!(__and__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rand__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_and,
+                    number_binary_op_wrapper!(__rand__)
+                );
                 update_pointer_slot!(as_number, number_methods);
             }
             _ if name == identifier!(ctx, __iand__) => {
@@ -601,6 +673,14 @@ impl PyType {
                 toggle_ext_func!(number_methods, xor, number_binary_op_wrapper!(__xor__));
                 update_pointer_slot!(as_number, number_methods);
             }
+            _ if name == identifier!(ctx, __rxor__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_xor,
+                    number_binary_op_wrapper!(__rxor__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
             _ if name == identifier!(ctx, __ixor__) => {
                 toggle_ext_func!(
                     number_methods,
@@ -611,6 +691,10 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __or__) => {
                 toggle_ext_func!(number_methods, or, number_binary_op_wrapper!(__or__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __ror__) => {
+                toggle_ext_func!(number_methods, right_or, number_binary_op_wrapper!(__ror__));
                 update_pointer_slot!(as_number, number_methods);
             }
             _ if name == identifier!(ctx, __ior__) => {
@@ -626,6 +710,14 @@ impl PyType {
                     number_methods,
                     floor_divide,
                     number_binary_op_wrapper!(__floordiv__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rfloordiv__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_floor_divide,
+                    number_binary_op_wrapper!(__rfloordiv__)
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
@@ -645,6 +737,14 @@ impl PyType {
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
+            _ if name == identifier!(ctx, __rtruediv__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_true_divide,
+                    number_binary_op_wrapper!(__rtruediv__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
             _ if name == identifier!(ctx, __itruediv__) => {
                 toggle_ext_func!(
                     number_methods,
@@ -658,6 +758,14 @@ impl PyType {
                     number_methods,
                     matrix_multiply,
                     number_binary_op_wrapper!(__matmul__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rmatmul__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    right_matrix_multiply,
+                    number_binary_op_wrapper!(__rmatmul__)
                 );
                 update_pointer_slot!(as_number, number_methods);
             }
