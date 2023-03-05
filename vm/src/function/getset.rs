@@ -55,6 +55,21 @@ pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> P
 pub type PySetterFunc =
     Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>)>;
 
+
+trait IntoArg: Sized {
+    type Arg;
+    fn into_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self::Arg>;
+}
+
+impl<T, U> IntoArg for (T, PhantomData<U>) where T: TryFromObject {
+    type Arg = T;
+    #[inline]
+    fn into_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self::Arg> {
+        obj.try_into_value(vm)
+    }
+}
+
+
 pub trait IntoPyGetterFunc<T>: PyThreadingConstraint + Sized + 'static {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult;
     fn into_getter(self) -> PyGetterFunc {
