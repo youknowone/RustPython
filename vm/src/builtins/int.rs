@@ -731,10 +731,22 @@ impl AsNumber for PyInt {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             add: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a + b, vm)),
+            right_add: atomic_func!(|num, other, vm| PyInt::number_int_op(
+                num,
+                other,
+                |b, a| a + b,
+                vm
+            )),
             subtract: atomic_func!(|num, other, vm| PyInt::number_int_op(
                 num,
                 other,
                 |a, b| a - b,
+                vm
+            )),
+            right_subtract: atomic_func!(|num, other, vm| PyInt::number_int_op(
+                num,
+                other,
+                |b, a| a - b,
                 vm
             )),
             multiply: atomic_func!(|num, other, vm| PyInt::number_int_op(
@@ -743,8 +755,20 @@ impl AsNumber for PyInt {
                 |a, b| a * b,
                 vm
             )),
+            right_multiply: atomic_func!(|num, other, vm| PyInt::number_int_op(
+                num,
+                other,
+                |b, a| a * b,
+                vm
+            )),
             remainder: atomic_func!(|num, other, vm| PyInt::number_general_op(
                 num, other, inner_mod, vm
+            )),
+            right_remainder: atomic_func!(|num, other, vm| PyInt::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_mod(a, b, vm),
+                vm
             )),
             divmod: atomic_func!(|num, other, vm| PyInt::number_general_op(
                 num,
@@ -752,8 +776,20 @@ impl AsNumber for PyInt {
                 inner_divmod,
                 vm
             )),
+            right_divmod: atomic_func!(|num, other, vm| PyInt::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_divmod(a, b, vm),
+                vm
+            )),
             power: atomic_func!(|num, other, vm| PyInt::number_general_op(
                 num, other, inner_pow, vm
+            )),
+            right_power: atomic_func!(|num, other, vm| PyInt::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_pow(a, b, vm),
+                vm
             )),
             negative: atomic_func!(|num, vm| (&PyInt::number_downcast(num).value)
                 .neg()
@@ -773,16 +809,46 @@ impl AsNumber for PyInt {
                 inner_lshift,
                 vm
             )),
+            right_lshift: atomic_func!(|num, other, vm| PyInt::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_lshift(a, b, vm),
+                vm
+            )),
             rshift: atomic_func!(|num, other, vm| PyInt::number_general_op(
                 num,
                 other,
                 inner_rshift,
                 vm
             )),
+            right_rshift: atomic_func!(|num, other, vm| PyInt::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_rshift(a, b, vm),
+                vm
+            )),
             and: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a & b, vm)),
+            right_and: atomic_func!(|num, other, vm| PyInt::number_int_op(
+                num,
+                other,
+                |b, a| a & b,
+                vm
+            )),
             xor: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a ^ b, vm)),
+            right_xor: atomic_func!(|num, other, vm| PyInt::number_int_op(
+                num,
+                other,
+                |b, a| a ^ b,
+                vm
+            )),
             or: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a | b, vm)),
-            int: atomic_func!(|num, other| Ok(PyInt::number_int(num, other))),
+            right_or: atomic_func!(|num, other, vm| PyInt::number_int_op(
+                num,
+                other,
+                |b, a| a | b,
+                vm
+            )),
+            int: atomic_func!(|num, vm| Ok(PyInt::number_int(num, vm))),
             float: atomic_func!(|num, vm| {
                 let zelf = PyInt::number_downcast(num);
                 try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
@@ -790,8 +856,14 @@ impl AsNumber for PyInt {
             floor_divide: atomic_func!(|num, other, vm| {
                 PyInt::number_general_op(num, other, inner_floordiv, vm)
             }),
+            right_floor_divide: atomic_func!(|num, other, vm| {
+                PyInt::number_general_op(num, other, |b, a, vm| inner_floordiv(a, b, vm), vm)
+            }),
             true_divide: atomic_func!(|num, other, vm| {
                 PyInt::number_general_op(num, other, inner_truediv, vm)
+            }),
+            right_true_divide: atomic_func!(|num, other, vm| {
+                PyInt::number_general_op(num, other, |b, a, vm| inner_truediv(a, b, vm), vm)
             }),
             index: atomic_func!(|num, vm| Ok(PyInt::number_int(num, vm))),
             ..PyNumberMethods::NOT_IMPLEMENTED
