@@ -552,10 +552,22 @@ impl AsNumber for PyFloat {
                 |a, b| a + b,
                 vm
             )),
+            right_add: atomic_func!(|num, other, vm| PyFloat::number_float_op(
+                num,
+                other,
+                |b, a| a + b,
+                vm
+            )),
             subtract: atomic_func!(|num, other, vm| PyFloat::number_float_op(
                 num,
                 other,
                 |a, b| a - b,
+                vm
+            )),
+            right_subtract: atomic_func!(|num, other, vm| PyFloat::number_float_op(
+                num,
+                other,
+                |b, a| a - b,
                 vm
             )),
             multiply: atomic_func!(|num, other, vm| PyFloat::number_float_op(
@@ -564,8 +576,20 @@ impl AsNumber for PyFloat {
                 |a, b| a * b,
                 vm
             )),
+            right_multiply: atomic_func!(|num, other, vm| PyFloat::number_float_op(
+                num,
+                other,
+                |b, a| a * b,
+                vm
+            )),
             remainder: atomic_func!(|num, other, vm| PyFloat::number_general_op(
                 num, other, inner_mod, vm
+            )),
+            right_remainder: atomic_func!(|num, other, vm| PyFloat::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_mod(a, b, vm),
+                vm
             )),
             divmod: atomic_func!(|num, other, vm| PyFloat::number_general_op(
                 num,
@@ -573,8 +597,20 @@ impl AsNumber for PyFloat {
                 inner_divmod,
                 vm
             )),
+            right_divmod: atomic_func!(|num, other, vm| PyFloat::number_general_op(
+                num,
+                other,
+                |b, a, vm| inner_divmod(a, b, vm),
+                vm
+            )),
             power: atomic_func!(|num, other, vm| PyFloat::number_general_op(
                 num, other, float_pow, vm
+            )),
+            right_power: atomic_func!(|num, other, vm| PyFloat::number_general_op(
+                num,
+                other,
+                |b, a, vm| float_pow(a, b, vm),
+                vm
             )),
             negative: atomic_func!(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
@@ -594,8 +630,14 @@ impl AsNumber for PyFloat {
             floor_divide: atomic_func!(|num, other, vm| {
                 PyFloat::number_general_op(num, other, inner_floordiv, vm)
             }),
+            right_floor_divide: atomic_func!(|num, other, vm| {
+                PyFloat::number_general_op(num, other, |b, a, vm| inner_floordiv(a, b, vm), vm)
+            }),
             true_divide: atomic_func!(|num, other, vm| {
                 PyFloat::number_general_op(num, other, inner_div, vm)
+            }),
+            right_true_divide: atomic_func!(|num, other, vm| {
+                PyFloat::number_general_op(num, other, |b, a, vm| inner_div(a, b, vm), vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
