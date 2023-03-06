@@ -319,7 +319,7 @@ fn binary_op_wrapper_right(
     )
 }
 
-pub fn binary_op_number_left(
+fn binary_op_number_left(
     num: PyNumber,
     other: &PyObject,
     op: PyNumberBinaryInfixOp,
@@ -1405,6 +1405,14 @@ pub trait AsNumber: PyPayload {
     #[inline]
     fn number_downcast(num: PyNumber) -> &Py<Self> {
         unsafe { num.obj.downcast_unchecked_ref() }
+    }
+
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        let methods = Self::as_number();
+        if methods.add.load().is_some() {
+            slots.number.add.store(Some(binary_op_number_left));
+            slots.number.radd.store(Some(binary_op_number_right));
+        }
     }
 }
 

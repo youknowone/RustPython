@@ -140,7 +140,6 @@ pub trait PyClassImpl: PyClassDef {
             doc: Self::DOC,
             ..Default::default()
         };
-        // TODO: fill slots by types' PyNumberMethods table
         Self::extend_slots(&mut slots);
         slots
     }
