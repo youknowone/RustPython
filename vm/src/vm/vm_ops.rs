@@ -3,7 +3,7 @@ use crate::{
     builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     protocol::{PyIterReturn, PyNumberBinaryOpSlot, PySequence},
-    types::PyComparisonOp,
+    types::{PyComparisonOp, PyNumberBinaryInfixOp},
 };
 use num_traits::ToPrimitive;
 
@@ -130,6 +130,50 @@ impl VirtualMachine {
                 Ok(n)
             }
         }
+    }
+
+    fn binary_op1_slot(&self, a: &PyObject, b: &PyObject, op: PyNumberBinaryInfixOp) -> PyResult {
+        let num_a = a.to_number();
+        let num_b = b.to_number();
+
+        let slot_a = num_a.obj.class().slots.number.add.load();
+        let mut slot_b = if b.class().is(a.class()) {
+            None
+        } else {
+            match num_b.obj.class().slots.number.add.load() {
+                Some(slot_b)
+                    if slot_b as usize == slot_a.map(|s| s as usize).unwrap_or_default() =>
+                {
+                    None
+                }
+                slot_b => slot_b,
+            }
+        };
+
+        if let Some(slot_a) = slot_a {
+            if let Some(slot_bb) = slot_b {
+                if b.fast_isinstance(a.class()) {
+                    let x = slot_bb(num_b, a, op, self)?;
+                    if !x.is(&self.ctx.not_implemented) {
+                        return Ok(x);
+                    }
+                    slot_b = None;
+                }
+            }
+            let x = slot_a(num_a, b, op, self)?;
+            if !x.is(&self.ctx.not_implemented) {
+                return Ok(x);
+            }
+        }
+
+        if let Some(slot_b) = slot_b {
+            let x = slot_b(num_b, a, op, self)?;
+            if !x.is(&self.ctx.not_implemented) {
+                return Ok(x);
+            }
+        }
+
+        Ok(self.ctx.not_implemented())
     }
 
     /// Calling scheme used for binary operations:
@@ -294,12 +338,7 @@ impl VirtualMachine {
     );
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        let result = self.binary_op1(
-            a,
-            b,
-            &PyNumberBinaryOpSlot::Add,
-            &PyNumberBinaryOpSlot::RightAdd,
-        )?;
+        let result = self.binary_op1_slot(a, b, PyNumberBinaryInfixOp::Add)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }

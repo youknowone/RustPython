@@ -85,6 +85,7 @@ pub struct PyTypeSlots {
 
     // The count of tp_members.
     pub member_count: usize,
+    pub number: PyNumberSlots,
 }
 
 impl PyTypeSlots {
@@ -94,6 +95,15 @@ impl PyTypeSlots {
             ..Default::default()
         }
     }
+}
+
+pub(crate) type BinaryOpFunc =
+    fn(PyNumber, &PyObject, PyNumberBinaryInfixOp, &VirtualMachine) -> PyResult;
+
+#[derive(Default)]
+pub struct PyNumberSlots {
+    pub add: AtomicCell<Option<BinaryOpFunc>>,
+    pub radd: AtomicCell<Option<BinaryOpFunc>>,
 }
 
 impl std::fmt::Debug for PyTypeSlots {
@@ -212,6 +222,121 @@ fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>>
             obj.class()
         ))
     })
+}
+
+#[derive(Copy, Clone)]
+pub enum PyNumberBinaryInfixOp {
+    Add,
+    Subtract,
+    Multiply,
+    Remainder,
+    Divmod,
+    Power,
+    Lshift,
+    Rshift,
+    And,
+    Xor,
+    Or,
+}
+
+use crate::protocol::PyNumberBinaryOpSlot;
+
+impl PyNumberBinaryInfixOp {
+    pub fn left_identifier(&self, ctx: &Context) -> &'static PyStrInterned {
+        use PyNumberBinaryInfixOp::*;
+        match self {
+            Add => identifier!(ctx, __add__),
+            Subtract => identifier!(ctx, __sub__),
+            Multiply => identifier!(ctx, __mul__),
+            Remainder => identifier!(ctx, __mod__),
+            Divmod => identifier!(ctx, __divmod__),
+            Power => identifier!(ctx, __pow__),
+            Lshift => identifier!(ctx, __lshift__),
+            Rshift => identifier!(ctx, __rshift__),
+            And => identifier!(ctx, __and__),
+            Xor => identifier!(ctx, __xor__),
+            Or => identifier!(ctx, __or__),
+        }
+    }
+    pub fn right_identifier(&self, ctx: &Context) -> &'static PyStrInterned {
+        use PyNumberBinaryInfixOp::*;
+        match self {
+            Add => identifier!(ctx, __radd__),
+            Subtract => identifier!(ctx, __rsub__),
+            Multiply => identifier!(ctx, __rmul__),
+            Remainder => identifier!(ctx, __rmod__),
+            Divmod => identifier!(ctx, __rdivmod__),
+            Power => identifier!(ctx, __rpow__),
+            Lshift => identifier!(ctx, __rlshift__),
+            Rshift => identifier!(ctx, __rrshift__),
+            And => identifier!(ctx, __rand__),
+            Xor => identifier!(ctx, __rxor__),
+            Or => identifier!(ctx, __ror__),
+        }
+    }
+
+    pub fn to_op(&self) -> PyNumberBinaryOpSlot {
+        use PyNumberBinaryInfixOp::*;
+        match self {
+            Add => PyNumberBinaryOpSlot::Add,
+            Subtract => PyNumberBinaryOpSlot::Subtract,
+            Multiply => PyNumberBinaryOpSlot::Multiply,
+            Remainder => PyNumberBinaryOpSlot::Remainder,
+            Divmod => PyNumberBinaryOpSlot::Divmod,
+            Power => PyNumberBinaryOpSlot::Power,
+            Lshift => PyNumberBinaryOpSlot::Lshift,
+            Rshift => PyNumberBinaryOpSlot::Rshift,
+            And => PyNumberBinaryOpSlot::And,
+            Xor => PyNumberBinaryOpSlot::Xor,
+            Or => PyNumberBinaryOpSlot::Or,
+        }
+    }
+}
+
+fn binary_op_wrapper_left(
+    num: PyNumber,
+    other: &PyObject,
+    op: PyNumberBinaryInfixOp,
+    vm: &VirtualMachine,
+) -> PyResult {
+    vm.call_special_method(
+        num.obj.to_owned(),
+        op.left_identifier(&vm.ctx),
+        (other.to_owned(),),
+    )
+}
+
+fn binary_op_wrapper_right(
+    num: PyNumber,
+    other: &PyObject,
+    op: PyNumberBinaryInfixOp,
+    vm: &VirtualMachine,
+) -> PyResult {
+    vm.call_special_method(
+        num.obj.to_owned(),
+        op.right_identifier(&vm.ctx),
+        (other.to_owned(),),
+    )
+}
+
+pub fn binary_op_number_left(
+    num: PyNumber,
+    other: &PyObject,
+    op: PyNumberBinaryInfixOp,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let method = num.methods().get_binary_op(&op.to_op())?.load().unwrap();
+    return method(num, other, vm);
+}
+
+pub fn binary_op_number_right(
+    num: PyNumber,
+    other: &PyObject,
+    op: PyNumberBinaryInfixOp,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let method = num.methods().get_binary_op(&op.to_op())?.load().unwrap();
+    return method(other.to_number(), &num.obj, vm);
 }
 
 macro_rules! number_binary_op_wrapper {
@@ -367,6 +492,14 @@ impl PyType {
                 self.slots.$name.store(if ADD { Some($func) } else { None });
             }};
         }
+        macro_rules! toggle_subslot {
+            ($group:ident, $name:ident, $func:expr) => {{
+                self.slots
+                    .$group
+                    .$name
+                    .store(if ADD { Some($func) } else { None });
+            }};
+        }
 
         macro_rules! update_slot {
             ($name:ident, $func:expr) => {{
@@ -482,16 +615,10 @@ impl PyType {
                 update_pointer_slot!(as_number, number_methods);
             }
             _ if name == identifier!(ctx, __add__) => {
-                toggle_ext_func!(number_methods, add, number_binary_op_wrapper!(__add__));
-                update_pointer_slot!(as_number, number_methods);
+                toggle_subslot!(number, add, binary_op_wrapper_left);
             }
             _ if name == identifier!(ctx, __radd__) => {
-                toggle_ext_func!(
-                    number_methods,
-                    right_add,
-                    number_binary_op_wrapper!(__radd__)
-                );
-                update_pointer_slot!(as_number, number_methods);
+                toggle_subslot!(number, radd, binary_op_wrapper_right);
             }
             _ if name == identifier!(ctx, __iadd__) => {
                 toggle_ext_func!(
