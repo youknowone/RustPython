@@ -6,8 +6,8 @@ use crate::{
     function::{Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     identifier,
     protocol::{
-        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberBinaryOpSlot,
-        PyNumberMethods, PySequence, PySequenceMethods,
+        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberBinaryFunc,
+        PyNumberBinaryOpSlot, PyNumberMethods, PyNumberUnaryFunc, PySequence, PySequenceMethods,
     },
     vm::Context,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -102,72 +102,69 @@ impl std::fmt::Debug for PyTypeSlots {
     }
 }
 
-pub(crate) type NumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
-pub(crate) type NumberBinaryFunc = fn(PyNumber, &PyObject, &VirtualMachine) -> PyResult;
-
 #[derive(Default)]
 pub struct PyNumberSlots {
-    pub add: AtomicCell<Option<NumberBinaryFunc>>,
-    pub subtract: AtomicCell<Option<NumberBinaryFunc>>,
-    pub multiply: AtomicCell<Option<NumberBinaryFunc>>,
-    pub remainder: AtomicCell<Option<NumberBinaryFunc>>,
-    pub divmod: AtomicCell<Option<NumberBinaryFunc>>,
-    pub power: AtomicCell<Option<NumberBinaryFunc>>,
-    pub negative: AtomicCell<Option<NumberUnaryFunc>>,
-    pub positive: AtomicCell<Option<NumberUnaryFunc>>,
-    pub absolute: AtomicCell<Option<NumberUnaryFunc>>,
-    pub boolean: AtomicCell<Option<NumberUnaryFunc<bool>>>,
-    pub invert: AtomicCell<Option<NumberUnaryFunc>>,
-    pub lshift: AtomicCell<Option<NumberBinaryFunc>>,
-    pub rshift: AtomicCell<Option<NumberBinaryFunc>>,
-    pub and: AtomicCell<Option<NumberBinaryFunc>>,
-    pub xor: AtomicCell<Option<NumberBinaryFunc>>,
-    pub or: AtomicCell<Option<NumberBinaryFunc>>,
-    pub int: AtomicCell<Option<NumberUnaryFunc<PyRef<PyInt>>>>,
-    pub float: AtomicCell<Option<NumberUnaryFunc<PyRef<PyFloat>>>>,
+    pub add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub divmod: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub negative: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub positive: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub absolute: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub boolean: AtomicCell<Option<PyNumberUnaryFunc<bool>>>,
+    pub invert: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub or: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub int: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyInt>>>>,
+    pub float: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyFloat>>>>,
 
-    pub right_add: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_subtract: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_multiply: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_remainder: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_divmod: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_power: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_lshift: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_rshift: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_and: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_xor: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_or: AtomicCell<Option<NumberBinaryFunc>>,
+    pub right_add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_divmod: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_or: AtomicCell<Option<PyNumberBinaryFunc>>,
 
-    pub inplace_add: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_subtract: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_multiply: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_remainder: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_power: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_lshift: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_rshift: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_and: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_xor: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_or: AtomicCell<Option<NumberBinaryFunc>>,
+    pub inplace_add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_or: AtomicCell<Option<PyNumberBinaryFunc>>,
 
-    pub floor_divide: AtomicCell<Option<NumberBinaryFunc>>,
-    pub true_divide: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_floor_divide: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_true_divide: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_floor_divide: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_true_divide: AtomicCell<Option<NumberBinaryFunc>>,
+    pub floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
 
-    pub index: AtomicCell<Option<NumberUnaryFunc<PyRef<PyInt>>>>,
+    pub index: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyInt>>>>,
 
-    pub matrix_multiply: AtomicCell<Option<NumberBinaryFunc>>,
-    pub right_matrix_multiply: AtomicCell<Option<NumberBinaryFunc>>,
-    pub inplace_matrix_multiply: AtomicCell<Option<NumberBinaryFunc>>,
+    pub matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
 }
 
 impl PyNumberSlots {
     pub fn get_left_binary_op(
         &self,
         op_slot: &PyNumberBinaryOpSlot,
-    ) -> PyResult<Option<NumberBinaryFunc>> {
+    ) -> PyResult<Option<PyNumberBinaryFunc>> {
         use PyNumberBinaryOpSlot::*;
         let binary_op = match op_slot {
             Add => self.add.load(),
@@ -204,7 +201,7 @@ impl PyNumberSlots {
     pub fn get_right_binary_op(
         &self,
         op_slot: &PyNumberBinaryOpSlot,
-    ) -> PyResult<Option<NumberBinaryFunc>> {
+    ) -> PyResult<Option<PyNumberBinaryFunc>> {
         use PyNumberBinaryOpSlot::*;
         let binary_op = match op_slot {
             Add => self.right_add.load(),
@@ -619,16 +616,13 @@ impl PyType {
                 toggle_slot!(del, del_wrapper);
             }
             _ if name == identifier!(ctx, __int__) => {
-                toggle_ext_func!(number_methods, int, int_wrapper);
-                update_pointer_slot!(as_number, number_methods);
+                toggle_subslot!(number, int, int_wrapper);
             }
             _ if name == identifier!(ctx, __index__) => {
-                toggle_ext_func!(number_methods, index, index_wrapper);
-                update_pointer_slot!(as_number, number_methods);
+                toggle_subslot!(number, index, index_wrapper);
             }
             _ if name == identifier!(ctx, __float__) => {
-                toggle_ext_func!(number_methods, float, float_wrapper);
-                update_pointer_slot!(as_number, number_methods);
+                toggle_subslot!(number, float, float_wrapper);
             }
             _ if name == identifier!(ctx, __add__) => {
                 toggle_subslot!(number, add, number_binary_op_wrapper!(__add__));
@@ -1284,18 +1278,20 @@ pub trait AsSequence: PyPayload {
 
 macro_rules! extend_number_slot {
     ($slots:ident, $methods:ident, $method:ident, $right_method:ident, $op_slot:ident) => {
-        if $methods.$method.load().is_some() {
-            $slots.number.$method.store($methods.$method.load());
+        if $methods.$method.is_some() {
+            $slots.number.$method.store($methods.$method);
             $slots.number.$right_method.store(Some(|num, other, vm| {
-                num.get_binary_op(&PyNumberBinaryOpSlot::$op_slot)?
-                    .load()
-                    .unwrap()(other.to_number(), num.obj, vm)
+                num.get_binary_op(&PyNumberBinaryOpSlot::$op_slot)?.unwrap()(
+                    other.to_number(),
+                    num.obj,
+                    vm,
+                )
             }));
         }
     };
     ($slots:ident, $methods:ident, $method:ident) => {
-        if $methods.$method.load().is_some() {
-            $slots.number.$method.store($methods.$method.load());
+        if $methods.$method.is_some() {
+            $slots.number.$method.store($methods.$method);
         }
     };
 }

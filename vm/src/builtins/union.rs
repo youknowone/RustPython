@@ -1,5 +1,3 @@
-use once_cell::sync::Lazy;
-
 use super::{genericalias, type_};
 use crate::{
     atomic_func,
@@ -13,6 +11,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
+use once_cell::sync::Lazy;
 use std::fmt;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
@@ -258,7 +257,7 @@ impl AsMapping for PyUnion {
 impl AsNumber for PyUnion {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            or: atomic_func!(|num, other, vm| {
+            or: Some(|num, other, vm| {
                 PyUnion::or(num.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED

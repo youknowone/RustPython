@@ -1302,7 +1302,7 @@ impl AsMapping for PyStr {
 impl AsNumber for PyStr {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            remainder: atomic_func!(|number, other, vm| {
+            remainder: Some(|number, other, vm| {
                 PyStr::number_downcast(number)
                     .modulo(other.to_owned(), vm)
                     .to_pyresult(vm)

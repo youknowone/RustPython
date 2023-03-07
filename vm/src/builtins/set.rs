@@ -806,27 +806,27 @@ impl Iterable for PySet {
 impl AsNumber for PySet {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            subtract: atomic_func!(|number, other, vm| {
+            subtract: Some(|number, other, vm| {
                 PySet::number_downcast(number)
                     .sub(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            and: atomic_func!(|number, other, vm| {
+            and: Some(|number, other, vm| {
                 PySet::number_downcast(number)
                     .and(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            xor: atomic_func!(|number, other, vm| {
+            xor: Some(|number, other, vm| {
                 PySet::number_downcast(number)
                     .xor(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            or: atomic_func!(|number, other, vm| {
+            or: Some(|number, other, vm| {
                 PySet::number_downcast(number)
                     .or(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            inplace_subtract: atomic_func!(|number, other, vm| {
+            inplace_subtract: Some(|number, other, vm| {
                 PySet::isub(
                     PySet::number_downcast(number).to_owned(),
                     AnySet::try_from_object(vm, other.to_owned())?,
@@ -834,7 +834,7 @@ impl AsNumber for PySet {
                 )
                 .to_pyresult(vm)
             }),
-            inplace_and: atomic_func!(|number, other, vm| {
+            inplace_and: Some(|number, other, vm| {
                 PySet::iand(
                     PySet::number_downcast(number).to_owned(),
                     AnySet::try_from_object(vm, other.to_owned())?,
@@ -842,7 +842,7 @@ impl AsNumber for PySet {
                 )
                 .to_pyresult(vm)
             }),
-            inplace_xor: atomic_func!(|number, other, vm| {
+            inplace_xor: Some(|number, other, vm| {
                 PySet::ixor(
                     PySet::number_downcast(number).to_owned(),
                     AnySet::try_from_object(vm, other.to_owned())?,
@@ -850,7 +850,7 @@ impl AsNumber for PySet {
                 )
                 .to_pyresult(vm)
             }),
-            inplace_or: atomic_func!(|number, other, vm| {
+            inplace_or: Some(|number, other, vm| {
                 PySet::ior(
                     PySet::number_downcast(number).to_owned(),
                     AnySet::try_from_object(vm, other.to_owned())?,
@@ -1106,22 +1106,22 @@ impl Iterable for PyFrozenSet {
 impl AsNumber for PyFrozenSet {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            subtract: atomic_func!(|number, other, vm| {
+            subtract: Some(|number, other, vm| {
                 PyFrozenSet::number_downcast(number)
                     .sub(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            and: atomic_func!(|number, other, vm| {
+            and: Some(|number, other, vm| {
                 PyFrozenSet::number_downcast(number)
                     .and(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            xor: atomic_func!(|number, other, vm| {
+            xor: Some(|number, other, vm| {
                 PyFrozenSet::number_downcast(number)
                     .xor(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
-            or: atomic_func!(|number, other, vm| {
+            or: Some(|number, other, vm| {
                 PyFrozenSet::number_downcast(number)
                     .or(other.to_owned(), vm)
                     .to_pyresult(vm)

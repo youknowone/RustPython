@@ -860,7 +860,7 @@ impl AsSequence for PyByteArray {
 impl AsNumber for PyByteArray {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            remainder: atomic_func!(|number, other, vm| {
+            remainder: Some(|number, other, vm| {
                 PyByteArray::number_downcast(number)
                     .mod_(other.to_owned(), vm)
                     .to_pyresult(vm)

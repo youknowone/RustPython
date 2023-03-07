@@ -480,10 +480,8 @@ impl AsSequence for PyDict {
 impl AsNumber for PyDict {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            or: atomic_func!(|num, args, vm| {
-                PyDict::number_downcast(num).or(args.to_pyobject(vm), vm)
-            }),
-            inplace_or: atomic_func!(|num, args, vm| {
+            or: Some(|num, args, vm| PyDict::number_downcast(num).or(args.to_pyobject(vm), vm)),
+            inplace_or: Some(|num, args, vm| {
                 PyDict::ior(
                     PyDict::number_downcast(num).to_owned(),
                     args.to_pyobject(vm),

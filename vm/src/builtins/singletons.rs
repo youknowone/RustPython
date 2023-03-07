@@ -1,14 +1,12 @@
-use once_cell::sync::Lazy;
-
 use super::{PyType, PyTypeRef};
 use crate::{
-    atomic_func,
     class::PyClassImpl,
     convert::ToPyObject,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
+use once_cell::sync::Lazy;
 
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
@@ -61,7 +59,7 @@ impl PyNone {
 impl AsNumber for PyNone {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            boolean: atomic_func!(|_number, _vm| Ok(false)),
+            boolean: Some(|_number, _vm| Ok(false)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
         &AS_NUMBER
