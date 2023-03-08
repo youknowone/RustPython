@@ -51,7 +51,7 @@ mod array {
             },
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-                PyMappingMethods, PySequenceMethods,
+                PyMappingMethods, PyNumberMethods, PySequenceMethods,
             },
             sequence::{OptionalRangeArgs, SequenceExt, SequenceMutExt},
             sliceable::{
@@ -59,7 +59,7 @@ mod array {
                 SliceableSequenceOp,
             },
             types::{
-                AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext,
+                AsBuffer, AsMapping, AsNumber, AsSequence, Comparable, Constructor, IterNext,
                 IterNextIterable, Iterable, PyComparisonOp,
             },
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -67,6 +67,7 @@ mod array {
     };
     use itertools::Itertools;
     use num_traits::ToPrimitive;
+    use once_cell::sync::Lazy;
     use std::{cmp::Ordering, fmt, os::raw};
 
     macro_rules! def_array_enum {
@@ -710,7 +711,7 @@ mod array {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
+        with(Comparable, AsBuffer, AsMapping, AsNumber, Iterable, Constructor)
     )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
@@ -1320,6 +1321,87 @@ mod array {
                 }),
             };
             &AS_MAPPING
+        }
+    }
+
+    impl AsNumber for PyArray {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+                add: Some(|number, other, vm| {
+                    if let Some(number) = number.obj.downcast_ref::<PyArray>() {
+                        number.add(other.to_owned(), vm).to_pyresult(vm)
+                    } else {
+                        Ok(vm.ctx.not_implemented())
+                    }
+                }),
+                multiply: Some(|number, other, vm| {
+                    if let Some(number) = number.obj.downcast_ref::<PyArray>() {
+                        number
+                            .mul(
+                                other.try_index(vm)?.as_bigint().to_isize().ok_or_else(|| {
+                                    vm.new_overflow_error("repeated array is too long".to_owned())
+                                })?,
+                                vm,
+                            )
+                            .to_pyresult(vm)
+                    } else if let Some(other) = other.downcast_ref::<PyArray>() {
+                        other
+                            .mul(
+                                number
+                                    .obj
+                                    .try_index(vm)?
+                                    .as_bigint()
+                                    .to_isize()
+                                    .ok_or_else(|| {
+                                        vm.new_overflow_error(
+                                            "repeated array is too long".to_owned(),
+                                        )
+                                    })?,
+                                vm,
+                            )
+                            .to_pyresult(vm)
+                    } else {
+                        Ok(vm.ctx.not_implemented())
+                    }
+                }),
+                inplace_add: Some(|number, other, vm| {
+                    if let Some(number) = number.obj.downcast_ref::<PyArray>() {
+                        PyArray::iadd(number.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+                    } else {
+                        Ok(vm.ctx.not_implemented())
+                    }
+                }),
+                inplace_multiply: Some(|number, other, vm| {
+                    if let Some(number) = number.obj.downcast_ref::<PyArray>() {
+                        PyArray::imul(
+                            number.to_owned(),
+                            other.try_index(vm)?.as_bigint().to_isize().ok_or_else(|| {
+                                vm.new_overflow_error("repeated array is too long".to_owned())
+                            })?,
+                            vm,
+                        )
+                        .to_pyresult(vm)
+                    } else if let Some(other) = other.downcast_ref::<PyArray>() {
+                        PyArray::imul(
+                            other.to_owned(),
+                            number
+                                .obj
+                                .try_index(vm)?
+                                .as_bigint()
+                                .to_isize()
+                                .ok_or_else(|| {
+                                    vm.new_overflow_error("repeated array is too long".to_owned())
+                                })?,
+                            vm,
+                        )
+                        .to_pyresult(vm)
+                    } else {
+                        Ok(vm.ctx.not_implemented())
+                    }
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            });
+            &AS_NUMBER
         }
     }
 
