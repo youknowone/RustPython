@@ -805,7 +805,7 @@ impl Iterable for PySet {
 
 impl AsNumber for PySet {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(|number, other, vm| {
                 if let Some(number) = number.obj.downcast_ref::<PySet>() {
                     number.sub(other.to_owned(), vm).to_pyresult(vm)
@@ -883,7 +883,7 @@ impl AsNumber for PySet {
                 }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }
@@ -1129,7 +1129,7 @@ impl Iterable for PyFrozenSet {
 
 impl AsNumber for PyFrozenSet {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(|number, other, vm| {
                 if let Some(number) = number.obj.downcast_ref::<PyFrozenSet>() {
                     number.sub(other.to_owned(), vm).to_pyresult(vm)
@@ -1159,7 +1159,7 @@ impl AsNumber for PyFrozenSet {
                 }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

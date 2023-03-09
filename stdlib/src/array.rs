@@ -68,7 +68,6 @@ mod array {
     };
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use once_cell::sync::Lazy;
     use std::{cmp::Ordering, fmt, os::raw};
 
     macro_rules! def_array_enum {
@@ -1327,7 +1326,7 @@ mod array {
 
     impl AsNumber for PyArray {
         fn as_number() -> &'static PyNumberMethods {
-            static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 add: Some(|number, other, vm| {
                     if let Some(number) = number.obj.downcast_ref::<PyArray>() {
                         number.add(other.to_owned(), vm).to_pyresult(vm)
@@ -1401,7 +1400,7 @@ mod array {
                     }
                 }),
                 ..PyNumberMethods::NOT_IMPLEMENTED
-            });
+            };
             &AS_NUMBER
         }
     }

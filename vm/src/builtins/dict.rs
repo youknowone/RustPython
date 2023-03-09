@@ -479,7 +479,7 @@ impl AsSequence for PyDict {
 
 impl AsNumber for PyDict {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|num, args, vm| {
                 if let Some(num) = num.obj.downcast_ref::<PyDict>() {
                     PyDict::or(num, args.to_pyobject(vm), vm)
@@ -495,7 +495,7 @@ impl AsNumber for PyDict {
                 }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }
@@ -1143,7 +1143,7 @@ impl AsSequence for PyDictKeys {
 
 impl AsNumber for PyDictKeys {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(|num, args, vm| {
                 let num = PySetInner::from_iter(
                     ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
@@ -1190,7 +1190,7 @@ impl AsNumber for PyDictKeys {
                 .into_pyobject(vm))
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }
@@ -1261,7 +1261,7 @@ impl AsSequence for PyDictItems {
 
 impl AsNumber for PyDictItems {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(|num, args, vm| {
                 let num = PySetInner::from_iter(
                     ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
@@ -1308,7 +1308,7 @@ impl AsNumber for PyDictItems {
                 .into_pyobject(vm))
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

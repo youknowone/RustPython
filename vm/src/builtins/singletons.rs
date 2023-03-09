@@ -6,7 +6,6 @@ use crate::{
     types::{AsNumber, Constructor},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
-use once_cell::sync::Lazy;
 
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
@@ -58,10 +57,10 @@ impl PyNone {
 
 impl AsNumber for PyNone {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             boolean: Some(|_number, _vm| Ok(false)),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

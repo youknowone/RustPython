@@ -231,7 +231,7 @@ impl AsSequence for PyMappingProxy {
 
 impl AsNumber for PyMappingProxy {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|num, args, vm| {
                 if let Some(num) = num.obj.downcast_ref::<PyMappingProxy>() {
                     num.or(args.to_pyobject(vm), vm)
@@ -247,7 +247,7 @@ impl AsNumber for PyMappingProxy {
                 }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

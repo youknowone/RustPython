@@ -27,7 +27,6 @@ use crate::{
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
 #[pyclass(module = false, name = "type")]
@@ -1063,12 +1062,12 @@ impl Callable for PyType {
 
 impl AsNumber for PyType {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|num, other, vm| {
                 or_(num.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

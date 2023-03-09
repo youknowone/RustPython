@@ -20,7 +20,6 @@ use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
-use once_cell::sync::Lazy;
 
 #[pyclass(module = false, name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -544,7 +543,7 @@ impl Hashable for PyFloat {
 
 impl AsNumber for PyFloat {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             add: Some(|num, other, vm| PyFloat::number_op(num, other, |a, b, _vm| a + b, vm)),
             subtract: Some(|num, other, vm| PyFloat::number_op(num, other, |a, b, _vm| a - b, vm)),
             multiply: Some(|num, other, vm| PyFloat::number_op(num, other, |a, b, _vm| a * b, vm)),
@@ -569,7 +568,7 @@ impl AsNumber for PyFloat {
             floor_divide: Some(|num, other, vm| PyFloat::number_op(num, other, inner_floordiv, vm)),
             true_divide: Some(|num, other, vm| PyFloat::number_op(num, other, inner_div, vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 
