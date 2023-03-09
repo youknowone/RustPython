@@ -1303,9 +1303,11 @@ impl AsNumber for PyStr {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             remainder: Some(|number, other, vm| {
-                PyStr::number_downcast(number)
-                    .modulo(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PyStr>() {
+                    number.modulo(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });

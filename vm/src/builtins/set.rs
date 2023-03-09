@@ -807,56 +807,80 @@ impl AsNumber for PySet {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             subtract: Some(|number, other, vm| {
-                PySet::number_downcast(number)
-                    .sub(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    number.sub(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             and: Some(|number, other, vm| {
-                PySet::number_downcast(number)
-                    .and(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    number.and(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             xor: Some(|number, other, vm| {
-                PySet::number_downcast(number)
-                    .xor(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    number.xor(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             or: Some(|number, other, vm| {
-                PySet::number_downcast(number)
-                    .or(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    number.or(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             inplace_subtract: Some(|number, other, vm| {
-                PySet::isub(
-                    PySet::number_downcast(number).to_owned(),
-                    AnySet::try_from_object(vm, other.to_owned())?,
-                    vm,
-                )
-                .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    PySet::isub(
+                        number.to_owned(),
+                        AnySet::try_from_object(vm, other.to_owned())?,
+                        vm,
+                    )
+                    .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             inplace_and: Some(|number, other, vm| {
-                PySet::iand(
-                    PySet::number_downcast(number).to_owned(),
-                    AnySet::try_from_object(vm, other.to_owned())?,
-                    vm,
-                )
-                .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    PySet::iand(
+                        number.to_owned(),
+                        AnySet::try_from_object(vm, other.to_owned())?,
+                        vm,
+                    )
+                    .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             inplace_xor: Some(|number, other, vm| {
-                PySet::ixor(
-                    PySet::number_downcast(number).to_owned(),
-                    AnySet::try_from_object(vm, other.to_owned())?,
-                    vm,
-                )
-                .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    PySet::ixor(
+                        number.to_owned(),
+                        AnySet::try_from_object(vm, other.to_owned())?,
+                        vm,
+                    )
+                    .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             inplace_or: Some(|number, other, vm| {
-                PySet::ior(
-                    PySet::number_downcast(number).to_owned(),
-                    AnySet::try_from_object(vm, other.to_owned())?,
-                    vm,
-                )
-                .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PySet>() {
+                    PySet::ior(
+                        number.to_owned(),
+                        AnySet::try_from_object(vm, other.to_owned())?,
+                        vm,
+                    )
+                    .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
@@ -1107,24 +1131,32 @@ impl AsNumber for PyFrozenSet {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             subtract: Some(|number, other, vm| {
-                PyFrozenSet::number_downcast(number)
-                    .sub(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PyFrozenSet>() {
+                    number.sub(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             and: Some(|number, other, vm| {
-                PyFrozenSet::number_downcast(number)
-                    .and(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PyFrozenSet>() {
+                    number.and(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             xor: Some(|number, other, vm| {
-                PyFrozenSet::number_downcast(number)
-                    .xor(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PyFrozenSet>() {
+                    number.xor(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             or: Some(|number, other, vm| {
-                PyFrozenSet::number_downcast(number)
-                    .or(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PyFrozenSet>() {
+                    number.or(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });

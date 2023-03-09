@@ -861,9 +861,11 @@ impl AsNumber for PyByteArray {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             remainder: Some(|number, other, vm| {
-                PyByteArray::number_downcast(number)
-                    .mod_(other.to_owned(), vm)
-                    .to_pyresult(vm)
+                if let Some(number) = number.obj.downcast_ref::<PyByteArray>() {
+                    number.mod_(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
