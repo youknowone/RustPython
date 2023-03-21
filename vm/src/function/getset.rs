@@ -58,19 +58,25 @@ pub type PySetterFunc =
     Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>)>;
 
 
-trait IntoArg: Sized {
-    type Arg;
-    fn into_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self::Arg>;
+trait IntoArg<'a, O: 'a>: Sized  where Self: 'a {
+    fn from_obj(obj: O, vm: &VirtualMachine) -> PyResult<Self>;
 }
 
-impl<T, U> IntoArg for (T, PhantomData<U>) where T: TryFromObject {
-    type Arg = T;
+impl<'a, A: 'a> IntoArg<'a, PyObjectRef> for A where A: TryFromObject {
     #[inline]
-    fn into_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self::Arg> {
+    fn from_obj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         obj.try_into_value(vm)
     }
 }
 
+use crate::{PyObject, convert::TryFromBorrowedObject};
+
+impl<'a, A> IntoArg<'a, &'a PyObject> for &'a A where &'a A: TryFromBorrowedObject<'a> {
+    #[inline]
+    fn from_obj(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        Self::try_from_borrowed_object(vm, obj)
+    }
+}
 
 pub trait IntoPyGetterFunc<T>: PyThreadingConstraint + Sized + 'static {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult;
