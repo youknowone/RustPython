@@ -7,7 +7,7 @@ pub use time::*;
 #[pymodule(name = "time", with(platform))]
 mod time {
     use crate::{
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{tuple::IntoPyTuple, PyStrRef, PyTupleRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::PyStructSequence,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
@@ -17,6 +17,30 @@ mod time {
         DateTime, Datelike, Timelike,
     };
     use std::time::Duration;
+
+    mod tz {
+        cfg_if::cfg_if! {
+            if #[cfg(target_env = "msvc")] {
+                extern "C" {
+                    static _daylight: std::ffi::c_int;
+                    // static _dstbias: std::ffi::c_int;
+                    static _timezone: std::ffi::c_long;
+                    static _tzname: [*const std::ffi::c_char; 2];
+                }
+                pub const daylight: std::ffi::c_int = _daylight;
+                // pub const dstbias: std::ffi::c_int = _dstbias;
+                pub const timezone: std::ffi::c_long = _timezone;
+                pub const tzname: [*const std::ffi::c_char; 2] = _tzname;
+            } else {
+                extern "C" {
+                    pub static daylight: std::ffi::c_int;
+                    // pub static dstbias: std::ffi::c_int;
+                    pub static timezone: std::ffi::c_long;
+                    pub static tzname: [*const std::ffi::c_char; 2];
+                }
+            }
+        }
+    }
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -108,6 +132,24 @@ mod time {
     #[pyfunction]
     fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
+    }
+
+    #[pyattr]
+    fn timezone(_vm: &VirtualMachine) -> std::ffi::c_long {
+        unsafe { tz::timezone }
+    }
+
+    #[pyattr]
+    fn daylight(_vm: &VirtualMachine) -> std::ffi::c_int {
+        unsafe { tz::daylight }
+    }
+
+    #[pyattr]
+    fn tzname(vm: &VirtualMachine) -> PyTupleRef {
+        unsafe fn to_str(s: *const std::ffi::c_char) -> String {
+            std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+        }
+        unsafe { (to_str(tz::tzname[0]), to_str(tz::tzname[1])) }.into_pytuple(vm)
     }
 
     fn pyobj_to_date_time(
