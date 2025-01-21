@@ -1842,7 +1842,7 @@ impl Compiler {
     fn jump_to_fail_pop(&mut self, pattern_context: &mut PatternContext) -> CompileResult<()> {
         let pops = pattern_context.on_top + pattern_context.stores.len();
         self.ensure_fail_pop(pattern_context, pops)?;
-        self.switch_to_block(pattern_context.fail_pop[pops]);
+        // self.switch_to_block(pattern_context.fail_pop[pops]);
         Ok(())
     }
     // static int
@@ -2057,7 +2057,11 @@ impl Compiler {
         self.compile_expression(subject)?;
         // Blocks at the end of the switch statement that we jump to after finishing a branch
         // TODO: optimize, we can reuse the same block for all cases
-        let mut end_block = self.new_block();
+        let pattern_blocks = std::iter::repeat_with(|| self.new_block())
+            .take(cases.len() + 1)
+            .collect::<Vec<_>>();
+        eprintln!("created pattern_blocks: {:?} - {:?}(end block)", pattern_blocks.first().unwrap(), pattern_blocks.last().unwrap());
+        let end_block = *pattern_blocks.last().unwrap();
 
         let match_case_type = cases.last().expect("cases is not empty");
         let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
@@ -2066,6 +2070,7 @@ impl Compiler {
             //     m = asdl_seq_GET(s->v.Match.cases, i);
             let m = &cases[i];
             // Only copy the subject if we're *not* on the last case:
+            self.switch_to_block(pattern_blocks[i]);
             if i != cases.len() - has_default as usize - 1 {
                 // ADDOP_I(c, LOC(m->pattern), COPY, 1);
                 emit!(self, Instruction::Duplicate);
@@ -2091,7 +2096,7 @@ impl Compiler {
             // }
             if let Some(guard) = &m.guard {
                 self.ensure_fail_pop(pattern_context, 0)?;
-                self.compile_jump_if(guard, false, pattern_context.fail_pop[0])?;
+                self.compile_jump_if(guard, false, pattern_blocks[i + 1])?;
             }
             if i != cases.len() - (has_default as usize) - 1 {
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
@@ -2106,6 +2111,7 @@ impl Compiler {
             // A trailing "case _" is common, and lets us save a bit of redundant
             // pushing and popping in the loop above:
             let m = &cases.last().unwrap();
+            self.switch_to_block(*pattern_blocks.last().unwrap());
             if cases.len() == 1 {
                 // No matches. Done with the subject:
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
@@ -3423,6 +3429,7 @@ impl Compiler {
             u32::MAX,
             "switching {prev:?} -> {block:?} from block that's already got a next"
         );
+        eprintln!("switch_to_block {prev:?} -> {block:?}");
         prev_block.next = block;
         code.current_block = block;
     }
