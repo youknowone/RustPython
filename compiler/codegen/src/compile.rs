@@ -1582,41 +1582,45 @@ impl Compiler<'_> {
         }
     }
 
-    /// Store each type parameter so it is accessible to the current scope, and leave a tuple of
-    /// all the type parameters on the stack.
-    fn compile_type_param_bound_or_default(
-        &mut self,
-        expr: &Expr,
-        name: &str,
-        allow_starred: bool,
-    ) -> CompileResult<CodeObject<ConstantData>> {
-        // Enter a new scope for the type parameter expression
-        let key = self.symbol_table_stack.len();
-        let lineno = expr.range().start().to_u32();
+    fn compile_type_var(&mut self, name: &str, bound: &Option<Box<Expr>>, default: &Option<Box<Expr>>) -> CompileResult<()> {
+        // First push the name
+        self.emit_load_const(ConstantData::Str {
+            value: name.into(),
+        });
         
-        self.enter_scope(
-            name,
-            SymbolTableType::TypeParams,
-            key,
-            lineno,
-        )?;
-
-        // Compile the expression
-        if allow_starred && matches!(expr, Expr::Starred(_)) {
-            if let Expr::Starred(starred) = expr {
-                self.compile_expression(&starred.value)?;
-                emit!(self, Instruction::UnpackSequence { size: 1 });
-            }
-        } else {
+        if let Some(expr) = bound {
             self.compile_expression(expr)?;
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::TypeVarWithBound
+                }
+            );
+        } else {
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: bytecode::IntrinsicFunction1::TypeVar
+                }
+            );
         }
 
-        // Return the value
-        emit!(self, Instruction::ReturnValue);
+        // Handle default value if present (PEP 695)
+        if let Some(default_expr) = default {
+            // Compile the default expression
+            self.compile_expression(default_expr)?;
 
-        // Exit scope and get the code object
-        let code = self.exit_scope();
-        Ok(code)
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::SetTypeparamDefault
+                }
+            );
+        }
+
+        emit!(self, Instruction::Duplicate);
+        self.store_name(name)?;
+        Ok(())
     }
 
     fn compile_type_params(&mut self, type_params: &TypeParams) -> CompileResult<()> {
@@ -1629,44 +1633,7 @@ impl Compiler<'_> {
                     default,
                     ..
                 }) => {
-                    if let Some(expr) = &bound {
-                        self.compile_expression(expr)?;
-                        self.emit_load_const(ConstantData::Str {
-                            value: name.as_str().into(),
-                        });
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::TypeVarWithBound
-                            }
-                        );
-                    } else {
-                        self.emit_load_const(ConstantData::Str {
-                            value: name.as_str().into(),
-                        });
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic1 {
-                                func: bytecode::IntrinsicFunction1::TypeVar
-                            }
-                        );
-                    }
-
-                    // Handle default value if present (PEP 695)
-                    if let Some(default_expr) = default {
-                        // Compile the default expression
-                        self.compile_expression(default_expr)?;
-
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
-                            }
-                        );
-                    }
-
-                    emit!(self, Instruction::Duplicate);
-                    self.store_name(name.as_ref())?;
+                    self.compile_type_var(name.as_str(), bound, default)?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
                     self.emit_load_const(ConstantData::Str {
