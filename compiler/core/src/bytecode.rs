@@ -411,7 +411,7 @@ op_arg_enum!(
     pub enum IntrinsicFunction2 {
         // PrepReraiseS tar = 1,
         TypeVarWithBound = 2,
-        TypeVarWithConstraint = 3,
+        TypeVarWithConstraints = 3,
         SetFunctionTypeParams = 4,
         /// Set default value for type parameter (PEP 695)
         SetTypeparamDefault = 5,

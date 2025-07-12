@@ -2295,7 +2295,7 @@ impl ExecutingFrame<'_> {
                         .into();
                 Ok(type_var)
             }
-            bytecode::IntrinsicFunction2::TypeVarWithConstraint => {
+            bytecode::IntrinsicFunction2::TypeVarWithConstraints => {
                 let type_var: PyObjectRef =
                     typing::TypeVar::new(vm, arg1.clone(), vm.ctx.none(), arg2)
                         .into_ref(&vm.ctx)
