@@ -1626,6 +1626,65 @@ impl Compiler<'_> {
         Ok(())
     }
 
+    fn compile_param_spec(&mut self, name: &str, default: &Option<Box<Expr>>) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::Str { value: name.into() });
+        emit!(
+            self,
+            Instruction::CallIntrinsic1 {
+                func: bytecode::IntrinsicFunction1::ParamSpec
+            }
+        );
+
+        // Handle default value if present (PEP 695)
+        if let Some(default_expr) = default {
+            // Compile the default expression
+            self.compile_expression(default_expr)?;
+
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::SetTypeparamDefault
+                }
+            );
+        }
+
+        emit!(self, Instruction::Duplicate);
+        self.store_name(name)?;
+        Ok(())
+    }
+
+    fn compile_type_var_tuple(
+        &mut self,
+        name: &str,
+        default: &Option<Box<Expr>>,
+    ) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::Str { value: name.into() });
+        emit!(
+            self,
+            Instruction::CallIntrinsic1 {
+                func: bytecode::IntrinsicFunction1::TypeVarTuple
+            }
+        );
+
+        // Handle default value if present (PEP 695)
+        if let Some(default_expr) = default {
+            // Compile the default expression
+            self.compile_expression(default_expr)?;
+
+            // Handle starred expression (*default)
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::SetTypeparamDefault
+                }
+            );
+        }
+
+        emit!(self, Instruction::Duplicate);
+        self.store_name(name)?;
+        Ok(())
+    }
+
     fn compile_type_params(&mut self, type_params: &TypeParams) -> CompileResult<()> {
         // First, compile each type parameter and store it
         for type_param in &type_params.type_params {
@@ -1639,59 +1698,10 @@ impl Compiler<'_> {
                     self.compile_type_var(name.as_str(), bound, default)?;
                 }
                 TypeParam::ParamSpec(TypeParamParamSpec { name, default, .. }) => {
-                    self.emit_load_const(ConstantData::Str {
-                        value: name.as_str().into(),
-                    });
-                    emit!(
-                        self,
-                        Instruction::CallIntrinsic1 {
-                            func: bytecode::IntrinsicFunction1::ParamSpec
-                        }
-                    );
-
-                    // Handle default value if present (PEP 695)
-                    if let Some(default_expr) = default {
-                        // Compile the default expression
-                        self.compile_expression(default_expr)?;
-
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
-                            }
-                        );
-                    }
-
-                    emit!(self, Instruction::Duplicate);
-                    self.store_name(name.as_ref())?;
+                    self.compile_param_spec(name.as_str(), default)?;
                 }
                 TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, default, .. }) => {
-                    self.emit_load_const(ConstantData::Str {
-                        value: name.as_str().into(),
-                    });
-                    emit!(
-                        self,
-                        Instruction::CallIntrinsic1 {
-                            func: bytecode::IntrinsicFunction1::TypeVarTuple
-                        }
-                    );
-
-                    // Handle default value if present (PEP 695)
-                    if let Some(default_expr) = default {
-                        // Compile the default expression
-                        self.compile_expression(default_expr)?;
-
-                        // Handle starred expression (*default)
-                        emit!(
-                            self,
-                            Instruction::CallIntrinsic2 {
-                                func: bytecode::IntrinsicFunction2::SetTypeparamDefault
-                            }
-                        );
-                    }
-
-                    emit!(self, Instruction::Duplicate);
-                    self.store_name(name.as_ref())?;
+                    self.compile_type_var_tuple(name.as_str(), default)?;
                 }
             };
         }
