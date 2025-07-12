@@ -1582,12 +1582,15 @@ impl Compiler<'_> {
         }
     }
 
-    fn compile_type_var(&mut self, name: &str, bound: &Option<Box<Expr>>, default: &Option<Box<Expr>>) -> CompileResult<()> {
+    fn compile_type_var(
+        &mut self,
+        name: &str,
+        bound: &Option<Box<Expr>>,
+        default: &Option<Box<Expr>>,
+    ) -> CompileResult<()> {
         // First push the name
-        self.emit_load_const(ConstantData::Str {
-            value: name.into(),
-        });
-        
+        self.emit_load_const(ConstantData::Str { value: name.into() });
+
         if let Some(expr) = bound {
             self.compile_expression(expr)?;
             emit!(
