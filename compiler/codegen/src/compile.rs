@@ -1584,6 +1584,41 @@ impl Compiler<'_> {
 
     /// Store each type parameter so it is accessible to the current scope, and leave a tuple of
     /// all the type parameters on the stack.
+    fn compile_type_param_bound_or_default(
+        &mut self,
+        expr: &Expr,
+        name: &str,
+        allow_starred: bool,
+    ) -> CompileResult<CodeObject<ConstantData>> {
+        // Enter a new scope for the type parameter expression
+        let key = self.symbol_table_stack.len();
+        let lineno = expr.range().start().to_u32();
+        
+        self.enter_scope(
+            name,
+            SymbolTableType::TypeParams,
+            key,
+            lineno,
+        )?;
+
+        // Compile the expression
+        if allow_starred && matches!(expr, Expr::Starred(_)) {
+            if let Expr::Starred(starred) = expr {
+                self.compile_expression(&starred.value)?;
+                emit!(self, Instruction::UnpackSequence { size: 1 });
+            }
+        } else {
+            self.compile_expression(expr)?;
+        }
+
+        // Return the value
+        emit!(self, Instruction::ReturnValue);
+
+        // Exit scope and get the code object
+        let code = self.exit_scope();
+        Ok(code)
+    }
+
     fn compile_type_params(&mut self, type_params: &TypeParams) -> CompileResult<()> {
         // First, compile each type parameter and store it
         for type_param in &type_params.type_params {
