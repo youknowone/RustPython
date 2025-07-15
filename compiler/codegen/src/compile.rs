@@ -1837,9 +1837,17 @@ impl Compiler<'_> {
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
-        // If there are type params, we need to push a special symbol table just for them
-        if type_params.is_some() {
-            self.push_symbol_table();
+        // Check if this is a generic function
+        let is_generic = type_params.is_some();
+        let mut num_typeparam_args = 0;
+
+        if is_generic {
+            // Enter type params scope first (like CPython)
+            let firstlineno = body
+                .first()
+                .map(|s| s.range().start().to_u32())
+                .unwrap_or(1);
+            self.enter_type_params_scope(name, firstlineno)?;
         }
 
         // Prepare defaults and kwdefaults before entering function
@@ -1885,13 +1893,45 @@ impl Compiler<'_> {
             );
         }
 
-        self.enter_function(name, parameters)?;
+        // Set up func_flags early to calculate num_typeparam_args
         let mut func_flags = bytecode::MakeFunctionFlags::empty();
         if have_defaults {
             func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
         if have_kwdefaults {
             func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+        }
+
+        // Handle defaults for type params scope
+        if is_generic {
+            num_typeparam_args = self.calculate_typeparam_args(func_flags);
+
+            // SWAP if we have 2 args
+            if num_typeparam_args == 2 {
+                emit!(self, Instruction::Swap { index: 2 });
+            }
+
+            // Compile type parameters in the type params scope
+            if let Some(type_params) = type_params {
+                self.compile_type_params(type_params)?;
+            }
+
+            // Load default args for the type params function
+            self.load_type_param_args(num_typeparam_args)?;
+        }
+
+        // Enter function scope (possibly nested within type params scope)
+        if is_generic {
+            // We're already in type params scope, so we need to use enter_nested_scope
+            // The function's symbol table should already be pushed by symboltable
+            let firstlineno = body
+                .first()
+                .map(|s| s.range().start().to_u32())
+                .unwrap_or(1);
+            self.enter_nested_scope(name, CompilerScope::Function, firstlineno)?;
+        } else {
+            // Normal function entry
+            self.enter_function(name, parameters)?;
         }
         self.current_code_info()
             .flags
@@ -1935,12 +1975,6 @@ impl Compiler<'_> {
         let code = self.exit_scope();
         self.ctx = prev_ctx;
 
-        // Prepare generic type parameters:
-        if let Some(type_params) = type_params {
-            self.compile_type_params(type_params)?;
-            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
-        }
-
         // Prepare type annotations:
         let mut num_annotations = 0;
 
@@ -1982,22 +2016,55 @@ impl Compiler<'_> {
             );
         }
 
-        // Pop the special type params symbol table
-        if type_params.is_some() {
-            self.pop_symbol_table();
-        }
+        if is_generic {
+            // We're still in type params scope - handle like CPython
+            emit!(self, Instruction::Swap { index: 2 });
+            emit!(
+                self,
+                Instruction::CallIntrinsic2 {
+                    func: bytecode::IntrinsicFunction2::SetFunctionTypeParams
+                }
+            );
 
-        // Create function with closure
-        self.make_closure(code, func_flags)?;
+            // Set argcount for type params function
+            self.current_code_info().metadata.argcount = num_typeparam_args;
 
-        if let Some(value) = doc_str {
-            emit!(self, Instruction::Duplicate);
-            self.emit_load_const(ConstantData::Str {
-                value: value.into(),
-            });
-            emit!(self, Instruction::Rotate2);
-            let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreAttr { idx: doc });
+            // Exit type params scope and create its function
+            let type_params_code = self.exit_type_params_scope();
+            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
+
+            // Call the type params closure
+            if num_typeparam_args > 0 {
+                emit!(
+                    self,
+                    Instruction::Swap {
+                        index: num_typeparam_args + 1
+                    }
+                );
+                emit!(
+                    self,
+                    Instruction::CallFunctionPositional {
+                        nargs: num_typeparam_args
+                    }
+                );
+            } else {
+                self.emit_load_const(ConstantData::None);
+                emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
+            }
+        } else {
+            // Non-generic function: normal path
+            // Create function with closure
+            self.make_closure(code, func_flags)?;
+
+            if let Some(value) = doc_str {
+                emit!(self, Instruction::Duplicate);
+                self.emit_load_const(ConstantData::Str {
+                    value: value.into(),
+                });
+                emit!(self, Instruction::Rotate2);
+                let doc = self.name("__doc__");
+                emit!(self, Instruction::StoreAttr { idx: doc });
+            }
         }
 
         self.apply_decorators(decorator_list);
