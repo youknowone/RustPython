@@ -2,6 +2,7 @@
 #![doc(html_root_url = "https://docs.rs/rustpython-compiler-core/")]
 
 pub mod bytecode;
+pub mod exception_table;
 pub mod frozen;
 pub mod marshal;
 mod mode;

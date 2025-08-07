@@ -1,7 +1,7 @@
 //! Implement python as a virtual machine with bytecode. This module
 //! implements bytecode structure.
 
-use crate::{OneIndexed, SourceLocation};
+use crate::{OneIndexed, SourceLocation, exception_table::ExceptionTable};
 use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -146,6 +146,8 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
+    // Exception table for Python 3.11+ style exception handling
+    pub exception_table: ExceptionTable,
 }
 
 bitflags! {
@@ -411,7 +413,6 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum RaiseKind {
-        Reraise = 0,
         Raise = 1,
         RaiseCause = 2,
     }
@@ -446,7 +447,7 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum IntrinsicFunction2 {
-        // PrepReraiseS tar = 1,
+        PrepReraiseStar = 1,
         TypeVarWithBound = 2,
         TypeVarWithConstraint = 3,
         SetFunctionTypeParams = 4,
@@ -629,6 +630,18 @@ pub enum Instruction {
 
     SetupExcept {
         handler: Arg<Label>,
+    },
+    SetupCleanup {
+        handler: Arg<Label>,
+    },
+    PushExcInfo,
+    CheckExcMatch,
+    CheckEgMatch,
+    Reraise {
+        level: Arg<u32>,
+    },
+    JumpNoInterrupt {
+        target: Arg<Label>,
     },
     SetupWith {
         end: Arg<Label>,
@@ -1202,6 +1215,7 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg,
+            exception_table: self.exception_table.clone(),
         }
     }
 
@@ -1232,6 +1246,7 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg.clone(),
+            exception_table: self.exception_table.clone(),
         }
     }
 }
@@ -1262,6 +1277,8 @@ impl Instruction {
             | ForIter { target: l }
             | SetupFinally { handler: l }
             | SetupExcept { handler: l }
+            | SetupCleanup { handler: l }
+            | JumpNoInterrupt { target: l }
             | SetupWith { end: l }
             | SetupAsyncWith { end: l }
             | Break { target: l }
@@ -1288,6 +1305,7 @@ impl Instruction {
                 | ReturnValue
                 | ReturnConst { .. }
                 | Raise { .. }
+                | Reraise { .. }
         )
     }
 
@@ -1378,6 +1396,12 @@ impl Instruction {
             YieldFrom => -1,
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
+            SetupCleanup { .. } => 0,
+            PushExcInfo => 1,
+            CheckExcMatch => 0,
+            CheckEgMatch => -1,
+            Reraise { .. } => 0,
+            JumpNoInterrupt { .. } => 0,
             SetupWith { .. } => (!jump) as i32,
             WithCleanupStart => 0,
             WithCleanupFinish => -1,
@@ -1568,6 +1592,12 @@ impl Instruction {
             SetupAnnotation => w!(SetupAnnotation),
             SetupLoop => w!(SetupLoop),
             SetupExcept { handler } => w!(SetupExcept, handler),
+            SetupCleanup { handler } => w!(SetupCleanup, handler),
+            PushExcInfo => w!(PushExcInfo),
+            CheckExcMatch => w!(CheckExcMatch),
+            CheckEgMatch => w!(CheckEgMatch),
+            Reraise { level } => w!(Reraise, level),
+            JumpNoInterrupt { target } => w!(JumpNoInterrupt, target),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),
             EndFinally => w!(EndFinally),

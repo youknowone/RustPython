@@ -7,6 +7,7 @@ use rustpython_compiler_core::{
         CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label,
         OpArg,
     },
+    exception_table::ExceptionTable,
 };
 
 /// Metadata for a code unit
@@ -101,6 +102,7 @@ pub struct CodeInfo {
     pub current_block: BlockIdx,
 
     pub metadata: CodeUnitMetadata,
+    pub exception_table: ExceptionTable,
 
     // For class scopes: attributes accessed via self.X
     pub static_attributes: Option<IndexSet<String>>,
@@ -132,6 +134,7 @@ impl CodeInfo {
             mut blocks,
             current_block: _,
             metadata,
+            exception_table,
             static_attributes: _,
             in_inlined_comp: _,
             fblock: _,
@@ -218,6 +221,7 @@ impl CodeInfo {
             cellvars: cellvar_cache.into_iter().collect(),
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
+            exception_table,
         })
     }
 

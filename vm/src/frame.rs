@@ -1,8 +1,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
+        PyBaseException, PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator,
+        PyList, PySet, PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef},
@@ -683,14 +683,11 @@ impl ExecutingFrame<'_> {
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
                 let idx = index.get(arg) as usize;
-                let value = self
-                    .state
-                    .stack
-                    .len()
-                    .checked_sub(idx)
-                    .map(|i| &self.state.stack[i])
-                    .unwrap();
-                self.push_value(value.clone());
+                if idx == 0 || idx > self.state.stack.len() {
+                    return Err(vm.new_runtime_error(format!("invalid COPY index: {}", idx)));
+                }
+                let value = self.state.stack[self.state.stack.len() - idx].clone();
+                self.push_value(value);
                 Ok(None)
             }
             bytecode::Instruction::Pop => {
@@ -1254,6 +1251,8 @@ impl ExecutingFrame<'_> {
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, kind.get(arg)),
 
+            bytecode::Instruction::Reraise { level } => self.execute_reraise(vm, level.get(arg)),
+
             bytecode::Instruction::Break { target } => self.unwind_blocks(
                 vm,
                 UnwindReason::Break {
@@ -1282,17 +1281,122 @@ impl ExecutingFrame<'_> {
                 self.format_value(conversion.get(arg), vm)
             }
             bytecode::Instruction::PopException => {
+                // POP_EXCEPT: Pop exception block
+                // In Python 3.13, this might be called with Finally or FinallyHandler blocks
                 let block = self.pop_block();
-                if let BlockType::ExceptHandler { prev_exc } = block.typ {
-                    vm.set_exception(prev_exc);
-                    Ok(None)
-                } else {
-                    self.fatal("block type must be ExceptHandler here.")
+                match block.typ {
+                    BlockType::ExceptHandler { prev_exc } => {
+                        vm.set_exception(prev_exc);
+                        Ok(None)
+                    }
+                    BlockType::Finally { .. } | BlockType::FinallyHandler { .. } => {
+                        // SetupCleanup/SetupFinally blocks, just pop it
+                        Ok(None)
+                    }
+                    _ => self.fatal(
+                        "block type must be ExceptHandler, Finally, or FinallyHandler here.",
+                    ),
                 }
             }
             bytecode::Instruction::Reverse { amount } => {
                 let stack_len = self.state.stack.len();
                 self.state.stack[stack_len - amount.get(arg) as usize..stack_len].reverse();
+                Ok(None)
+            }
+            bytecode::Instruction::SetupCleanup { handler } => {
+                // Setup cleanup block for exception handlers
+                // This is used in except blocks to handle cleanup
+                // In Python 3.13, this is specifically for cleanup (not regular finally)
+                self.push_block(BlockType::Finally {
+                    handler: handler.get(arg),
+                });
+                Ok(None)
+            }
+            bytecode::Instruction::PushExcInfo => {
+                // PUSH_EXC_INFO: Push exception info onto stack
+                // In Python 3.13 with ExceptionTable, the exception is already on the stack
+
+                // Check if we have an exception on the stack (from ExceptionTable handler)
+                if !self.state.stack.is_empty() {
+                    // Pop the exception from stack
+                    let exc = self.pop_value();
+
+                    // Set up an exception handler block with the current exception
+                    if let Ok(exc_ref) = exc.clone().downcast::<PyBaseException>() {
+                        let prev_exc = vm.topmost_exception();
+                        self.push_block(BlockType::ExceptHandler { prev_exc });
+                        vm.set_exception(Some(exc_ref.clone()));
+
+                        // Push exception back for handler to use
+                        self.push_value(exc);
+                    } else {
+                        // Not an exception, push it back
+                        self.push_value(exc);
+                    }
+                } else if self.state.stack.len() >= 3 {
+                    // Old style: [exc, lasti, exc] on stack from SetupFinally
+                    let exc = self.pop_value(); // Pop the third exc
+
+                    // Set up an exception handler block with the current exception
+                    if let Ok(exc_ref) = exc.clone().downcast::<PyBaseException>() {
+                        let prev_exc = vm.topmost_exception();
+                        self.push_block(BlockType::ExceptHandler { prev_exc });
+                        vm.set_exception(Some(exc_ref));
+                    }
+
+                    // Push exception back for handler to use
+                    self.push_value(exc);
+                } else {
+                    // Fallback: get exception from VM state
+                    if let Some(exc) = vm.topmost_exception() {
+                        // Set up exception handler block
+                        self.push_block(BlockType::ExceptHandler {
+                            prev_exc: vm.topmost_exception(),
+                        });
+                        // Push the exception value
+                        self.push_value(exc.into());
+                    } else {
+                        // No exception available, push None
+                        self.push_value(vm.ctx.none());
+                    }
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::CheckExcMatch => {
+                // Check if exception matches the type
+                let exc_type = self.pop_value();
+                let exc = self.pop_value();
+
+                let result = if exc.is(&vm.ctx.none()) {
+                    false
+                } else {
+                    exc.fast_isinstance(&exc_type.class())
+                };
+
+                self.push_value(exc);
+                self.push_value(vm.ctx.new_bool(result).into());
+                Ok(None)
+            }
+            bytecode::Instruction::CheckEgMatch => {
+                // Check exception group match (for except*)
+                let exc_type = self.pop_value();
+                let exc = self.pop_value();
+
+                // For now, just check normal exception match
+                let result = exc.fast_isinstance(&exc_type.class());
+
+                if result {
+                    self.push_value(exc.clone());
+                    self.push_value(exc);
+                } else {
+                    self.push_value(exc);
+                    self.push_value(vm.ctx.none());
+                }
+                Ok(None)
+            }
+            bytecode::Instruction::JumpNoInterrupt { target } => {
+                // Jump without allowing interrupts
+                self.jump(target.get(arg));
                 Ok(None)
             }
             bytecode::Instruction::ExtendedArg => {
@@ -1619,6 +1723,29 @@ impl ExecutingFrame<'_> {
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
+        // Check if we should use ExceptionTable (Python 3.13 style)
+        // If there's an exception and no blocks on stack, try ExceptionTable
+        if self.state.blocks.is_empty() {
+            if let UnwindReason::Raising { ref exception } = reason {
+                // Try to find handler in ExceptionTable
+                let lasti = self.lasti();
+                if let Some(handler) = self.code.code.exception_table.find_handler(lasti) {
+                    // Found a handler in ExceptionTable!
+                    // Python 3.13 style: push exception info on stack
+                    vm.contextualize_exception(exception);
+                    vm.set_exception(Some(exception.clone()));
+
+                    // For now, just push the exception (PUSH_EXC_INFO will handle the rest)
+                    // Don't push 3 items here - let PUSH_EXC_INFO do it
+                    self.push_value(exception.clone().into());
+
+                    // Jump to handler
+                    self.jump(bytecode::Label(handler.target));
+                    return Ok(None);
+                }
+            }
+        }
+
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             // eprintln!("unwinding block: {:.60?} {:.60?}", block.typ, reason);
@@ -1640,12 +1767,38 @@ impl ExecutingFrame<'_> {
                 BlockType::Finally { handler } => {
                     self.pop_block();
                     let prev_exc = vm.current_exception();
+
+                    // Python 3.13 style: push exception info on stack for PUSH_EXC_INFO
+                    // Check if we're using Python 3.13 style
+                    // We detect this by checking if the handler block contains PUSH_EXC_INFO
+                    let use_py313_style = self.check_has_push_exc_info(handler);
+
+                    // Save the current stack level before pushing items
+                    let block_level = self.state.stack.len();
+
                     if let UnwindReason::Raising { exception } = &reason {
                         vm.set_exception(Some(exception.clone()));
+
+                        if use_py313_style {
+                            // Python 3.13: push exception onto stack for PUSH_EXC_INFO
+                            self.push_value(exception.clone().into());
+
+                            // Also push lasti (instruction pointer)
+                            let lasti = self.lasti();
+                            self.push_value(vm.ctx.new_int(lasti).into());
+
+                            // Push exception again (for COPY 3 in cleanup block)
+                            self.push_value(exception.clone().into());
+                        }
                     }
-                    self.push_block(BlockType::FinallyHandler {
-                        reason: Some(reason),
-                        prev_exc,
+
+                    // Use the saved block_level, not the current stack length
+                    self.state.blocks.push(Block {
+                        typ: BlockType::FinallyHandler {
+                            reason: Some(reason),
+                            prev_exc,
+                        },
+                        level: block_level,
                     });
                     self.jump(handler);
                     return Ok(None);
@@ -1881,22 +2034,41 @@ impl ExecutingFrame<'_> {
                 })
             }
             // if there's no cause arg, we keep the cause as is
-            bytecode::RaiseKind::Raise | bytecode::RaiseKind::Reraise => None,
+            bytecode::RaiseKind::Raise => None,
         };
-        let exception = match kind {
-            bytecode::RaiseKind::RaiseCause | bytecode::RaiseKind::Raise => {
-                ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?
-            }
-            bytecode::RaiseKind::Reraise => vm
-                .topmost_exception()
-                .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))?,
-        };
+        let exception = ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?;
         #[cfg(debug_assertions)]
         debug!("Exception raised: {exception:?} with cause: {cause:?}");
         if let Some(cause) = cause {
             exception.set___cause__(cause);
         }
         Err(exception)
+    }
+
+    fn execute_reraise(&mut self, vm: &VirtualMachine, level: u32) -> FrameResult {
+        // CPython's RERAISE logic
+        match level {
+            0 => {
+                // RERAISE 0: bare raise - reraise current exception
+                vm.topmost_exception()
+                    .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))
+                    .map(Err)?
+            }
+            1 => {
+                // RERAISE 1: used in exception handler cleanup
+                // The exception is already on the stack from COPY 3
+                let exc = self.pop_value();
+                if let Ok(exc) = ExceptionCtor::try_from_object(vm, exc.clone()) {
+                    Err(exc.instantiate(vm)?)
+                } else if let Ok(exc) = exc.downcast::<PyBaseException>() {
+                    // If it's already an exception instance, just reraise it
+                    Err(exc)
+                } else {
+                    Err(vm.new_type_error("exceptions must derive from BaseException"))
+                }
+            }
+            _ => Err(vm.new_runtime_error(format!("Invalid reraise level: {}", level))),
+        }
     }
 
     fn builtin_coro<'a>(&self, coro: &'a PyObject) -> Option<&'a Coro> {
@@ -2331,6 +2503,27 @@ impl ExecutingFrame<'_> {
         });
     }
 
+    // Check if the bytecode at the given label contains PUSH_EXC_INFO
+    // This helps us detect Python 3.13 style exception handling
+    fn check_has_push_exc_info(&self, label: bytecode::Label) -> bool {
+        // Check the first few instructions at the handler
+        // to see if there's a PUSH_EXC_INFO instruction
+        let start_idx = label.0 as usize;
+        let instructions = &self.code.instructions;
+
+        // Check up to 5 instructions ahead to find PUSH_EXC_INFO
+        for i in start_idx..std::cmp::min(start_idx + 5, instructions.len()) {
+            if let bytecode::Instruction::PushExcInfo = instructions[i].op {
+                return true;
+            }
+            // Also check for SetupCleanup which indicates Python 3.13 style
+            if let bytecode::Instruction::SetupCleanup { .. } = instructions[i].op {
+                return true;
+            }
+        }
+        false
+    }
+
     #[track_caller]
     fn pop_block(&mut self) -> Block {
         let block = self.state.blocks.pop().expect("No more blocks to pop!");
@@ -2470,6 +2663,11 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction2::PrepReraiseStar => {
+                // Prepare exception for reraise in except* handler
+                // For now, just return the second argument (simplified implementation)
+                Ok(arg2)
+            }
             bytecode::IntrinsicFunction2::SetTypeparamDefault => {
                 crate::stdlib::typing::set_typeparam_default(arg1, arg2, vm)
             }

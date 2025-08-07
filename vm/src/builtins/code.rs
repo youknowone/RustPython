@@ -434,6 +434,7 @@ impl PyCode {
                 cellvars: self.code.cellvars.clone(),
                 freevars: self.code.freevars.clone(),
                 cell2arg: self.code.cell2arg.clone(),
+                exception_table: self.code.exception_table.clone(),
             },
         })
     }

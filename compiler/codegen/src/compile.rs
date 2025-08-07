@@ -36,8 +36,9 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, OpArg, OpArgType, UnpackExArgs,
+        Instruction, OpArg, OpArgType, TestOperator, UnpackExArgs,
     },
+    exception_table::ExceptionTable,
 };
 use rustpython_wtf8::Wtf8Buf;
 use std::borrow::Cow;
@@ -356,6 +357,7 @@ impl Compiler {
                 kwonlyargcount: 0,
                 firstlineno: OneIndexed::MIN,
             },
+            exception_table: ExceptionTable::new(),
             static_attributes: None,
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
@@ -592,6 +594,40 @@ impl Compiler {
         idx.to_u32()
     }
 
+    /// Get the current bytecode offset (number of instructions emitted so far)
+    fn current_offset(&self) -> u32 {
+        let info = self.code_stack.last().unwrap();
+        let mut offset = 0u32;
+
+        // Count instructions in all blocks up to current block
+        for block in &info.blocks {
+            for instr in &block.instructions {
+                offset += instr.arg.instr_size() as u32;
+            }
+        }
+
+        offset
+    }
+
+    /// Add an exception handler to the exception table
+    fn add_exception_handler(
+        &mut self,
+        start: u32,
+        end: u32,
+        target: BlockIdx,
+        depth: u32,
+        push_lasti: bool,
+    ) {
+        let info = self.code_stack.last_mut().unwrap();
+
+        // We'll use the block index as a placeholder for the target
+        // The actual offset will be computed when finalizing the code
+        info.exception_table.add_handler(
+            start, end, target.0, // Use block index as target for now
+            depth, push_lasti,
+        );
+    }
+
     /// Push the next symbol table on to the stack
     fn push_symbol_table(&mut self) -> &SymbolTable {
         // Look up the next table contained in the scope of the current table
@@ -746,6 +782,7 @@ impl Compiler {
                 kwonlyargcount: kwonlyarg_count,
                 firstlineno: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
             },
+            exception_table: ExceptionTable::new(),
             static_attributes: if scope_type == CompilerScope::Class {
                 Some(IndexSet::default())
             } else {
@@ -1463,20 +1500,23 @@ impl Compiler {
             }) => self.compile_for(target, iter, body, orelse, *is_async)?,
             Stmt::Match(StmtMatch { subject, cases, .. }) => self.compile_match(subject, cases)?,
             Stmt::Raise(StmtRaise { exc, cause, .. }) => {
-                let kind = match exc {
+                match exc {
                     Some(value) => {
                         self.compile_expression(value)?;
-                        match cause {
+                        let kind = match cause {
                             Some(cause) => {
                                 self.compile_expression(cause)?;
                                 bytecode::RaiseKind::RaiseCause
                             }
                             None => bytecode::RaiseKind::Raise,
-                        }
+                        };
+                        emit!(self, Instruction::Raise { kind });
                     }
-                    None => bytecode::RaiseKind::Reraise,
-                };
-                emit!(self, Instruction::Raise { kind });
+                    None => {
+                        // Bare raise - use RERAISE 0 like CPython
+                        emit!(self, Instruction::Reraise { level: 0 });
+                    }
+                }
             }
             Stmt::Try(StmtTry {
                 body,
@@ -1974,133 +2014,195 @@ impl Compiler {
         orelse: &[Stmt],
         finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        let handler_block = self.new_block();
-        let finally_block = self.new_block();
-
-        // Setup a finally block if we have a finally statement.
+        // Handle finally case separately
         if !finalbody.is_empty() {
-            emit!(
-                self,
-                Instruction::SetupFinally {
-                    handler: finally_block,
-                }
-            );
+            return self.compile_try_finally(body, handlers, orelse, finalbody);
         }
 
-        let else_block = self.new_block();
+        // Python 3.13 implementation only
+        self.compile_try_except(body, handlers, orelse)
+    }
 
-        // try:
+    fn compile_try_except(
+        &mut self,
+        body: &[Stmt],
+        handlers: &[ExceptHandler],
+        orelse: &[Stmt],
+    ) -> CompileResult<()> {
+        // Using SetupExcept with improved stack management
+        let handler_block = self.new_block();
+        let else_block = self.new_block();
+        let end_block = self.new_block();
+
+        // Setup exception handler
         emit!(
             self,
             Instruction::SetupExcept {
                 handler: handler_block,
             }
         );
+
+        // Compile try body
         self.compile_statements(body)?;
+
+        // Pop block if no exception occurred
         emit!(self, Instruction::PopBlock);
+
+        // Jump to else block
         emit!(self, Instruction::Jump { target: else_block });
 
-        // except handlers:
+        // Handler block - exception occurred
         self.switch_to_block(handler_block);
-        // Exception is on top of stack now
-        for handler in handlers {
+
+        // Exception is already on stack from SetupExcept
+
+        // Process exception handlers
+        for (i, handler) in handlers.iter().enumerate() {
             let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
                 type_, name, body, ..
             }) = &handler;
+
+            // Check for default except: must be last
+            if type_.is_none() && i < handlers.len() - 1 {
+                return Err(self.error(CodegenErrorType::SyntaxError(
+                    "default 'except:' must be last".to_string(),
+                )));
+            }
+
             let next_handler = self.new_block();
 
-            // If we gave a typ,
-            // check if this handler can handle the exception:
+            // If we have a type, check if this handler can handle the exception
             if let Some(exc_type) = type_ {
-                // Duplicate exception for test:
+                // Duplicate exception for matching
                 emit!(self, Instruction::Duplicate);
 
-                // Check exception type:
+                // Load exception type to match against
                 self.compile_expression(exc_type)?;
+
+                // Check if exception matches
                 emit!(
                     self,
                     Instruction::TestOperation {
-                        op: bytecode::TestOperator::ExceptionMatch,
+                        op: TestOperator::ExceptionMatch,
                     }
                 );
 
-                // We cannot handle this exception type:
+                // Jump to next handler if no match
                 emit!(
                     self,
                     Instruction::PopJumpIfFalse {
                         target: next_handler,
                     }
                 );
+            }
 
-                // We have a match, store in name (except x as y)
-                if let Some(alias) = name {
-                    self.store_name(alias.as_str())?
-                } else {
-                    // Drop exception from top of stack:
-                    emit!(self, Instruction::Pop);
-                }
+            // At this point, we have a matching handler
+            // Exception is on stack
+
+            // Handle exception binding
+            if let Some(alias) = name {
+                // Store exception in variable
+                self.store_name(alias.as_str())?;
             } else {
-                // Catch all!
-                // Drop exception from top of stack:
+                // Pop exception if not storing
                 emit!(self, Instruction::Pop);
             }
 
-            // Handler code:
+            // Compile handler body
             self.compile_statements(body)?;
+
+            // Pop exception context
             emit!(self, Instruction::PopException);
 
             // Delete the exception variable if it was bound
             if let Some(alias) = name {
-                // Set the variable to None before deleting
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
             }
 
-            if !finalbody.is_empty() {
-                emit!(self, Instruction::PopBlock); // pop excepthandler block
-                // We enter the finally block, without exception.
-                emit!(self, Instruction::EnterFinally);
-            }
+            // Jump to end
+            emit!(self, Instruction::Jump { target: end_block });
 
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: finally_block,
-                }
-            );
-
-            // Emit a new label for the next handler
+            // Next handler block
             self.switch_to_block(next_handler);
         }
 
-        // If code flows here, we have an unhandled exception,
-        // raise the exception again!
+        // No handler matched - reraise
+        emit!(self, Instruction::Reraise { level: 0 });
+
+        // Else block (executed if no exception)
+        self.switch_to_block(else_block);
+        self.compile_statements(orelse)?;
+        emit!(self, Instruction::Jump { target: end_block });
+
+        // End block
+        self.switch_to_block(end_block);
+
+        // No need for exception table entry when using SetupExcept
+
+        Ok(())
+    }
+
+    fn compile_try_finally(
+        &mut self,
+        body: &[Stmt],
+        handlers: &[ExceptHandler],
+        orelse: &[Stmt],
+        finalbody: &[Stmt],
+    ) -> CompileResult<()> {
+        // CPython-style finally implementation
+        let finally_handler = self.new_block();
+        let finally_exit = self.new_block();
+
+        // Setup finally handler
         emit!(
             self,
-            Instruction::Raise {
-                kind: bytecode::RaiseKind::Reraise,
+            Instruction::SetupFinally {
+                handler: finally_handler,
             }
         );
 
-        // We successfully ran the try block:
-        // else:
-        self.switch_to_block(else_block);
-        self.compile_statements(orelse)?;
-
-        if !finalbody.is_empty() {
-            emit!(self, Instruction::PopBlock); // pop finally block
-
-            // We enter the finallyhandler block, without return / exception.
-            emit!(self, Instruction::EnterFinally);
+        // Compile try body with exception handlers
+        // CPython: if (s->v.Try.handlers && asdl_seq_LEN(s->v.Try.handlers)) {
+        //     RETURN_IF_ERROR(compiler_try_except(c, s));
+        // }
+        if !handlers.is_empty() {
+            // Call compile_try_except like CPython does
+            self.compile_try_except(body, handlers, orelse)?;
+        } else {
+            // Just compile the body
+            self.compile_statements(body)?;
         }
 
-        // finally:
-        self.switch_to_block(finally_block);
-        if !finalbody.is_empty() {
-            self.compile_statements(finalbody)?;
-            emit!(self, Instruction::EndFinally);
-        }
+        // CPython: ADDOP(c, NO_LOCATION, POP_BLOCK);
+        emit!(self, Instruction::PopBlock);
+
+        // CPython: VISIT_SEQ(c, stmt, s->v.Try.finalbody);
+        // Normal path - compile finally body
+        self.compile_statements(finalbody)?;
+
+        // CPython: ADDOP_JUMP(c, NO_LOCATION, JUMP_NO_INTERRUPT, exit);
+        emit!(
+            self,
+            Instruction::Jump {
+                target: finally_exit
+            }
+        );
+
+        // CPython: USE_LABEL(c, end);
+        // Exception path - finally handler
+        self.switch_to_block(finally_handler);
+
+        // CPython: VISIT_SEQ(c, stmt, s->v.Try.finalbody);
+        // Compile finally body for exception path
+        self.compile_statements(finalbody)?;
+
+        // CPython: ADDOP_I(c, loc, RERAISE, 0);
+        emit!(self, Instruction::EndFinally);
+
+        // CPython: USE_LABEL(c, exit);
+        self.switch_to_block(finally_exit);
 
         Ok(())
     }
