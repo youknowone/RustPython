@@ -7,8 +7,6 @@ pub use builtins::{ascii, print, reversed};
 
 #[pymodule]
 mod builtins {
-    use core::io::IsTerminal;
-
     use crate::{
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
@@ -476,8 +474,17 @@ mod builtins {
                 .is_ok_and(|fd| fd == expected)
         };
 
+        #[cfg(target_os = "none")]
+        let is_terminal = false;
+
+        #[cfg(not(target_os = "none"))]
+        let is_terminal = {
+            use core::io::IsTerminal;
+            core::io::stdin().is_terminal()
+        };
+
         // everything is normal, we can just rely on rustyline to use stdin/stdout
-        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && core::io::stdin().is_terminal() {
+        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && is_terminal {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
