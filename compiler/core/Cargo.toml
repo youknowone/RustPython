@@ -19,7 +19,7 @@ malachite-bigint = { workspace = true }
 num-complex = { workspace = true }
 serde = { workspace = true, optional = true, default-features = false, features = ["derive"] }
 
-lz4_flex = "0.11"
+lz4_flex = { version = "0.11", default-features = false }
 
 [lints]
 workspace = true
