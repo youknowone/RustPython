@@ -110,7 +110,7 @@ widestring = { workspace = true }
 libffi = { workspace = true, features = ["system"] }
 libloading = "0.8"
 
-[target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
+[target.'cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
 
 [target.'cfg(windows)'.dependencies]
