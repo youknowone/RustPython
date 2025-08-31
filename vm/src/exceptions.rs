@@ -17,10 +17,8 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use core::{
-    collections::HashSet,
-    io::{self, BufRead, BufReader},
-};
+//use alloc::{self, BufRead, BufReader};
+use hashbrown::HashSet;
 
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -343,6 +341,7 @@ fn print_source_line<W: Write>(
     filename: &str,
     lineno: usize,
 ) -> Result<(), W::Error> {
+    /*
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
     let file = match core::fs::File::open(filename) {
@@ -362,6 +361,7 @@ fn print_source_line<W: Write>(
     }
 
     Ok(())
+    */
 }
 
 /// Print exception occurrence location from traceback element

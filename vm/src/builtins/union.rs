@@ -11,7 +11,8 @@ use crate::{
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
 use core::fmt;
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 

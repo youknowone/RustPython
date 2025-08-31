@@ -5,7 +5,8 @@ use crate::{
     function::PyStr,
     protocol::PyBuffer,
 };
-use core::{borrow::Cow, ffi::OsStr, path::PathBuf};
+use alloc::borrow::Cow;
+use unix_path::{PathBuf, Path};
 
 #[derive(Clone)]
 pub enum FsPath {
@@ -58,7 +59,7 @@ impl FsPath {
         })
     }
 
-    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<Cow<'_, OsStr>> {
+    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<Cow<'_, Path>> {
         // TODO: FS encodings
         match self {
             Self::Str(s) => vm.fsencode(s),
@@ -99,7 +100,7 @@ impl FsPath {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a core::ffi::OsStr> {
+    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a core::ffi::Path> {
         rustpython_common::os::bytes_as_os_str(b)
             .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
     }

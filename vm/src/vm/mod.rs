@@ -297,7 +297,7 @@ impl VirtualMachine {
             let importlib = import::init_importlib_base(self)?;
             self.import_utf8_encodings()?;
 
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
             {
                 let io = import::import_builtin(self, "_io")?;
                 #[cfg(feature = "stdio")]

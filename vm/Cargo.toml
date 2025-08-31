@@ -94,6 +94,7 @@ unic-ucd-ident = { workspace = true }
 
 cty = "0.2.2"
 hashbrown = { workspace = true }
+unix_path = { workspace = true }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
 nix = { workspace = true }

@@ -2,7 +2,7 @@
  * I/O core tools.
  */
 cfg_if::cfg_if! {
-    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+    if #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))] {
         use crate::common::crt_fd::Offset;
     } else {
         type Offset = i64;
@@ -53,7 +53,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
     let module = _io::make_module(vm);
 
-    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
     fileio::extend_module(vm, &module).unwrap();
 
     let unsupported_operation = _io::UNSUPPORTED_OPERATION
@@ -212,7 +212,7 @@ mod _io {
     }
 
     fn os_err(vm: &VirtualMachine, err: io::Error) -> PyBaseExceptionRef {
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
         {
             use crate::convert::ToPyException;
             err.to_pyexception(vm)
@@ -3980,7 +3980,7 @@ mod _io {
         // This is subsequently consumed by a Buffered Class.
         let file_io_class: &Py<PyType> = {
             cfg_if::cfg_if! {
-                if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+                if #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))] {
                     Some(super::fileio::FileIO::static_type())
                 } else {
                     None
@@ -4124,7 +4124,7 @@ mod _io {
 }
 
 // disable FileIO on WASM
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset};

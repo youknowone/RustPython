@@ -18,10 +18,12 @@ use crate::{
 };
 use once_cell::unsync::OnceCell;
 use core::{
-    borrow::Cow,
-    collections::HashMap,
     ops::{self, Range},
 };
+
+use alloc::borrow::Cow;
+
+use hashbrown::HashMap;
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,

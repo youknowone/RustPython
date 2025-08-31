@@ -34,7 +34,7 @@ pub mod os;
 pub mod nt;
 #[cfg(unix)]
 pub mod posix;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
 #[cfg(not(any(unix, windows)))]
 #[path = "posix_compat.rs"]
 pub mod posix;

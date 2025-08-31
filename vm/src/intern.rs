@@ -7,13 +7,13 @@ use crate::{
     convert::ToPyObject,
 };
 use core::{
-    borrow::{Borrow, ToOwned},
     ops::Deref,
 };
+use alloc::borrow::{Borrow, ToOwned};
 
 #[derive(Debug)]
 pub struct StringPool {
-    inner: PyRwLock<core::collections::HashSet<CachedPyStrRef, ahash::RandomState>>,
+    inner: PyRwLock<hashbrown::HashSet<CachedPyStrRef, ahash::RandomState>>,
 }
 
 impl Default for StringPool {

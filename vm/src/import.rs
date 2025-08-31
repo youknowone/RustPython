@@ -34,7 +34,7 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
         flame_guard!("install_external");
 
         // same deal as imports above
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+        #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
         import_builtin(vm, crate::stdlib::os::MODULE_NAME)?;
         #[cfg(windows)]
         import_builtin(vm, "winreg")?;
