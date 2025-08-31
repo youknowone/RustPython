@@ -248,8 +248,7 @@ dependencies = [
 [[package]]
 name = "caseless"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b6fd507454086c8edfd769ca6ada439193cdb209c7681712ef6275cccbfe5d8"
+source = "git+https://github.com/Masterchef365/rust-caseless.git?branch=no_std#b71575bf4b718340542a7f0a3060b96eb3b55ff1"
 dependencies = [
  "unicode-normalization",
 ]
