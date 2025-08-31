@@ -16,6 +16,13 @@ mod stat {
     #[cfg(not(any(unix, windows)))]
     type Mode = u32; // Fallback for unknown targets
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
+
     // libc_const macro for conditional compilation
     macro_rules! libc_const {
         (#[cfg($cfg:meta)] $name:ident, $fallback:expr) => {{

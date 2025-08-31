@@ -31,7 +31,7 @@ use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
-
+use alloc::boxed::Box;
 
 #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
 #[macro_use]

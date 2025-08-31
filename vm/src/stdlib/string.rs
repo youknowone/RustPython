@@ -24,6 +24,12 @@ mod _string {
     };
     use core::mem;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
     fn create_format_part(
         literal: Wtf8Buf,
         field_name: Option<Wtf8Buf>,

@@ -5,11 +5,18 @@ use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
 
 
 #[pymodule]
 mod atexit {
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine, function::FuncArgs};
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+    use alloc::boxed::Box;
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {

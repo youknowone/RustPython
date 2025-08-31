@@ -22,7 +22,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
 
-impl ToPyException for core::io::Error {
+impl ToPyException for no_std_io::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let errno = self.posix_errno();
         let msg = self.to_string();
@@ -47,7 +47,7 @@ impl ToPyException for core::io::Error {
     }
 }
 
-impl IntoPyException for core::io::Error {
+impl IntoPyException for no_std_io::io::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.to_pyexception(vm)
     }
@@ -4371,7 +4371,7 @@ mod fileio {
                 match fd_fstat {
                     Ok(status) => {
                         if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-                            let err = core::io::Error::from_raw_os_error(libc::EISDIR);
+                            let err = no_std_io::io::Error::from_raw_os_error(libc::EISDIR);
                             return Err(IOErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }

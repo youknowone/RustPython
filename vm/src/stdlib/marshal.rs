@@ -28,6 +28,11 @@ mod decl {
     use num_traits::Zero;
     use rustpython_compiler_core::marshal;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
     #[pyattr(name = "version")]
     use marshal::FORMAT_VERSION;
 
