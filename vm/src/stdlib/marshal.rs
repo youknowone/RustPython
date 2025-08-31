@@ -1,6 +1,12 @@
 // spell-checker:ignore pyfrozen pycomplex
 pub(crate) use decl::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule(name = "marshal")]
 mod decl {
     use crate::builtins::code::{CodeObject, Literal, PyObjBag};

@@ -3,6 +3,12 @@ use crate::object::AsObject;
 use crate::{PyObject, PyResult, VirtualMachine};
 use num_traits::ToPrimitive;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
     if let Ok(elements) = obj.try_bytes_like(vm, |bytes| bytes.to_vec()) {
         return Ok(elements);

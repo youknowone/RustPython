@@ -8,6 +8,12 @@ use crate::{
     types::{GetAttr, Initializer, Representable},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModuleDef {

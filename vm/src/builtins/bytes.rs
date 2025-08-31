@@ -32,6 +32,12 @@ use bstr::ByteSlice;
 use once_cell::sync::Lazy as LazyLock;
 use core::{mem::size_of, ops::Deref};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {

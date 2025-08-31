@@ -28,6 +28,12 @@ use core::fmt;
 //use core::sync::LazyLock;
 use once_cell::sync::Lazy as LazyLock;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub type DictContentType = dict_inner::Dict;
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse)]

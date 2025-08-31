@@ -1,5 +1,11 @@
 pub(crate) use _collections::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod _collections {
     use crate::{
@@ -25,6 +31,13 @@ mod _collections {
     use crossbeam_utils::atomic::AtomicCell;
     use core::cmp::max;
     use alloc::collections::VecDeque;
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
 
     #[pyattr]
     #[pyclass(module = "collections", name = "deque", unhashable = true)]

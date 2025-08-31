@@ -24,6 +24,12 @@ use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use core::fmt;
 use core::ops::{Neg, Not};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "int")]
 #[derive(Debug)]
 pub struct PyInt {

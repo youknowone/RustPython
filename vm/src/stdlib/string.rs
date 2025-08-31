@@ -1,6 +1,12 @@
 /* String builtin module
  */
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub(crate) use _string::make_module;
 
 #[pymodule]

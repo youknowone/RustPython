@@ -1,5 +1,11 @@
 use core::ptr::NonNull;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
 use crate::{AsObject, PyObject, PyObjectRef, PyRef, function::Either, object::PyObjectPayload};

@@ -1,5 +1,11 @@
 pub(crate) use decl::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::stdlib::itertools::decl::int::get_value;

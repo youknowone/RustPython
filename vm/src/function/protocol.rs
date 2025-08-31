@@ -10,6 +10,12 @@ use crate::{
 };
 use core::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[derive(Clone, Traverse)]
 pub struct ArgCallable {
     obj: PyObjectRef,

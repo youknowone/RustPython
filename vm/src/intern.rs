@@ -1,5 +1,10 @@
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
     builtins::{PyStr, PyStrInterned, PyTypeRef},
@@ -9,7 +14,6 @@ use crate::{
 use core::{
     ops::Deref,
 };
-use alloc::borrow::{Borrow, ToOwned};
 
 #[derive(Debug)]
 pub struct StringPool {

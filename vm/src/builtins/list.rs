@@ -22,6 +22,12 @@ use crate::{
 };
 use core::{fmt, ops::DerefMut};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "list", unhashable = true, traverse)]
 #[derive(Default)]
 pub struct PyList {

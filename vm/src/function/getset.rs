@@ -1,5 +1,11 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 */
 use crate::{
     Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,

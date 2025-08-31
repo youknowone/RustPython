@@ -1,5 +1,11 @@
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod stat {
     // Use libc::mode_t for Mode to match the system's definition

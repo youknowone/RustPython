@@ -8,6 +8,12 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub(crate) fn _call_typing_func_object<'a>(
     vm: &VirtualMachine,
     func_name: impl AsPyStr<'a>,

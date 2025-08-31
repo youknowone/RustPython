@@ -1,5 +1,11 @@
 pub(crate) use _codecs::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod _codecs {
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};

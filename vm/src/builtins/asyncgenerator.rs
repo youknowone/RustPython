@@ -10,6 +10,12 @@ use crate::{
     types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use crossbeam_utils::atomic::AtomicCell;
 
 #[pyclass(name = "async_generator", module = false)]

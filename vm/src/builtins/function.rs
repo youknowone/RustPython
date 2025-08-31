@@ -1,6 +1,12 @@
 #[cfg(feature = "jit")]
 mod jit;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTuple, PyTupleRef,
     PyType, PyTypeRef,

@@ -20,6 +20,12 @@ use num_traits::Zero;
 use rustpython_common::hash;
 use core::num::Wrapping;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 /// Create a complex number from a real part and an optional imaginary part.
 ///
 /// This is equivalent to (real + imag*1j) where imag defaults to 0.

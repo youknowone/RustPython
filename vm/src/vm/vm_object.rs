@@ -8,6 +8,12 @@ use crate::{
     vm::VirtualMachine,
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 /// PyObject support
 impl VirtualMachine {
     #[track_caller]

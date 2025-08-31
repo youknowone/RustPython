@@ -27,6 +27,12 @@ pub mod typing;
 pub mod warnings;
 mod weakref;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
 #[macro_use]
 pub mod os;

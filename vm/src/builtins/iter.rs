@@ -2,6 +2,12 @@
  * iterator types
  */
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,

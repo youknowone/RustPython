@@ -9,6 +9,12 @@ use crate::{
 use optional::Optioned;
 use core::ops::{Deref, Range};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub trait MutObjectSequenceOp {
     type Inner: ?Sized;
 

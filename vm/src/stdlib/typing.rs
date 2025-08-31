@@ -1,6 +1,12 @@
 // spell-checker:ignore typevarobject funcobj
 use crate::{PyPayload, PyRef, VirtualMachine, class::PyClassImpl, stdlib::PyModule};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub use crate::stdlib::typevar::{
     Generic, ParamSpec, ParamSpecArgs, ParamSpecKwargs, TypeVar, TypeVarTuple,
     set_typeparam_default,

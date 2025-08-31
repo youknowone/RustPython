@@ -15,6 +15,12 @@ use crate::{
 //use core::sync::LazyLock;
 use once_cell::sync::Lazy as LazyLock;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]
 pub struct PyMappingProxy {

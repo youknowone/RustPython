@@ -1,6 +1,12 @@
 pub use atexit::_run_exitfuncs;
 pub(crate) use atexit::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod atexit {
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine, function::FuncArgs};

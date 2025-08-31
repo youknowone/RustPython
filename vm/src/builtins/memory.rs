@@ -33,6 +33,12 @@ use rustpython_common::lock::PyMutex;
 use once_cell::sync::Lazy as LazyLock;
 use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,

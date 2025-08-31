@@ -1,5 +1,11 @@
 pub(crate) use _functools::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod _functools {
     use crate::{
@@ -14,6 +20,11 @@ mod _functools {
         types::{Callable, Constructor, Representable},
     };
     use indexmap::IndexMap;
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
 
     #[pyfunction]
     fn reduce(

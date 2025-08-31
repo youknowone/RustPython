@@ -1,5 +1,11 @@
 use rustpython_common::wtf8::Wtf8;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},

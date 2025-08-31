@@ -1,6 +1,12 @@
 //! This module provides functionality to suggest similar names for attributes or variables.
 //! This is used during tracebacks.
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use crate::{
     AsObject, Py, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},
