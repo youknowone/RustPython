@@ -186,7 +186,7 @@ crossbeam-utils = "0.8.21"
 flame = "0.2.2"
 getrandom = { version = "0.3", features = [] }
 glob = "0.3"
-hex = "0.4.3"
+hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 indexmap = { version = "2.10.0", default-features = false }
 insta = "1.42"
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }

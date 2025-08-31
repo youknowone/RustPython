@@ -2052,8 +2052,7 @@ dependencies = [
 [[package]]
 name = "result-like"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abf7172fef6a7d056b5c26bf6c826570267562d51697f4982ff3ba4aec68a9df"
+source = "git+https://github.com/Masterchef365/result-like.git?branch=no_std#872e6b152a6eceb33b686b3728720f515743f6c7"
 dependencies = [
  "result-like-derive",
 ]
@@ -2061,8 +2060,7 @@ dependencies = [
 [[package]]
 name = "result-like-derive"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8d6574c02e894d66370cfc681e5d68fedbc9a548fb55b30a96b3f0ae22d0fe5"
+source = "git+https://github.com/Masterchef365/result-like.git?branch=no_std#872e6b152a6eceb33b686b3728720f515743f6c7"
 dependencies = [
  "pmutil",
  "proc-macro2",

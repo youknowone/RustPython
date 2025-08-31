@@ -79,7 +79,8 @@ flamer = { version = "0.4", optional = true }
 half = { version = "2", default-features = false, features = ["alloc"] }
 memoffset = "0.9.1"
 optional = { workspace = true }
-result-like = "0.5.0"
+#result-like = "0.5.0"
+result-like = { git = "https://github.com/Masterchef365/result-like.git", branch = "no_std" }
 timsort = "0.1.2"
 
 ## unicode stuff
