@@ -8,6 +8,12 @@ use crate::{
 };
 use rustpython_common::lock::PyRwLock;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[derive(Debug)]
 pub struct PyDescriptor {
     pub typ: &'static Py<PyType>,

@@ -9,6 +9,11 @@ use crate::{
 };
 use core::fmt;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 // PyCFunctionObject in CPython
 #[pyclass(name = "builtin_function_or_method", module = false)]
 pub struct PyNativeFunction {

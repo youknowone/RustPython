@@ -19,6 +19,12 @@ use crate::{
 };
 use core::fmt;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 // attr_exceptions
 static ATTR_EXCEPTIONS: [&str; 12] = [
     "__class__",

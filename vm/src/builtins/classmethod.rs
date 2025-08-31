@@ -6,6 +6,12 @@ use crate::{
     types::{Constructor, GetDescriptor, Initializer, Representable},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 /// classmethod(function) -> method
 ///
 /// Convert a function to be a class method.

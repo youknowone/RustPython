@@ -9,6 +9,11 @@ use crate::{
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 #[pyclass(module = false, name = "map", traverse)]
 #[derive(Debug)]
 pub struct PyMap {

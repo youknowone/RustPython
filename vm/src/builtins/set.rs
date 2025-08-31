@@ -1,3 +1,8 @@
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 /*
  * Builtin set type with a sequence of unique items.
  */

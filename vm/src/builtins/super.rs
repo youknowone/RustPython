@@ -13,6 +13,12 @@ use crate::{
     types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer, Representable},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "super", traverse)]
 #[derive(Debug)]
 pub struct PySuper {

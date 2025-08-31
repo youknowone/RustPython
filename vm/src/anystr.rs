@@ -6,6 +6,10 @@ use crate::{
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
+use alloc::{vec, format};
+use alloc::string::String;
+use alloc::vec::Vec;
+
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, default)]

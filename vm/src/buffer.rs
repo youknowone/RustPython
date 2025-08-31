@@ -11,6 +11,10 @@ use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
 use core::{fmt, iter::Peekable, mem};
 
+use alloc::{vec, format};
+use alloc::string::String;
+use alloc::vec::Vec;
+
 type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
 

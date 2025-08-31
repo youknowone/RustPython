@@ -6,6 +6,12 @@
 //!
 pub(crate) use _weakref::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod _weakref {
     use crate::{

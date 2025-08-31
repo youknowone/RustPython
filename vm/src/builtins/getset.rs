@@ -10,6 +10,11 @@ use crate::{
     types::{GetDescriptor, Unconstructible},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 #[pyclass(module = false, name = "getset_descriptor")]
 pub struct PyGetSet {
     name: String,

@@ -1,3 +1,8 @@
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 use super::{
     PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTupleRef, PyWeak,
     mappingproxy::PyMappingProxy, object, union_,

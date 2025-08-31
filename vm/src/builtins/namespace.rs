@@ -10,6 +10,12 @@ use crate::{
     },
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 /// A simple attribute-based namespace.
 ///
 /// SimpleNamespace(**kwargs)
