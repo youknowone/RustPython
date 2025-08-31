@@ -3,7 +3,8 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
 };
-use core::{fmt, io, ops};
+use core::{fmt, ops};
+use no_std_io::io;
 
 use alloc::{vec, format};
 use alloc::string::{String, ToString};

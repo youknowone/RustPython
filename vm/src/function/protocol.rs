@@ -239,7 +239,7 @@ impl<'a, T> IntoIterator for &'a ArgSequence<T> {
 }
 impl<T> IntoIterator for ArgSequence<T> {
     type Item = T;
-    type IntoIter = core::vec::IntoIter<T>;
+    type IntoIter = alloc::vec::IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }

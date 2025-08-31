@@ -97,7 +97,7 @@ impl FsPath {
     }
 
     pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
-        core::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
+        alloc::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(windows)]

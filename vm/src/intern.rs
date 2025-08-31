@@ -3,7 +3,7 @@ use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::borrow::ToOwned;
+use alloc::borrow::{ToOwned, Borrow};
 
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
@@ -104,7 +104,7 @@ impl PartialEq for CachedPyStrRef {
 
 impl Eq for CachedPyStrRef {}
 
-impl core::borrow::Borrow<Wtf8> for CachedPyStrRef {
+impl alloc::borrow::Borrow<Wtf8> for CachedPyStrRef {
     #[inline]
     fn borrow(&self) -> &Wtf8 {
         self.as_wtf8()
@@ -213,6 +213,11 @@ impl<T: PyPayload> ToPyObject for &'static PyInterned<T> {
 
 mod sealed {
     use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::{ToOwned, Borrow};
 
     use crate::{
         builtins::PyStr,
