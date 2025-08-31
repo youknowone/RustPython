@@ -70,13 +70,13 @@ static_assertions = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
-thread_local = { workspace = true }
+#thread_local = { workspace = true }
 memchr = { workspace = true }
 
 #caseless = "0.2.2"
 caseless = { git = "https://github.com/Masterchef365/rust-caseless.git", branch = "no_std" }
 flamer = { version = "0.4", optional = true }
-half = "2"
+half = { version = "2", default-features = false, features = ["alloc"] }
 memoffset = "0.9.1"
 optional = { workspace = true }
 result-like = "0.5.0"
@@ -97,7 +97,7 @@ rustix = { workspace = true }
 exitcode = "1.1.2"
 uname = "0.1.1"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(all(not(target_os = "none"), not(target_arch = "wasm32")))'.dependencies]
 rustyline = { workspace = true }
 which = "8"
 errno = "0.3"
