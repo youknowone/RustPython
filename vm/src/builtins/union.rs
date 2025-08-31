@@ -14,6 +14,12 @@ use core::fmt;
 //use core::sync::LazyLock;
 use once_cell::sync::Lazy as LazyLock;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 const CLS_ATTRS: &[&str] = &["__module__"];
 
 #[pyclass(module = "types", name = "UnionType", traverse)]

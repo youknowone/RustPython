@@ -5,6 +5,12 @@ use crate::{Py, VirtualMachine, builtins::PyModule, class::PyClassImpl};
 pub(crate) use builtins::{__module_def, DOC};
 pub use builtins::{ascii, print, reversed};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pymodule]
 mod builtins {
     use crate::{
@@ -31,6 +37,11 @@ mod builtins {
     use itertools::Itertools;
     use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::CodePoint;
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
 
     #[cfg(not(feature = "rustpython-compiler"))]
     const CODEGEN_NOT_SUPPORTED: &str =

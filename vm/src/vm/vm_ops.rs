@@ -9,6 +9,12 @@ use crate::{
 };
 use num_traits::ToPrimitive;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 macro_rules! binary_func {
     ($fn:ident, $op_slot:ident, $op:expr) => {
         pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {

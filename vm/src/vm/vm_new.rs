@@ -14,6 +14,12 @@ use crate::{
 };
 use rustpython_compiler_core::SourceLocation;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 macro_rules! define_exception_fn {
     (
         fn $fn_name:ident, $attr:ident, $python_repr:ident

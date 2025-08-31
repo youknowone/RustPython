@@ -8,6 +8,11 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use core::ops::RangeInclusive;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
     fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {

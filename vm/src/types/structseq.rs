@@ -5,6 +5,12 @@ use crate::{
     vm::Context,
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass]
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     const REQUIRED_FIELD_NAMES: &'static [&'static str];

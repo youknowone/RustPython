@@ -1,6 +1,12 @@
 use crate::{PyObjectRef, PyResult, types::PyComparisonOp, vm::VirtualMachine};
 use itertools::Itertools;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObjectRef> + Sized {
     fn eq(self, other: impl PyExactSizeIterator<'a>, vm: &VirtualMachine) -> PyResult<bool> {
         let lhs = self;

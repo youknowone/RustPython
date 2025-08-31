@@ -2,6 +2,12 @@ use crate::frozen::FrozenModule;
 use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
 pub(crate) use _imp::make_module;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[cfg(feature = "threading")]
 #[pymodule(sub)]
 mod lock {

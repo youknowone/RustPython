@@ -1,6 +1,13 @@
 #[cfg(feature = "flame-it")]
 use core::ffi::OsString;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
+
 /// Struct containing all kind of settings for the python vm.
 /// Mostly `PyConfig` in CPython.
 #[non_exhaustive]

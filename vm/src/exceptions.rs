@@ -1212,6 +1212,12 @@ pub(super) mod types {
     use itertools::Itertools;
     use rustpython_common::str::UnicodeEscapeCodepoint;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
     // `PyBaseExceptionRef` is the only exception.

@@ -8,6 +8,12 @@ use crate::{
 use alloc::borrow::Cow;
 use unix_path::{PathBuf, Path};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[derive(Clone)]
 pub enum FsPath {
     Str(PyStrRef),

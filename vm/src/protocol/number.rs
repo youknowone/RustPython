@@ -2,6 +2,12 @@ use core::ops::Deref;
 
 use crossbeam_utils::atomic::AtomicCell;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,

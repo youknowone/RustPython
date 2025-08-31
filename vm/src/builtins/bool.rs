@@ -14,6 +14,12 @@ use malachite_bigint::Sign;
 use num_traits::Zero;
 use core::fmt::{Debug, Formatter};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 impl ToPyObject for bool {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bool(self).into()

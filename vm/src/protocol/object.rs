@@ -1,6 +1,12 @@
 //! Object Protocol
 //! <https://docs.python.org/3/c-api/object.html>
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{

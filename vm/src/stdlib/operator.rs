@@ -14,6 +14,13 @@ mod _operator {
     };
     use constant_time_eq::constant_time_eq;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
+
     #[pyfunction]
     fn lt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Lt, vm)

@@ -19,6 +19,12 @@ mod _weakref {
         builtins::{PyDictRef, PyTypeRef, PyWeak},
     };
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
     #[pyattr(name = "ref")]
     fn ref_(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakref_type.to_owned()

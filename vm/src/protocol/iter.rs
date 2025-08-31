@@ -7,6 +7,12 @@ use crate::{
 use core::borrow::Borrow;
 use core::ops::Deref;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 /// Iterator Protocol
 // https://docs.python.org/3/c-api/iter.html
 #[derive(Debug, Clone)]

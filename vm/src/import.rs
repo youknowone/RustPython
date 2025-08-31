@@ -8,6 +8,12 @@ use crate::{
     vm::{VirtualMachine, thread},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
     flame_guard!("init importlib");
 

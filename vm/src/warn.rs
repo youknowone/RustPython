@@ -7,6 +7,12 @@ use crate::{
     types::PyComparisonOp,
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub struct WarningsState {
     filters: PyListRef,
     _once_registry: PyDictRef,

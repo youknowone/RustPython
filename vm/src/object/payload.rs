@@ -6,6 +6,12 @@ use crate::{
     vm::{Context, VirtualMachine},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         pub trait PyThreadingConstraint: Send + Sync {}

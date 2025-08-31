@@ -4,6 +4,11 @@ pub(crate) use _sysconfigdata::make_module;
 pub(crate) mod _sysconfigdata {
     use crate::{VirtualMachine, builtins::PyDictRef, convert::ToPyObject, stdlib::sys::MULTIARCH};
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
     #[pyattr]
     fn build_time_vars(vm: &VirtualMachine) -> PyDictRef {
         let vars = vm.ctx.new_dict();

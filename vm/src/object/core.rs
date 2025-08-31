@@ -39,6 +39,12 @@ use core::{
     ptr::{self, NonNull},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 // so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
 // a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.

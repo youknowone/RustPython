@@ -5,6 +5,11 @@ use num_complex::Complex64;
 use num_traits::PrimInt;
 use core::ops::Deref;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 /// A Python complex-like object.
 ///
 /// `ArgIntoComplex` implements `FromArgs` so that a built-in function can accept

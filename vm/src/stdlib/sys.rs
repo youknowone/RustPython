@@ -2,6 +2,11 @@ use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObjec
 
 pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgs};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 #[pymodule]
 mod sys {
     use crate::{
@@ -30,6 +35,11 @@ mod sys {
     };
     use unix_path as path;
     use no_std_io::io::Read;
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
 
     #[cfg(windows)]
     use windows_sys::Win32::{
@@ -1206,7 +1216,7 @@ impl PyStderr<'_> {
                 return;
             }
         }
-        eprint!("{args}")
+        //eprint!("{args}")
     }
 }
 

@@ -48,6 +48,12 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     use windows::Win32::System::Time;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
     #[allow(dead_code)]

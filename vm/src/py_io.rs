@@ -5,6 +5,12 @@ use crate::{
 };
 use core::{fmt, io, ops};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub trait Write {
     type Error;
     fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Self::Error>;

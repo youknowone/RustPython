@@ -9,6 +9,12 @@ use crate::{
 use crate::common::format::*;
 use crate::common::wtf8::{Wtf8, Wtf8Buf};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {

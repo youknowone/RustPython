@@ -17,6 +17,11 @@ use crate::{
 };
 pub use _io::{OpenArgs, io_open as open};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 impl ToPyException for core::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let errno = self.posix_errno();
@@ -152,6 +157,13 @@ mod _io {
 
     use no_std_io::io::{self, Cursor, SeekFrom};
     use alloc::borrow::Cow;
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
@@ -4141,6 +4153,12 @@ mod fileio {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use core::io::{Read, Write};
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
 
     bitflags::bitflags! {
         #[derive(Copy, Clone, Debug, PartialEq)]

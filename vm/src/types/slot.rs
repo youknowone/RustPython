@@ -19,6 +19,12 @@ use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use core::{borrow::Borrow, cmp::Ordering, ops::Deref};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[macro_export]
 macro_rules! atomic_func {
     ($x:expr) => {

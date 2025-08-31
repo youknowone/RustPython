@@ -1,6 +1,12 @@
 //! Buffer protocol
 //! <https://docs.python.org/3/c-api/buffer.html>
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 use crate::{
     Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     common::{

@@ -7,6 +7,12 @@ use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use core::ops::Range;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 pub trait SliceableSequenceMutOp
 where
     Self: AsRef<[Self::Item]>,

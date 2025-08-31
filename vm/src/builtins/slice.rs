@@ -13,6 +13,12 @@ use crate::{
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 #[pyclass(module = false, name = "slice", unhashable = true, traverse)]
 #[derive(Debug)]
 pub struct PySlice {

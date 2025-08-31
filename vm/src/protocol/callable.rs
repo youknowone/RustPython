@@ -4,6 +4,12 @@ use crate::{
     {AsObject, PyObject, PyResult, VirtualMachine},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 impl PyObject {
     #[inline]
     pub fn to_callable(&self) -> Option<PyCallable<'_>> {

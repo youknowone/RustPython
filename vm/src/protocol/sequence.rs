@@ -10,6 +10,12 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use core::fmt::Debug;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 // Sequence Protocol
 // https://docs.python.org/3/c-api/sequence.html
 

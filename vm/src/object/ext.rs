@@ -20,6 +20,12 @@ use core::{
     ptr::{NonNull, null_mut},
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
+
 /* Python objects and references.
 
 Okay, so each python object itself is an class itself (PyObject). Each
