@@ -11,6 +11,12 @@ use core::{
     ptr, slice,
 };
 
+use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{format, vec};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 pub struct BoxVec<T> {
     xs: Box<[MaybeUninit<T>]>,
     len: usize,

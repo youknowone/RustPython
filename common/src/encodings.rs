@@ -5,6 +5,12 @@ use num_traits::ToPrimitive;
 use crate::str::StrKind;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
+use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{format, vec};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 pub trait StrBuffer: AsRef<Wtf8> {
     fn is_compatible_with(&self, kind: StrKind) -> bool {
         let s = self.as_ref();

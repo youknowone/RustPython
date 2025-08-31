@@ -17,6 +17,11 @@ use crate::{
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
 
+use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{format, vec};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
 fn spec_format_bytes(
     vm: &VirtualMachine,
     spec: &CFormatSpec,

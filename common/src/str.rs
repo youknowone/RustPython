@@ -7,6 +7,12 @@ use core::fmt;
 use core::sync::atomic::Ordering::Relaxed;
 use core::ops::{Bound, RangeBounds};
 
+use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{format, vec};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
 pub type wchar_t = libc::wchar_t;
@@ -465,7 +471,8 @@ impl fmt::Display for UnicodeEscapeCodepoint {
 }
 
 pub mod levenshtein {
-    use core::{cell::RefCell, thread_local};
+    //use core::{cell::RefCell, thread_local};
+    use core::cell::RefCell;
 
     pub const MOVE_COST: usize = 2;
     const CASE_COST: usize = 1;
@@ -488,12 +495,12 @@ pub mod levenshtein {
     }
 
     pub fn levenshtein_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
-        thread_local! {
+        //thread_local! {
             #[allow(clippy::declare_interior_mutable_const)]
             static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = const {
                 RefCell::new([0usize; MAX_STRING_SIZE])
             };
-        }
+        //}
 
         if a == b {
             return 0;

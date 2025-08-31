@@ -10,6 +10,11 @@ use rustpython_literal::format::Case;
 use core::ops::Deref;
 use core::{cmp, str::FromStr};
 
+use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{format, vec};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 trait FormatParse {

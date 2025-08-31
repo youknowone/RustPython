@@ -11,6 +11,11 @@ use core::{
     str::FromStr,
 };
 
+use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{format, vec};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 #[derive(Debug, PartialEq)]

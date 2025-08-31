@@ -2,6 +2,9 @@
 
 #![cfg_attr(all(target_os = "wasi", target_env = "p2"), feature(wasip2))]
 
+#![no_std]
+extern crate alloc;
+
 #[macro_use]
 mod macros;
 pub use macros::*;
@@ -13,7 +16,7 @@ pub mod cformat;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
 pub mod encodings;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(any(all(not(target_os = "none"), not(target_arch = "wasm32")), target_os = "wasi"))]
 pub mod fileutils;
 pub mod float_ops;
 pub mod format;

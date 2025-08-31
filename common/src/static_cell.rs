@@ -1,10 +1,11 @@
 #[cfg(not(feature = "threading"))]
 mod non_threading {
     use crate::lock::OnceCell;
-    use core::thread::LocalKey;
+    //use core::thread::LocalKey;
 
     pub struct StaticCell<T: 'static> {
-        inner: &'static LocalKey<OnceCell<&'static T>>,
+        //inner: &'static LocalKey<OnceCell<&'static T>>,
+        inner: &'static OnceCell<&'static T>,
     }
 
     fn leak<T>(x: T) -> &'static T {
@@ -13,7 +14,8 @@ mod non_threading {
 
     impl<T> StaticCell<T> {
         #[doc(hidden)]
-        pub const fn _from_local_key(inner: &'static LocalKey<OnceCell<&'static T>>) -> Self {
+        //pub const fn _from_local_key(inner: &'static LocalKey<OnceCell<&'static T>>) -> Self {
+        pub const fn _from_local_key(inner: &'static OnceCell<&'static T>) -> Self {
             Self { inner }
         }
 
@@ -55,11 +57,11 @@ mod non_threading {
         ($($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty;)+) => {
             $($(#[$attr])*
             $vis static $name: $crate::static_cell::StaticCell<$t> = {
-                ::core::thread_local! {
+                //::core::thread_local! {
                      $vis static $name: $crate::lock::OnceCell<&'static $t> = const {
                          $crate::lock::OnceCell::new()
                      };
-                }
+                //}
                 $crate::static_cell::StaticCell::_from_local_key(&$name)
             };)+
         };
