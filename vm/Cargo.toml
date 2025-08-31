@@ -92,6 +92,9 @@ unic-ucd-bidi = { workspace = true }
 unic-ucd-category = { workspace = true }
 unic-ucd-ident = { workspace = true }
 
+cty = "0.2.2"
+hashbrown = { workspace = true }
+
 [target.'cfg(not(target_os = "none"))'.dependencies]
 nix = { workspace = true }
 

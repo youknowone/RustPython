@@ -19,7 +19,8 @@ use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use core::cmp::max;
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 
 // Search flag passed to iter_search
 enum SearchType {

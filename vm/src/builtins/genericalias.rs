@@ -1,5 +1,6 @@
 // spell-checker:ignore iparam
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 
 use super::type_;
 use crate::{

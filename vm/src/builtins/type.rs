@@ -32,7 +32,8 @@ use crate::{
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
-use core::{borrow::Borrow, collections::HashSet, ops::Deref, pin::Pin, ptr::NonNull};
+use core::{borrow::Borrow, ops::Deref, pin::Pin, ptr::NonNull};
+use hashbrown::HashSet;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {

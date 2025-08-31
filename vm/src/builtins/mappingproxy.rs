@@ -12,7 +12,8 @@ use crate::{
         Representable,
     },
 };
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]

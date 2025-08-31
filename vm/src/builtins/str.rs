@@ -37,8 +37,12 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use core::{borrow::Cow, char, fmt, ops::Range};
-use core::{mem, sync::LazyLock};
+use core::{char, fmt, ops::Range};
+use alloc::borrow::Cow;
+//use core::{mem, sync::LazyLock};
+use core::mem;
+
+use once_cell::sync::Lazy as LazyLock;
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -191,8 +195,8 @@ impl From<StrData> for PyStr {
     }
 }
 
-impl<'a> From<core::borrow::Cow<'a, str>> for PyStr {
-    fn from(s: core::borrow::Cow<'a, str>) -> Self {
+impl<'a> From<Cow<'a, str>> for PyStr {
+    fn from(s: Cow<'a, str>) -> Self {
         s.into_owned().into()
     }
 }
@@ -2021,8 +2025,8 @@ impl From<char> for PyUtf8Str {
     }
 }
 
-impl<'a> From<core::borrow::Cow<'a, str>> for PyUtf8Str {
-    fn from(s: core::borrow::Cow<'a, str>) -> Self {
+impl<'a> From<Cow<'a, str>> for PyUtf8Str {
+    fn from(s: Cow<'a, str>) -> Self {
         s.into_owned().into()
     }
 }

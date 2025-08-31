@@ -29,7 +29,8 @@ use crate::{
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]

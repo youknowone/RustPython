@@ -9,7 +9,7 @@ use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
-use core::{fmt, iter::Peekable, mem, os::raw};
+use core::{fmt, iter::Peekable, mem};
 
 type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
@@ -155,35 +155,35 @@ impl FormatType {
         match e {
             Endianness::Native => match self {
                 Pad | Str | Pascal => &FormatInfo {
-                    size: size_of::<raw::c_char>(),
+                    size: size_of::<cty::c_char>(),
                     align: 0,
                     pack: None,
                     unpack: None,
                 },
-                SByte => native_info!(raw::c_schar),
-                UByte => native_info!(raw::c_uchar),
+                SByte => native_info!(cty::c_schar),
+                UByte => native_info!(cty::c_uchar),
                 Char => &FormatInfo {
-                    size: size_of::<raw::c_char>(),
+                    size: size_of::<cty::c_char>(),
                     align: 0,
                     pack: Some(pack_char),
                     unpack: Some(unpack_char),
                 },
                 WideChar => native_info!(wchar_t),
-                Short => native_info!(raw::c_short),
-                UShort => native_info!(raw::c_ushort),
-                Int => native_info!(raw::c_int),
-                UInt => native_info!(raw::c_uint),
-                Long => native_info!(raw::c_long),
-                ULong => native_info!(raw::c_ulong),
+                Short => native_info!(cty::c_short),
+                UShort => native_info!(cty::c_ushort),
+                Int => native_info!(cty::c_int),
+                UInt => native_info!(cty::c_uint),
+                Long => native_info!(cty::c_long),
+                ULong => native_info!(cty::c_ulong),
                 SSizeT => native_info!(isize), // ssize_t == isize
                 SizeT => native_info!(usize),  //  size_t == usize
-                LongLong => native_info!(raw::c_longlong),
-                ULongLong => native_info!(raw::c_ulonglong),
+                LongLong => native_info!(cty::c_longlong),
+                ULongLong => native_info!(cty::c_ulonglong),
                 Bool => native_info!(bool),
                 Half => native_info!(f16),
-                Float => native_info!(raw::c_float),
-                Double => native_info!(raw::c_double),
-                VoidP => native_info!(*mut raw::c_void),
+                Float => native_info!(cty::c_float),
+                Double => native_info!(cty::c_double),
+                VoidP => native_info!(*mut cty::c_void),
             },
             Endianness::Big => match_nonnative!(self, BigEndian),
             Endianness::Little => match_nonnative!(self, LittleEndian),
@@ -558,7 +558,7 @@ impl Packable for f16 {
     }
 }
 
-impl Packable for *mut raw::c_void {
+impl Packable for *mut cty::c_void {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
         usize::pack::<E>(vm, arg, data)
     }

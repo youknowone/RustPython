@@ -711,6 +711,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cty"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b365fabc795046672053e29c954733ec3b05e4be654ab130fe8f1f94d7051f35"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2436,6 +2442,7 @@ dependencies = [
  "chrono",
  "constant_time_eq",
  "crossbeam-utils",
+ "cty",
  "errno",
  "exitcode",
  "flame",
@@ -2443,6 +2450,7 @@ dependencies = [
  "getrandom 0.3.3",
  "glob",
  "half",
+ "hashbrown 0.16.0",
  "hex",
  "indexmap",
  "is-macro 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",

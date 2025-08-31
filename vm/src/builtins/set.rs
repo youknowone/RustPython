@@ -27,7 +27,8 @@ use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 use core::{fmt, ops::Deref};
 
 pub type SetContentType = dict_inner::Dict<()>;

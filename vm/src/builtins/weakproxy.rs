@@ -12,6 +12,7 @@ use crate::{
     },
 };
 use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 
 #[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
 #[derive(Debug)]

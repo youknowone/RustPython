@@ -28,7 +28,8 @@ use crate::{
     },
 };
 use bstr::ByteSlice;
-use core::sync::LazyLock;
+//use core::sync::LazyLock;
+use once_cell::sync::Lazy as LazyLock;
 use core::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
