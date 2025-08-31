@@ -1,3 +1,8 @@
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrRef},

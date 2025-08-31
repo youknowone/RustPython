@@ -17,8 +17,12 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-//use alloc::{self, BufRead, BufReader};
 use hashbrown::HashSet;
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {

@@ -3,6 +3,11 @@
 //! And: <https://www.youtube.com/watch?v=p33CVV29OG8>
 //! And: <http://code.activestate.com/recipes/578375/>
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
     builtins::{PyBytes, PyInt, PyStr, PyStrInterned, PyStrRef},
