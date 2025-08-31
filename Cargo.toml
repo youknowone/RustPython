@@ -190,7 +190,8 @@ hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
 indexmap = { version = "2.10.0", default-features = false }
 insta = "1.42"
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
-is-macro = "0.3.7"
+is-macro = { git = "https://github.com/Masterchef365/ddbase.git", branch = "no_std-is-macro" }
+#is-macro = "0.3.7"
 junction = "1.2.0"
 libc = "0.2.169"
 libffi = "4.1"
