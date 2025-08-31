@@ -122,7 +122,7 @@ mod decl {
             }
         }
 
-        #[cfg(not(unix))]
+        #[cfg(all(not(unix), not(target_os = "none")))]
         {
             core::thread::sleep(dur);
         }
@@ -291,14 +291,14 @@ mod decl {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
                 Self::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                Self::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Missing => todo!("Time"),//chrono::offset::Local::now().naive_local(),
             })
         }
 
         fn naive_or_utc(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
                 Self::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                Self::Missing => chrono::offset::Utc::now().naive_utc(),
+                Self::Missing => todo!("Time"),//chrono::offset::Utc::now().naive_utc(),
             })
         }
     }
@@ -307,7 +307,7 @@ mod decl {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
                 Self::Present(t) => t.to_date_time(vm)?,
-                Self::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Missing => todo!("Time"),//chrono::offset::Local::now().naive_local(),
             })
         }
     }
@@ -503,6 +503,7 @@ mod decl {
     #[pyclass(with(PyStructSequence))]
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
+            /*
             let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
             let offset_seconds =
                 local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
@@ -521,6 +522,8 @@ mod decl {
                 tm_gmtoff: vm.ctx.new_int(offset_seconds).into(),
                 tm_zone: vm.ctx.new_str(tz_abbr).into(),
             }
+            */
+            todo!("Time")
         }
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {

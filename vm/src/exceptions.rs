@@ -61,7 +61,7 @@ impl VirtualMachine {
                 let _ = writeln!(stderr, "{errstr}");
                 let _ = self.write_exception(&mut stderr, exc);
             } else {
-                eprintln!("{errstr}\nlost sys.stderr");
+                //eprintln!("{errstr}\nlost sys.stderr");
                 let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
             }
         };

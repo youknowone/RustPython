@@ -35,6 +35,11 @@ mod decl {
     use num_traits::{Signed, ToPrimitive};
     use core::fmt;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
     #[pyattr]
     #[pyclass(name = "chain")]
     #[derive(Debug, PyPayload)]

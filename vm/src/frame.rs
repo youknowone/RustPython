@@ -2347,7 +2347,7 @@ impl ExecutingFrame<'_> {
         // );
         #[cfg(debug_assertions)]
         if self.state.stack.len() < block.level {
-            dbg!(&self);
+            //dbg!(&self);
             panic!(
                 "stack size reversion: current size({}) < truncates target({}).",
                 self.state.stack.len(),
@@ -2533,7 +2533,7 @@ impl ExecutingFrame<'_> {
     #[inline(never)]
     #[track_caller]
     fn fatal(&self, msg: &'static str) -> ! {
-        dbg!(self);
+        //dbg!(self);
         panic!("{msg}")
     }
 }

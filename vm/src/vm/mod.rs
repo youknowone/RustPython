@@ -375,9 +375,10 @@ impl VirtualMachine {
 
         if self.state.settings.allow_external_library && cfg!(feature = "rustpython-compiler") {
             if let Err(e) = import::init_importlib_package(self, importlib) {
-                eprintln!(
+                /*eprintln!(
                     "importlib initialization failed. This is critical for many complicated packages."
                 );
+                */
                 self.print_exception(e);
             }
         }
@@ -388,19 +389,19 @@ impl VirtualMachine {
         #[cfg(feature = "encodings")]
         if expect_stdlib {
             if let Err(e) = self.import_encodings() {
-                eprintln!(
+                /*eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
-                );
+                );*/
                 self.print_exception(e);
             }
         } else {
             // Here may not be the best place to give general `path_list` advice,
             // but bare rustpython_vm::VirtualMachine users skipped proper settings must hit here while properly setup vm never enters here.
-            eprintln!(
+            /*eprintln!(
                 "feature `encodings` is enabled but `settings.path_list` is empty. \
                 Please add the library path to `settings.path_list`. If you intended to disable the entire standard library (including the `encodings` feature), please also make sure to disable the `encodings` feature.\n\
                 Tip: You may also want to add `\"\"` to `settings.path_list` in order to enable importing from the current working directory."
-            );
+            );*/
         }
 
         if expect_stdlib {

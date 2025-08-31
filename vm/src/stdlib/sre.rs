@@ -32,6 +32,12 @@ mod _sre {
         string::{lower_ascii, lower_unicode, upper_unicode},
     };
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+
+
     #[pyattr]
     pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
@@ -844,8 +850,8 @@ mod _sre {
 
     impl AsMapping for Match {
         fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: core::sync::LazyLock<PyMappingMethods> =
-                core::sync::LazyLock::new(|| PyMappingMethods {
+            static AS_MAPPING: once_cell::sync::Lazy<PyMappingMethods> =
+                once_cell::sync::Lazy::new(|| PyMappingMethods {
                     subscript: atomic_func!(|mapping, needle, vm| {
                         Match::mapping_downcast(mapping)
                             .__getitem__(needle.to_owned(), vm)
