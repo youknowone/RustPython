@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-threading = ["parking_lot"]
+#threading = ["parking_lot"]
 
 [dependencies]
 rustpython-literal = { workspace = true }
@@ -28,7 +28,7 @@ malachite-base = { workspace = true }
 memchr = { workspace = true }
 num-traits = { workspace = true }
 once_cell = { workspace = true }
-parking_lot = { workspace = true, optional = true }
+#parking_lot = { workspace = true, optional = true }
 unicode_names2 = { workspace = true }
 radium = { workspace = true }
 
