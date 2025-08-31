@@ -31,9 +31,16 @@
 //! to match CPython's behavior.
 //!
 //! [WTF-8]: https://simonsapin.github.io/wtf-8
-//! [`OsStr`]: std::ffi::OsStr
+//! [`OsStr`]: core::ffi::OsStr
+#![feature(unsigned_is_multiple_of)]
+#![feature(const_vec_string_slice)]
 
 #![allow(clippy::precedence, clippy::match_overlapping_arm)]
+
+#![no_std]
+extern crate alloc;
+
+use alloc::boxed::Box;
 
 use core::fmt;
 use core::hash::{Hash, Hasher};
@@ -46,10 +53,10 @@ use core_char::MAX_LEN_UTF8;
 use core_char::{MAX_LEN_UTF16, encode_utf8_raw, encode_utf16_raw, len_utf8};
 use core_str::{next_code_point, next_code_point_reverse};
 use itertools::{Either, Itertools};
-use std::borrow::{Borrow, Cow};
-use std::collections::TryReserveError;
-use std::string::String;
-use std::vec::Vec;
+use alloc::borrow::{Borrow, Cow, ToOwned};
+use alloc::collections::TryReserveError;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use bstr::{ByteSlice, ByteVec};
 
@@ -665,7 +672,7 @@ impl PartialEq<str> for Wtf8 {
 impl fmt::Debug for Wtf8 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn write_str_escaped(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
-            use std::fmt::Write;
+            use core::fmt::Write;
             for c in s.chars().flat_map(|c| c.escape_debug()) {
                 f.write_char(c)?
             }
@@ -765,7 +772,7 @@ impl Wtf8 {
     #[inline]
     pub fn from_bytes(b: &[u8]) -> Option<&Self> {
         let mut rest = b;
-        while let Err(e) = std::str::from_utf8(rest) {
+        while let Err(e) = core::str::from_utf8(rest) {
             rest = &rest[e.valid_up_to()..];
             let _ = Self::decode_surrogate(rest)?;
             rest = &rest[3..];
@@ -899,7 +906,7 @@ impl Wtf8 {
     {
         self.chunks().flat_map(move |chunk| match chunk {
             Wtf8Chunk::Utf8(s) => Either::Left(f(s).map_into()),
-            Wtf8Chunk::Surrogate(c) => Either::Right(std::iter::once(c)),
+            Wtf8Chunk::Surrogate(c) => Either::Right(core::iter::once(c)),
         })
     }
 
@@ -1013,6 +1020,7 @@ impl Wtf8 {
             .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
     }
 
+    /*
     pub fn trim(&self) -> &Self {
         let w = self.bytes.trim();
         unsafe { Wtf8::from_bytes_unchecked(w) }
@@ -1027,6 +1035,7 @@ impl Wtf8 {
         let w = self.bytes.trim_end();
         unsafe { Wtf8::from_bytes_unchecked(w) }
     }
+    */
 
     pub fn trim_start_matches(&self, f: impl Fn(CodePoint) -> bool) -> &Self {
         let mut iter = self.code_points();
@@ -1469,7 +1478,7 @@ impl<'a> Iterator for Wtf8Chunks<'a> {
             }
             None => {
                 let s =
-                    unsafe { str::from_utf8_unchecked(std::mem::take(&mut self.wtf8).as_bytes()) };
+                    unsafe { str::from_utf8_unchecked(core::mem::take(&mut self.wtf8).as_bytes()) };
                 (!s.is_empty()).then_some(Wtf8Chunk::Utf8(s))
             }
         }

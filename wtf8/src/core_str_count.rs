@@ -154,7 +154,7 @@ unsafe fn slice_as_chunks_unchecked<T, const N: usize>(slice: &[T]) -> &[[T; N]]
     let new_len = slice.len() / N;
     // SAFETY: We cast a slice of `new_len * N` elements into
     // a slice of `new_len` many `N` elements chunks.
-    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), new_len) }
+    unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), new_len) }
 }
 
 const fn unlikely(x: bool) -> bool {
