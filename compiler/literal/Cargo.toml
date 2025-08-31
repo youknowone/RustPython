@@ -11,7 +11,9 @@ rust-version = { workspace = true }
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
-hexf-parse = { version = "0.2.1", default-features = false }
+hexf-parse = { git = "https://github.com/Masterchef365/hexf.git", branch = "no_std", default-features = false  }
+#hexf-parse = { version = "0.2.1", default-features = false }
+
 is-macro.workspace = true
 lexical-parse-float = { version = "1.0.4", default-features = false, features = ["format"] }
 num-traits = { workspace = true }
