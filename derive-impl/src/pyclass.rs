@@ -6,11 +6,17 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use core::collections::{HashMap, HashSet};
+use hashbrown::{HashMap, HashSet};
 use core::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
+
+use alloc::string::{String, ToString};
+use alloc::{format, vec};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
 
 #[derive(Copy, Clone, Debug)]
 enum AttrName {

@@ -14,23 +14,27 @@
 //! ```
 
 use crate::Diagnostic;
+use hashbrown::HashMap;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
-use core::sync::LazyLock;
-use core::{
-    collections::HashMap,
-    env, fs,
-    path::{Path, PathBuf},
-};
+use once_cell::sync::Lazy as LazyLock;
+
+use unix_path::{Path, PathBuf};
 use syn::{
     self, LitByteStr, LitStr, Macro,
     parse::{ParseStream, Parser, Result as ParseResult},
     spanned::Spanned,
 };
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::format;
+use alloc::boxed::Box;
+use alloc::borrow::ToOwned;
 
 static CARGO_MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
+    todo!("Env operations")
+    //PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
 });
 
 enum CompilationSourceKind {
@@ -91,12 +95,12 @@ impl CompilationSource {
                 mode,
                 compiler,
             ),
-            _ => Ok(hashmap! {
-                module_name.clone() => CompiledModule {
+            _ => Ok([
+                (module_name.clone(), CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
                     package: false,
-                },
-            }),
+                }),
+            ].into_iter().collect()),
         }
     }
 
@@ -109,12 +113,12 @@ impl CompilationSource {
         match &self.kind {
             CompilationSourceKind::File(rel_path) => {
                 let path = CARGO_MANIFEST_DIR.join(rel_path);
-                let source = fs::read_to_string(&path).map_err(|err| {
+                let source: String = todo!("File read");/*fs::read_to_string(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
                         format!("Error reading file {path:?}: {err}"),
                     )
-                })?;
+                })?*/
                 self.compile_string(&source, mode, module_name, compiler, || rel_path.display())
             }
             CompilationSourceKind::SourceCode(code) => self.compile_string(
@@ -137,8 +141,10 @@ impl CompilationSource {
         mode: Mode,
         compiler: &dyn Compiler,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
+        todo!("File operations")
+        /*
         let mut code_map = HashMap::new();
-        let paths = fs::read_dir(path)
+        let paths: Vec<Result<PathBuf, String>> = fs::read_dir(path)
             .or_else(|e| {
                 if cfg!(windows) {
                     if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
@@ -230,6 +236,7 @@ impl CompilationSource {
             }
         }
         Ok(code_map)
+        */
     }
 }
 

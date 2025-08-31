@@ -1,12 +1,17 @@
 use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
-use core::collections::{HashMap, HashSet};
+use hashbrown::{HashMap, HashSet};
 use syn::{Attribute, Ident, Result, Signature, UseTree, spanned::Spanned};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
 };
+
+use alloc::borrow::ToOwned;
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::format;
 
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
@@ -150,7 +155,7 @@ impl ItemMetaInner {
         Ok(Self {
             item_ident,
             meta_ident,
-            meta_map,
+            meta_map: meta_map.into_iter().collect(),
         })
     }
 

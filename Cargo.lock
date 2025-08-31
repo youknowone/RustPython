@@ -2279,8 +2279,10 @@ dependencies = [
 name = "rustpython-derive-impl"
 version = "0.4.0"
 dependencies = [
+ "hashbrown 0.16.0",
  "itertools 0.14.0",
  "maplit",
+ "once_cell",
  "proc-macro2",
  "quote",
  "rustpython-compiler-core",
@@ -2288,6 +2290,7 @@ dependencies = [
  "syn 2.0.106",
  "syn-ext",
  "textwrap",
+ "unix_path",
 ]
 
 [[package]]

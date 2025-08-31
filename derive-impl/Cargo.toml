@@ -21,6 +21,9 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn-ext = { version = "0.5.0", features = ["full"] }
 textwrap = { version = "0.16.1", default-features = false }
+hashbrown = { workspace = true }
+once_cell = { workspace = true }
+unix_path = { workspace = true }
 
 [lints]
 workspace = true

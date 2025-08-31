@@ -4,6 +4,9 @@ use syn::{DeriveInput, Ident, Result};
 use syn_ext::ext::{AttributeExt, GetIdent};
 use syn_ext::types::Meta;
 
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+
 // returning a pair of not-skipped and skipped field names
 fn field_names(input: &mut DeriveInput) -> Result<(Vec<Ident>, Vec<Ident>)> {
     let syn::Data::Struct(struc) = &mut input.data else {

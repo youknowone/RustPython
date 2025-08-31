@@ -203,6 +203,7 @@ hashbrown = { version = "0.16.0", default-features = false, features = [
     "inline-more",
     "default-hasher",
 ] }
+unix_path = { version = "1.0.1", default-features = false, features = ["alloc"] }
 
 #malachite-bigint = "0.6"
 #malachite-q = "0.6"

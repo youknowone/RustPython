@@ -6,10 +6,18 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use core::{collections::HashSet, str::FromStr};
+use core::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::PunctuatedNestedMeta;
+use hashbrown::HashSet;
+
+use alloc::string::{String, ToString};
+use alloc::{format, vec};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum AttrName {
@@ -350,6 +358,7 @@ impl FunctionNursery {
                 }
             }
         }
+        drop(name_set);
         Ok(ValidatedFunctionNursery(self))
     }
 }
