@@ -18,6 +18,12 @@ mod _codecs {
         function::{ArgBytesLike, FuncArgs},
     };
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+    use alloc::boxed::Box;
+
     #[pyfunction]
     fn register(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.state.codec_registry.register(search_function, vm)

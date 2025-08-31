@@ -470,7 +470,7 @@ where
 
 impl<T> IntoIterator for PosArgs<T> {
     type Item = T;
-    type IntoIter = core::vec::IntoIter<T>;
+    type IntoIter = alloc::vec::IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
