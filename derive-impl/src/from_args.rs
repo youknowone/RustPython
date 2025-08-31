@@ -4,9 +4,6 @@ use syn::ext::IdentExt;
 use syn::meta::ParseNestedMeta;
 use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token, parse_quote};
 
-use alloc::vec::Vec;
-use alloc::string::{String, ToString};
-
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
 #[derive(Default)]

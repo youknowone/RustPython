@@ -12,12 +12,6 @@ use syn_ext::ext::*;
 use syn_ext::types::PunctuatedNestedMeta;
 use hashbrown::HashSet;
 
-use alloc::string::{String, ToString};
-use alloc::{format, vec};
-use alloc::vec::Vec;
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum AttrName {

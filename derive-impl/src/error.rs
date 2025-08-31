@@ -31,10 +31,6 @@ use proc_macro2::*;
 use quote::{ToTokens, TokenStreamExt};
 use syn::parse::Error;
 
-use alloc::vec::Vec;
-use alloc::string::{String, ToString};
-use alloc::format;
-
 macro_rules! err_span {
     ($span:expr, $($msg:tt)*) => (
         syn::Error::new_spanned(&$span, format_args!($($msg)*))

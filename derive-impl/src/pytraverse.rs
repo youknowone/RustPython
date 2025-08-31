@@ -2,9 +2,6 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Attribute, DeriveInput, Field, Result};
 
-use alloc::vec::Vec;
-use alloc::string::{String, ToString};
-
 struct TraverseAttr {
     /// set to `true` if the attribute is `#[pytraverse(skip)]`
     skip: bool,

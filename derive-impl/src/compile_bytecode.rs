@@ -19,22 +19,17 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
 use once_cell::sync::Lazy as LazyLock;
+use std::fs;
 
-use unix_path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 use syn::{
     self, LitByteStr, LitStr, Macro,
     parse::{ParseStream, Parser, Result as ParseResult},
     spanned::Spanned,
 };
-use alloc::vec::Vec;
-use alloc::string::{String, ToString};
-use alloc::format;
-use alloc::boxed::Box;
-use alloc::borrow::ToOwned;
 
 static CARGO_MANIFEST_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
-    todo!("Env operations")
-    //PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
+    PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"))
 });
 
 enum CompilationSourceKind {
@@ -113,12 +108,12 @@ impl CompilationSource {
         match &self.kind {
             CompilationSourceKind::File(rel_path) => {
                 let path = CARGO_MANIFEST_DIR.join(rel_path);
-                let source: String = todo!("File read");/*fs::read_to_string(&path).map_err(|err| {
+                let source: String = fs::read_to_string(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
                         format!("Error reading file {path:?}: {err}"),
                     )
-                })?*/
+                })?;
                 self.compile_string(&source, mode, module_name, compiler, || rel_path.display())
             }
             CompilationSourceKind::SourceCode(code) => self.compile_string(
@@ -141,10 +136,8 @@ impl CompilationSource {
         mode: Mode,
         compiler: &dyn Compiler,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
-        todo!("File operations")
-        /*
         let mut code_map = HashMap::new();
-        let paths: Vec<Result<PathBuf, String>> = fs::read_dir(path)
+        let paths = fs::read_dir(path)
             .or_else(|e| {
                 if cfg!(windows) {
                     if let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap()) {
@@ -236,7 +229,6 @@ impl CompilationSource {
             }
         }
         Ok(code_map)
-        */
     }
 }
 

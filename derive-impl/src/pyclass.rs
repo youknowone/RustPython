@@ -12,12 +12,6 @@ use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
 
-use alloc::string::{String, ToString};
-use alloc::{format, vec};
-use alloc::vec::Vec;
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-
 #[derive(Copy, Clone, Debug)]
 enum AttrName {
     Method,

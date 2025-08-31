@@ -8,11 +8,6 @@ use syn_ext::{
     types::*,
 };
 
-use alloc::borrow::ToOwned;
-use alloc::vec::Vec;
-use alloc::string::{String, ToString};
-use alloc::format;
-
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "pymethod",
     "pyclassmethod",
