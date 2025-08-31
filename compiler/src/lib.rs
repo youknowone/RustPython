@@ -1,3 +1,9 @@
+#![no_std]
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::borrow::ToOwned;
+
 use ruff_source_file::{SourceFile, SourceFileBuilder, SourceLocation};
 use rustpython_codegen::{compile, symboltable};
 
@@ -28,8 +34,8 @@ pub struct ParseError {
     pub source_path: String,
 }
 
-impl core::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl alloc::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
         self.error.fmt(f)
     }
 }
