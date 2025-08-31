@@ -286,7 +286,7 @@ mod stack {
         where
             F: FnOnce(&mut Self) -> R,
         {
-            todo!()
+            todo!("STACK STACK ATTACK")
             //self.v.push(x.into());
             //let res = panic::catch_unwind(panic::AssertUnwindSafe(|| f(self)));
             //self.v.pop();
