@@ -2,6 +2,7 @@ use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
 
 use super::{
     PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTupleRef, PyWeak,
@@ -416,7 +417,7 @@ impl PyType {
 
     pub(crate) fn init_slots(&self, ctx: &Context) {
         #[allow(clippy::mutable_key_type)]
-        let mut slot_name_set = core::collections::HashSet::new();
+        let mut slot_name_set = hashbrown::HashSet::new();
 
         for cls in self.mro.read().iter() {
             for &name in cls.attributes.read().keys() {

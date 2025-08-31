@@ -1,12 +1,11 @@
 /*! The python `frame` type.
 
+*/
+
 use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
-
-
-*/
 
 use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
