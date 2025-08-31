@@ -3105,8 +3105,7 @@ checksum = "23cb788ffebc92c5948d0e997106233eeb1d8b9512f93f41651f52b6c5f5af86"
 [[package]]
 name = "unicode-casing"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "623f59e6af2a98bdafeb93fa277ac8e1e40440973001ca15cf4ae1541cd16d56"
+source = "git+https://github.com/Masterchef365/unicode-casing.git?branch=no_std#23a24d2700d804e0f719816d81ad6fe5c4385327"
 
 [[package]]
 name = "unicode-ident"

@@ -243,7 +243,9 @@ strum_macros = "0.27"
 syn = "2"
 thiserror = { version = "2.0", default-features = false }
 thread_local = "1.1.8"
-unicode-casing = "0.1.0"
+#unicode-casing = "0.1.0"
+unicode-casing = { git = "https://github.com/Masterchef365/unicode-casing.git", branch = "no_std" }
+
 unic-char-property = "0.9.0"
 unic-normal = "0.9.0"
 unic-ucd-age = "0.9.0"
