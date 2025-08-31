@@ -1658,8 +1658,7 @@ dependencies = [
 [[package]]
 name = "optional"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978aa494585d3ca4ad74929863093e87cac9790d81fe7aba2b3dc2890643a0fc"
+source = "git+https://github.com/Masterchef365/optional.git?branch=no_std#6e4dcd7098a91f7499f8615323abc9bf47b9cbc7"
 
 [[package]]
 name = "page_size"

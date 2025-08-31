@@ -1,5 +1,8 @@
 // good luck to those that follow; here be dragons
 
+use alloc::vec::Vec;
+use alloc::vec;
+
 use crate::string::{
     is_digit, is_linebreak, is_loc_word, is_space, is_uni_digit, is_uni_linebreak, is_uni_space,
     is_uni_word, is_word, lower_ascii, lower_locate, lower_unicode, upper_locate, upper_unicode,
