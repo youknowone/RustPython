@@ -13,6 +13,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
 
+use core::{hint, option, iter, ops, fmt};
+
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
     fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
