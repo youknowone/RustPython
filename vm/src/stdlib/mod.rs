@@ -27,7 +27,7 @@ pub mod typing;
 pub mod warnings;
 mod weakref;
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+#[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
 #[macro_use]
 pub mod os;
 #[cfg(windows)]

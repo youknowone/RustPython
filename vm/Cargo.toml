@@ -56,7 +56,6 @@ itertools = { workspace = true }
 is-macro = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
-nix = { workspace = true }
 malachite-bigint = { workspace = true }
 num-complex = { workspace = true }
 num-integer = { workspace = true }
@@ -92,6 +91,9 @@ unicode-casing = { workspace = true }
 unic-ucd-bidi = { workspace = true }
 unic-ucd-category = { workspace = true }
 unic-ucd-ident = { workspace = true }
+
+[target.'cfg(not(target_os = "none"))'.dependencies]
+nix = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }

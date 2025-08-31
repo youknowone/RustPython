@@ -182,7 +182,7 @@ cfg-if = "1.0"
 chrono = { version = "0.4.39", default-features = false, features = ["alloc"] }
 constant_time_eq = { version = "0.4", default-features = false }
 criterion = { version = "0.5", features = ["html_reports"] }
-crossbeam-utils = "0.8.21"
+crossbeam-utils = { version = "0.8.21", default-features = false }
 flame = "0.2.2"
 getrandom = { version = "0.3", features = [] }
 glob = "0.3"
