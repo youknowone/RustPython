@@ -12,7 +12,8 @@ use crate::{
     types::Unconstructible,
 };
 use itertools::Itertools;
-use core::{borrow::Cow, fmt::Debug, ops::Range};
+use core::{fmt::Debug, ops::Range};
+use alloc::borrow::Cow;
 
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,

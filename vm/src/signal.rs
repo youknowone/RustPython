@@ -4,7 +4,6 @@ use core::{
     fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc,
     },
 };
 
@@ -86,19 +85,19 @@ pub type UserSignal = Box<dyn FnOnce(&VirtualMachine) -> PyResult<()> + Send>;
 
 #[derive(Clone, Debug)]
 pub struct UserSignalSender {
-    tx: mpsc::Sender<UserSignal>,
+    tx: crossbeam_channel::Sender<UserSignal>,
 }
 
 #[derive(Debug)]
 pub struct UserSignalReceiver {
-    rx: mpsc::Receiver<UserSignal>,
+    rx: crossbeam_channel::Receiver<UserSignal>,
 }
 
 impl UserSignalSender {
     pub fn send(&self, sig: UserSignal) -> Result<(), UserSignalSendError> {
         self.tx
             .send(sig)
-            .map_err(|mpsc::SendError(sig)| UserSignalSendError(sig))?;
+            .map_err(|crossbeam_channel::SendError(sig)| UserSignalSendError(sig))?;
         set_triggered();
         Ok(())
     }
@@ -120,6 +119,6 @@ impl fmt::Display for UserSignalSendError {
 }
 
 pub fn user_signal_channel() -> (UserSignalSender, UserSignalReceiver) {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = crossbeam_channel::channel();
     (UserSignalSender { tx }, UserSignalReceiver { rx })
 }

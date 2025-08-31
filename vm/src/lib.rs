@@ -77,6 +77,7 @@ pub mod py_io;
 #[cfg(feature = "serde")]
 pub mod py_serde;
 
+#[cfg(not(target_os = "none"))]
 pub mod readline;
 pub mod recursion;
 pub mod scope;
