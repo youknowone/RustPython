@@ -11,7 +11,7 @@ mod pwd {
         exceptions,
         types::PyStructSequence,
     };
-    use nix::unistd::{self, User};
+    use nix::unicore::{self, User};
 
     #[cfg(not(target_os = "android"))]
     use crate::{PyObjectRef, convert::ToPyObject};
@@ -35,11 +35,11 @@ mod pwd {
     impl From<User> for Passwd {
         fn from(user: User) -> Self {
             // this is just a pain...
-            let cstr_lossy = |s: std::ffi::CString| {
+            let cstr_lossy = |s: core::ffi::CString| {
                 s.into_string()
                     .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
             };
-            let pathbuf_lossy = |p: std::path::PathBuf| {
+            let pathbuf_lossy = |p: core::path::PathBuf| {
                 p.into_os_string()
                     .into_string()
                     .unwrap_or_else(|s| s.to_string_lossy().into_owned())
@@ -76,7 +76,7 @@ mod pwd {
     #[pyfunction]
     fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         let uid_t = libc::uid_t::try_from(uid.as_bigint())
-            .map(unistd::Uid::from_raw)
+            .map(unicore::Uid::from_raw)
             .ok();
         let user = uid_t
             .map(User::from_uid)
@@ -103,7 +103,7 @@ mod pwd {
         let mut list = Vec::new();
 
         unsafe { libc::setpwent() };
-        while let Some(ptr) = std::ptr::NonNull::new(unsafe { libc::getpwent() }) {
+        while let Some(ptr) = core::ptr::NonNull::new(unsafe { libc::getpwent() }) {
             let user = User::from(unsafe { ptr.as_ref() });
             let passwd = Passwd::from(user).to_pyobject(vm);
             list.push(passwd);

@@ -4,7 +4,7 @@ use crate::vm::{
     PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
     builtins::PyModule,
 };
-use std::{io, mem};
+use core::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
@@ -22,7 +22,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[cfg(unix)]
 mod platform {
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
-    pub use std::os::unix::io::RawFd;
+    pub use core::os::unix::io::RawFd;
 
     pub const fn check_err(x: i32) -> bool {
         x < 0
@@ -72,7 +72,7 @@ mod platform {
 #[cfg(target_os = "wasi")]
 mod platform {
     pub use libc::{FD_SETSIZE, timeval};
-    pub use std::os::wasi::io::RawFd;
+    pub use core::os::wasi::io::RawFd;
 
     pub fn check_err(x: i32) -> bool {
         x < 0
@@ -158,7 +158,7 @@ impl FdSet {
     pub fn new() -> Self {
         // it's just ints, and all the code that's actually
         // interacting with it is in C, so it's safe to zero
-        let mut fdset = std::mem::MaybeUninit::zeroed();
+        let mut fdset = core::mem::MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
         Self(fdset)
     }
@@ -191,7 +191,7 @@ pub fn select(
 ) -> io::Result<i32> {
     let timeout = match timeout {
         Some(tv) => tv as *mut timeval,
-        None => std::ptr::null_mut(),
+        None => core::ptr::null_mut(),
     };
     let ret = unsafe {
         platform::select(
@@ -338,7 +338,7 @@ mod decl {
         };
         use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
-        use std::{
+        use core::{
             convert::TryFrom,
             time::{Duration, Instant},
         };
@@ -555,9 +555,9 @@ mod decl {
             types::Constructor,
         };
         use rustix::event::epoll::{self, EventData, EventFlags};
-        use std::ops::Deref;
-        use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
-        use std::time::Instant;
+        use core::ops::Deref;
+        use core::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
+        use core::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
@@ -599,17 +599,17 @@ mod decl {
 
         #[pyclass(with(Constructor))]
         impl PyEpoll {
-            fn new() -> std::io::Result<Self> {
+            fn new() -> core::io::Result<Self> {
                 let epoll_fd = epoll::create(epoll::CreateFlags::CLOEXEC)?;
                 let epoll_fd = Some(epoll_fd).into();
                 Ok(Self { epoll_fd })
             }
 
             #[pymethod]
-            fn close(&self) -> std::io::Result<()> {
+            fn close(&self) -> core::io::Result<()> {
                 let fd = self.epoll_fd.write().take();
                 if let Some(fd) = fd {
-                    nix::unistd::close(fd.into_raw_fd())?;
+                    nix::unicore::close(fd.into_raw_fd())?;
                 }
                 Ok(())
             }
@@ -734,7 +734,7 @@ mod decl {
                 _exc_type: OptionalArg,
                 _exc_value: OptionalArg,
                 _exc_tb: OptionalArg,
-            ) -> std::io::Result<()> {
+            ) -> core::io::Result<()> {
                 self.close()
             }
         }

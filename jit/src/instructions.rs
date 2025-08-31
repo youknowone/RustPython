@@ -7,7 +7,7 @@ use rustpython_compiler_core::bytecode::{
     self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
     OpArg, OpArgState, UnaryOperator,
 };
-use std::collections::HashMap;
+use core::collections::HashMap;
 
 #[repr(u16)]
 enum CustomTrapCode {

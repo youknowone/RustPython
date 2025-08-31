@@ -1,4 +1,4 @@
-use std::{
+use core::{
     ffi::{OsStr, OsString},
     os::windows::ffi::{OsStrExt, OsStringExt},
 };

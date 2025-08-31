@@ -1,6 +1,6 @@
 use super::{Context, VirtualMachine, setting::Settings, thread};
 use crate::{PyResult, stdlib::atexit, vm::PyBaseExceptionRef};
-use std::sync::atomic::Ordering;
+use core::sync::atomic::Ordering;
 
 /// The general interface for the VM
 ///

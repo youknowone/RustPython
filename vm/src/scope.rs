@@ -1,5 +1,5 @@
 use crate::{VirtualMachine, builtins::PyDictRef, function::ArgMapping};
-use std::fmt;
+use core::fmt;
 
 #[derive(Clone)]
 pub struct Scope {

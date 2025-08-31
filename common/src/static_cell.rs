@@ -1,7 +1,7 @@
 #[cfg(not(feature = "threading"))]
 mod non_threading {
     use crate::lock::OnceCell;
-    use std::thread::LocalKey;
+    use core::thread::LocalKey;
 
     pub struct StaticCell<T: 'static> {
         inner: &'static LocalKey<OnceCell<&'static T>>,
@@ -55,7 +55,7 @@ mod non_threading {
         ($($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty;)+) => {
             $($(#[$attr])*
             $vis static $name: $crate::static_cell::StaticCell<$t> = {
-                ::std::thread_local! {
+                ::core::thread_local! {
                      $vis static $name: $crate::lock::OnceCell<&'static $t> = const {
                          $crate::lock::OnceCell::new()
                      };

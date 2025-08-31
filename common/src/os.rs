@@ -1,7 +1,7 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use std::{io, str::Utf8Error};
+use core::{io, str::Utf8Error};
 
 pub trait ErrorExt {
     fn posix_errno(&self) -> i32;
@@ -62,20 +62,20 @@ pub fn last_posix_errno() -> i32 {
 }
 
 #[cfg(unix)]
-pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    use std::os::unix::ffi::OsStrExt;
-    Ok(std::ffi::OsStr::from_bytes(b))
+pub fn bytes_as_os_str(b: &[u8]) -> Result<&core::ffi::OsStr, Utf8Error> {
+    use core::os::unix::ffi::OsStrExt;
+    Ok(core::ffi::OsStr::from_bytes(b))
 }
 
 #[cfg(not(unix))]
-pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    Ok(std::str::from_utf8(b)?.as_ref())
+pub fn bytes_as_os_str(b: &[u8]) -> Result<&core::ffi::OsStr, Utf8Error> {
+    Ok(core::str::from_utf8(b)?.as_ref())
 }
 
 #[cfg(unix)]
-pub use std::os::unix::ffi;
+pub use core::os::unix::ffi;
 #[cfg(target_os = "wasi")]
-pub use std::os::wasi::ffi;
+pub use core::os::wasi::ffi;
 
 #[cfg(windows)]
 pub fn errno_to_winerror(errno: i32) -> i32 {

@@ -3,16 +3,16 @@
 //! This module provides a common interface for reading lines from the console, with support for history and completion.
 //! It uses the [`rustyline`] crate on non-WASM platforms and a custom implementation on WASM platforms.
 
-use std::{io, path::Path};
+use core::{io, path::Path};
 
-type OtherError = Box<dyn std::error::Error>;
+type OtherError = Box<dyn core::error::Error>;
 type OtherResult<T> = Result<T, OtherError>;
 
 pub enum ReadlineResult {
     Line(String),
     Eof,
     Interrupt,
-    Io(std::io::Error),
+    Io(core::io::Error),
     Other(OtherError),
 }
 
@@ -45,7 +45,7 @@ mod basic_readline {
         }
 
         pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
-            use std::io::prelude::*;
+            use core::io::prelude::*;
             print!("{prompt}");
             if let Err(e) = io::stdout().flush() {
                 return ReadlineResult::Io(e);
@@ -97,7 +97,7 @@ mod rustyline_readline {
         pub fn save_history(&mut self, path: &Path) -> OtherResult<()> {
             if !path.exists() {
                 if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    core::fs::create_dir_all(parent)?;
                 }
             }
             self.repl.save_history(path)?;

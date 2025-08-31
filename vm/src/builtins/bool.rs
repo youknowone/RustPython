@@ -12,7 +12,7 @@ use crate::{
 };
 use malachite_bigint::Sign;
 use num_traits::Zero;
-use std::fmt::{Debug, Formatter};
+use core::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -88,7 +88,7 @@ impl PyPayload for PyBool {
 }
 
 impl Debug for PyBool {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> core::fmt::Result {
         todo!()
     }
 }

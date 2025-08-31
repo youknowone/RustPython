@@ -14,7 +14,7 @@ mod _winapi {
         stdlib::os::errno_err,
         windows::WindowsSysResult,
     };
-    use std::ptr::{null, null_mut};
+    use core::ptr::{null, null_mut};
     use windows::{
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
         core::PCWSTR,
@@ -98,12 +98,12 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<(HANDLE, HANDLE)> {
         let (read, write) = unsafe {
-            let mut read = std::mem::MaybeUninit::<isize>::uninit();
-            let mut write = std::mem::MaybeUninit::<isize>::uninit();
+            let mut read = core::mem::MaybeUninit::<isize>::uninit();
+            let mut write = core::mem::MaybeUninit::<isize>::uninit();
             WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
                 read.as_mut_ptr() as _,
                 write.as_mut_ptr() as _,
-                std::ptr::null(),
+                core::ptr::null(),
                 size,
             ))
             .to_pyresult(vm)?;
@@ -122,7 +122,7 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<HANDLE> {
         let target = unsafe {
-            let mut target = std::mem::MaybeUninit::<isize>::uninit();
+            let mut target = core::mem::MaybeUninit::<isize>::uninit();
             WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
                 src_process.0 as _,
                 src.0 as _,
@@ -199,8 +199,8 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<(HANDLE, HANDLE, u32, u32)> {
         let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
-            unsafe { std::mem::zeroed() };
-        si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
+            unsafe { core::mem::zeroed() };
+        si.StartupInfo.cb = core::mem::size_of_val(&si) as _;
 
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
@@ -256,12 +256,12 @@ mod _winapi {
             .map_or_else(null_mut, |w| w.as_mut_ptr());
 
         let procinfo = unsafe {
-            let mut procinfo = std::mem::MaybeUninit::uninit();
+            let mut procinfo = core::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::CreateProcessW(
                 app_name,
                 command_line,
-                std::ptr::null(),
-                std::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null(),
                 args.inherit_handles,
                 args.creation_flags
                     | windows_sys::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT
@@ -311,8 +311,8 @@ mod _winapi {
         dest_path: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let src_path = std::path::Path::new(src_path.as_str());
-        let dest_path = std::path::Path::new(dest_path.as_str());
+        let src_path = core::path::Path::new(src_path.as_str());
+        let dest_path = core::path::Path::new(dest_path.as_str());
 
         junction::create(dest_path, src_path).map_err(|e| e.to_pyexception(vm))
     }
@@ -382,10 +382,10 @@ mod _winapi {
 
                 let attr_count = handlelist.is_some() as u32;
                 let (result, mut size) = unsafe {
-                    let mut size = std::mem::MaybeUninit::uninit();
+                    let mut size = core::mem::MaybeUninit::uninit();
                     let result = WindowsSysResult(
                         windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             attr_count,
                             0,
                             size.as_mut_ptr(),
@@ -420,9 +420,9 @@ mod _winapi {
                             0,
                             (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                             handlelist.as_mut_ptr() as _,
-                            (handlelist.len() * std::mem::size_of::<HANDLE>()) as _,
-                            std::ptr::null_mut(),
-                            std::ptr::null(),
+                            (handlelist.len() * core::mem::size_of::<HANDLE>()) as _,
+                            core::ptr::null_mut(),
+                            core::ptr::null(),
                         )
                     })
                     .into_pyresult(vm)?;
@@ -446,7 +446,7 @@ mod _winapi {
     #[pyfunction]
     fn GetExitCodeProcess(h: HANDLE, vm: &VirtualMachine) -> PyResult<u32> {
         unsafe {
-            let mut ec = std::mem::MaybeUninit::uninit();
+            let mut ec = core::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
                 h.0 as _,
                 ec.as_mut_ptr(),

@@ -25,7 +25,7 @@ mod _socket {
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
     use socket2::Socket;
-    use std::{
+    use core::{
         ffi,
         io::{self, Read, Write},
         mem::MaybeUninit,
@@ -746,9 +746,9 @@ mod _socket {
     }
 
     #[cfg(unix)]
-    type RawSocket = std::os::unix::io::RawFd;
+    type RawSocket = core::os::unix::io::RawFd;
     #[cfg(windows)]
-    type RawSocket = std::os::windows::raw::SOCKET;
+    type RawSocket = core::os::windows::raw::SOCKET;
 
     #[cfg(unix)]
     macro_rules! errcode {
@@ -795,7 +795,7 @@ mod _socket {
         sock: PyRwLock<Option<Socket>>,
     }
 
-    const _: () = assert!(std::mem::size_of::<Option<Socket>>() == std::mem::size_of::<Socket>());
+    const _: () = assert!(core::mem::size_of::<Option<Socket>>() == core::mem::size_of::<Socket>());
 
     impl Default for PySocket {
         fn default() -> Self {
@@ -815,17 +815,17 @@ mod _socket {
     const CLOSED_ERR: i32 = c::EBADF;
 
     impl Read for &PySocket {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        fn read(&mut self, buf: &mut [u8]) -> core::io::Result<usize> {
             (&mut &*self.sock()?).read(buf)
         }
     }
 
     impl Write for &PySocket {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> core::io::Result<usize> {
             (&mut &*self.sock()?).write(buf)
         }
 
-        fn flush(&mut self) -> std::io::Result<()> {
+        fn flush(&mut self) -> core::io::Result<()> {
             (&mut &*self.sock()?).flush()
         }
     }
@@ -937,7 +937,7 @@ mod _socket {
                 #[cfg(unix)]
                 c::AF_UNIX => {
                     use crate::vm::function::ArgStrOrBytesLike;
-                    use std::os::unix::ffi::OsStrExt;
+                    use core::os::unix::ffi::OsStrExt;
                     let buf = ArgStrOrBytesLike::try_from_object(vm, addr)?;
                     let bytes = &*buf.borrow_bytes();
                     let path = match &buf {
@@ -1100,7 +1100,7 @@ mod _socket {
                                 Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
                             ) =>
                     {
-                        std::mem::forget(sock);
+                        core::mem::forget(sock);
                         return Err(e.into());
                     }
                     _ => {}
@@ -1397,7 +1397,7 @@ mod _socket {
             cmsgs: &[(i32, i32, ArgBytesLike)],
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
-            use std::{mem, ptr};
+            use core::{mem, ptr};
 
             if cmsgs.is_empty() {
                 return Ok(vec![]);
@@ -1471,14 +1471,14 @@ mod _socket {
         }
 
         #[pymethod]
-        fn getsockname(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
+        fn getsockname(&self, vm: &VirtualMachine) -> core::io::Result<PyObjectRef> {
             let addr = self.sock()?.local_addr()?;
 
             Ok(get_addr_tuple(&addr, vm))
         }
 
         #[pymethod]
-        fn getpeername(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
+        fn getpeername(&self, vm: &VirtualMachine) -> core::io::Result<PyObjectRef> {
             let addr = self.sock()?.peer_addr()?;
 
             Ok(get_addr_tuple(&addr, vm))
@@ -1523,7 +1523,7 @@ mod _socket {
             let buflen = buflen.unwrap_or(0);
             if buflen == 0 {
                 let mut flag: libc::c_int = 0;
-                let mut flagsize = std::mem::size_of::<libc::c_int>() as _;
+                let mut flagsize = core::mem::size_of::<libc::c_int>() as _;
                 let ret = unsafe {
                     c::getsockopt(
                         fd as _,
@@ -1583,11 +1583,11 @@ mod _socket {
                         level,
                         name,
                         val as *const i32 as *const _,
-                        std::mem::size_of::<i32>() as _,
+                        core::mem::size_of::<i32>() as _,
                     )
                 },
                 (None, OptionalArg::Present(optlen)) => unsafe {
-                    c::setsockopt(fd as _, level, name, std::ptr::null(), optlen as _)
+                    c::setsockopt(fd as _, level, name, core::ptr::null(), optlen as _)
                 },
                 _ => {
                     return Err(vm
@@ -1639,7 +1639,7 @@ mod _socket {
     }
 
     impl ToSocketAddrs for Address {
-        type Iter = std::vec::IntoIter<SocketAddr>;
+        type Iter = core::vec::IntoIter<SocketAddr>;
         fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
             (self.host.as_str(), self.port).to_socket_addrs()
         }
@@ -1707,7 +1707,7 @@ mod _socket {
         }
         #[cfg(unix)]
         if addr.is_unix() {
-            use std::os::unix::ffi::OsStrExt;
+            use core::os::unix::ffi::OsStrExt;
             if let Some(abstractpath) = addr.as_abstract_namespace() {
                 return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
@@ -1732,7 +1732,7 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
     fn sethostname(hostname: PyStrRef) -> nix::Result<()> {
-        nix::unistd::sethostname(hostname.as_str())
+        nix::unicore::sethostname(hostname.as_str())
     }
 
     #[pyfunction]
@@ -1755,7 +1755,7 @@ mod _socket {
     }
 
     fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
-        x.as_ref().map_or_else(std::ptr::null, |s| s.as_ptr())
+        x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
 
     #[pyfunction]
@@ -1855,7 +1855,7 @@ mod _socket {
         #[cfg(unix)]
         {
             use nix::poll::*;
-            use std::os::fd::AsFd;
+            use core::os::fd::AsFd;
             let events = match kind {
                 SelectKind::Read => PollFlags::POLLIN,
                 SelectKind::Write => PollFlags::POLLOUT,
@@ -1935,7 +1935,7 @@ mod _socket {
         };
 
         let host = opts.host.as_ref().map(|s| s.as_str());
-        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<'_, str> {
+        let port = opts.port.as_ref().map(|p| -> core::borrow::Cow<'_, str> {
             match p {
                 Either::A(s) => s.as_str().into(),
                 Either::B(i) => i.to_string().into(),
@@ -2182,7 +2182,7 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            use std::ptr;
+            use core::ptr;
             use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
             let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
@@ -2228,7 +2228,7 @@ mod _socket {
                     unsafe {
                         let p = self.ptr.as_ptr();
                         let ptr = &raw const (*p).Table as *const IpHelper::MIB_IF_ROW2;
-                        std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
+                        core::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
                     }
                 }
             }
@@ -2295,7 +2295,7 @@ mod _socket {
             .state
             .codec_registry
             .encode_text(pyname, "idna", None, vm)?;
-        let name = std::str::from_utf8(name.as_bytes())
+        let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
         let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
@@ -2321,36 +2321,36 @@ mod _socket {
     unsafe fn sock_from_raw_unchecked(fileno: RawSocket) -> Socket {
         #[cfg(unix)]
         {
-            use std::os::unix::io::FromRawFd;
+            use core::os::unix::io::FromRawFd;
             unsafe { Socket::from_raw_fd(fileno) }
         }
         #[cfg(windows)]
         {
-            use std::os::windows::io::FromRawSocket;
+            use core::os::windows::io::FromRawSocket;
             unsafe { Socket::from_raw_socket(fileno) }
         }
     }
     pub(super) fn sock_fileno(sock: &Socket) -> RawSocket {
         #[cfg(unix)]
         {
-            use std::os::unix::io::AsRawFd;
+            use core::os::unix::io::AsRawFd;
             sock.as_raw_fd()
         }
         #[cfg(windows)]
         {
-            use std::os::windows::io::AsRawSocket;
+            use core::os::windows::io::AsRawSocket;
             sock.as_raw_socket()
         }
     }
     fn into_sock_fileno(sock: Socket) -> RawSocket {
         #[cfg(unix)]
         {
-            use std::os::unix::io::IntoRawFd;
+            use core::os::unix::io::IntoRawFd;
             sock.into_raw_fd()
         }
         #[cfg(windows)]
         {
-            use std::os::windows::io::IntoRawSocket;
+            use core::os::windows::io::IntoRawSocket;
             sock.into_raw_socket()
         }
     }
@@ -2454,7 +2454,7 @@ mod _socket {
     #[pyfunction]
     fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
         let sock = get_raw_sock(x, vm)?;
-        let sock = std::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
+        let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
         #[cfg(windows)]

@@ -10,8 +10,8 @@ use crate::{
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
-use std::fmt;
-use std::sync::LazyLock;
+use core::fmt;
+use core::sync::LazyLock;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 

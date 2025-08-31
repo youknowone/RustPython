@@ -43,7 +43,7 @@ pub struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
-    pub fn get_value(self, len: usize) -> (PyObjectRef, Option<std::ops::Range<usize>>) {
+    pub fn get_value(self, len: usize) -> (PyObjectRef, Option<core::ops::Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
             Some(adjust_indices(self.start, self.end, len))
         } else {
@@ -56,7 +56,7 @@ impl StartsEndsWithArgs {
     pub fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
     where
         S: ?Sized + AnyStr,
-        F: Fn(&S, std::ops::Range<usize>) -> &S,
+        F: Fn(&S, core::ops::Range<usize>) -> &S,
     {
         let (affix, range) = self.get_value(len);
         let substr = if let Some(range) = range {
@@ -87,7 +87,7 @@ pub fn adjust_indices(
     start: Option<PyIntRef>,
     end: Option<PyIntRef>,
     len: usize,
-) -> std::ops::Range<usize> {
+) -> core::ops::Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
     let mut end = end.map_or(len as isize, saturate_to_isize);
     if end > len as isize {
@@ -111,7 +111,7 @@ pub trait StringRange {
     fn is_normal(&self) -> bool;
 }
 
-impl StringRange for std::ops::Range<usize> {
+impl StringRange for core::ops::Range<usize> {
     fn is_normal(&self) -> bool {
         self.start <= self.end
     }
@@ -144,9 +144,9 @@ pub trait AnyStr {
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
     fn elements(&self) -> impl Iterator<Item = Self::Char>;
-    fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self;
+    fn get_bytes(&self, range: core::ops::Range<usize>) -> &Self;
     // FIXME: get_chars is expensive for str
-    fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;
+    fn get_chars(&self, range: core::ops::Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
     // NOTE: str::chars().count() consumes the O(n) time. But pystr::char_len does cache.
     //       So using chars_len directly is too expensive and the below method shouldn't be implemented.
@@ -254,7 +254,7 @@ pub trait AnyStr {
     }
 
     #[inline]
-    fn py_find<F>(&self, needle: &Self, range: std::ops::Range<usize>, find: F) -> Option<usize>
+    fn py_find<F>(&self, needle: &Self, range: core::ops::Range<usize>, find: F) -> Option<usize>
     where
         F: Fn(&Self, &Self) -> Option<usize>,
     {
@@ -268,7 +268,7 @@ pub trait AnyStr {
     }
 
     #[inline]
-    fn py_count<F>(&self, needle: &Self, range: std::ops::Range<usize>, count: F) -> usize
+    fn py_count<F>(&self, needle: &Self, range: core::ops::Range<usize>, count: F) -> usize
     where
         F: Fn(&Self, &Self) -> usize,
     {
@@ -283,9 +283,9 @@ pub trait AnyStr {
         let mut u = Self::Container::with_capacity(
             (left + right) * fillchar.bytes_len() + self.bytes_len(),
         );
-        u.extend(std::iter::repeat_n(fillchar, left));
+        u.extend(core::iter::repeat_n(fillchar, left));
         u.push_str(self);
-        u.extend(std::iter::repeat_n(fillchar, right));
+        u.extend(core::iter::repeat_n(fillchar, right));
         u
     }
 
@@ -305,7 +305,7 @@ pub trait AnyStr {
 
     fn py_join(
         &self,
-        mut iter: impl std::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
+        mut iter: impl core::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
             elem?.as_ref().unwrap().to_container()
@@ -328,7 +328,7 @@ pub trait AnyStr {
     ) -> PyResult<(Self::Container, bool, Self::Container)>
     where
         F: Fn() -> S,
-        S: std::iter::Iterator<Item = &'a Self>,
+        S: core::iter::Iterator<Item = &'a Self>,
     {
         if sub.is_empty() {
             return Err(vm.new_value_error("empty separator"));

@@ -8,7 +8,7 @@ mod _tkinter {
     use rustpython_vm::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
     use rustpython_vm::builtins::{PyInt, PyStr, PyType};
-    use std::{ffi, ptr};
+    use core::{ffi, ptr};
 
     use crate::builtins::PyTypeRef;
     use rustpython_common::atomic::AtomicBool;
@@ -59,8 +59,8 @@ mod _tkinter {
         value: *mut tk_sys::Tcl_Obj,
     }
 
-    impl std::fmt::Debug for TclObject {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for TclObject {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "TclObject")
         }
     }
@@ -107,8 +107,8 @@ mod _tkinter {
     unsafe impl Send for TkApp {}
     unsafe impl Sync for TkApp {}
 
-    impl std::fmt::Debug for TkApp {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for TkApp {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "TkApp")
         }
     }
@@ -211,7 +211,7 @@ mod _tkinter {
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             // terribly unsafe
-            let s = unsafe { std::slice::from_raw_parts(s, size) }
+            let s = unsafe { core::slice::from_raw_parts(s, size) }
                 .to_vec()
                 .into_iter()
                 .map(|c| c as u8)
@@ -233,11 +233,11 @@ mod _tkinter {
                 let len = ptr::null_mut();
                 let data = unsafe { tk_sys::Tcl_GetUnicodeFromObj(obj, len) };
                 return if size_of::<tk_sys::Tcl_UniChar>() == 2 {
-                    let v = unsafe { std::slice::from_raw_parts(data as *const u16, len as usize) };
+                    let v = unsafe { core::slice::from_raw_parts(data as *const u16, len as usize) };
                     let s = String::from_utf16(v).unwrap();
                     Ok(PyObjectRef::from(vm.ctx.new_str(s)))
                 } else {
-                    let v = unsafe { std::slice::from_raw_parts(data as *const u32, len as usize) };
+                    let v = unsafe { core::slice::from_raw_parts(data as *const u32, len as usize) };
                     let s = widestring::U32String::from_vec(v).to_string_lossy();
                     Ok(PyObjectRef::from(vm.ctx.new_str(s)))
                 };
@@ -430,10 +430,10 @@ mod _tkinter {
 
             #[cfg(windows)]
             {
-                let ret = std::env::var("TCL_LIBRARY");
+                let ret = core::env::var("TCL_LIBRARY");
                 if ret.is_err() {
                     let loc = _get_tcl_lib_path();
-                    std::env::set_var("TCL_LIBRARY", loc);
+                    core::env::set_var("TCL_LIBRARY", loc);
                 }
             }
 

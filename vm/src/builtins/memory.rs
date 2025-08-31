@@ -29,8 +29,8 @@ use crate::{
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
-use std::sync::LazyLock;
-use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
+use core::sync::LazyLock;
+use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {

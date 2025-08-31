@@ -8,7 +8,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 // Sequence Protocol
 // https://docs.python.org/3/c-api/sequence.html
@@ -43,7 +43,7 @@ pub struct PySequenceMethods {
 }
 
 impl Debug for PySequenceMethods {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Sequence Methods")
     }
 }

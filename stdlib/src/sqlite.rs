@@ -79,7 +79,7 @@ mod _sqlite {
         },
         utils::ToCString,
     };
-    use std::{
+    use core::{
         ffi::{CStr, c_int, c_longlong, c_uint, c_void},
         fmt::Debug,
         ops::Deref,
@@ -415,7 +415,7 @@ mod _sqlite {
         ) {
             let context = SqliteContext::from(context);
             let (func, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
 
             let f = || -> PyResult<()> {
                 let db = context.db_handle();
@@ -442,7 +442,7 @@ mod _sqlite {
         ) {
             let context = SqliteContext::from(context);
             let (cls, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
             let instance = context.aggregate_context::<*const PyObject>();
             if unsafe { (*instance).is_null() } {
                 match cls.call((), vm) {
@@ -520,7 +520,7 @@ mod _sqlite {
         ) {
             let context = SqliteContext::from(context);
             let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
             let instance = context.aggregate_context::<*const PyObject>();
             let instance = unsafe { &**instance };
 
@@ -842,7 +842,7 @@ mod _sqlite {
     }
 
     impl Debug for Connection {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
             write!(f, "Sqlite3 Connection")
         }
     }
@@ -888,7 +888,7 @@ mod _sqlite {
                 detect_types: args.detect_types,
                 isolation_level: PyAtomicRef::from(args.isolation_level),
                 check_same_thread: args.check_same_thread,
-                thread_ident: std::thread::current().id(),
+                thread_ident: core::thread::current().id(),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
             })
@@ -1416,7 +1416,7 @@ mod _sqlite {
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.check_same_thread && (std::thread::current().id() != self.thread_ident) {
+            if self.check_same_thread && (core::thread::current().id() != self.thread_ident) {
                 Err(new_programming_error(
                     vm,
                     "SQLite objects created in a thread can only be used in that same thread."
@@ -1831,7 +1831,7 @@ mod _sqlite {
                     } else {
                         let nbytes = st.column_bytes(i);
                         let blob = unsafe {
-                            std::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
+                            core::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
                         };
                         let blob = vm.ctx.new_bytes(blob.to_vec());
                         converter.call((blob,), vm)?
@@ -2019,8 +2019,8 @@ mod _sqlite {
 
     impl AsMapping for Row {
         fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: std::sync::LazyLock<PyMappingMethods> =
-                std::sync::LazyLock::new(|| PyMappingMethods {
+            static AS_MAPPING: core::sync::LazyLock<PyMappingMethods> =
+                core::sync::LazyLock::new(|| PyMappingMethods {
                     length: atomic_func!(|mapping, _vm| Ok(Row::mapping_downcast(mapping)
                         .data
                         .len())),
@@ -2035,8 +2035,8 @@ mod _sqlite {
 
     impl AsSequence for Row {
         fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: std::sync::LazyLock<PySequenceMethods> =
-                std::sync::LazyLock::new(|| PySequenceMethods {
+            static AS_SEQUENCE: core::sync::LazyLock<PySequenceMethods> =
+                core::sync::LazyLock::new(|| PySequenceMethods {
                     length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq).data.len())),
                     item: atomic_func!(|seq, i, vm| Row::sequence_downcast(seq)
                         .data
@@ -2422,7 +2422,7 @@ mod _sqlite {
     }
 
     impl Debug for Statement {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
             write!(
                 f,
                 "{} Statement",
@@ -3032,7 +3032,7 @@ mod _sqlite {
         }
 
         fn aggregate_context<T>(self) -> *mut T {
-            unsafe { sqlite3_aggregate_context(self.ctx, std::mem::size_of::<T>() as c_int).cast() }
+            unsafe { sqlite3_aggregate_context(self.ctx, core::mem::size_of::<T>() as c_int).cast() }
         }
 
         fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &str) {
@@ -3138,7 +3138,7 @@ mod _sqlite {
         } else if nbytes < 0 {
             Err(vm.new_system_error("negative size with ptr"))
         } else {
-            Ok(unsafe { std::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
+            Ok(unsafe { core::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
         }
     }
 

@@ -7,7 +7,7 @@ pub use builtins::{ascii, print, reversed};
 
 #[pymodule]
 mod builtins {
-    use std::io::IsTerminal;
+    use core::io::IsTerminal;
 
     use crate::{
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
@@ -177,7 +177,7 @@ mod builtins {
                 let source = source.borrow_bytes();
 
                 // TODO: compiler::compile should probably get bytes
-                let source = std::str::from_utf8(&source)
+                let source = core::str::from_utf8(&source)
                     .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
 
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
@@ -335,7 +335,7 @@ mod builtins {
                     ));
                 }
 
-                let source = std::str::from_utf8(source).map_err(|err| {
+                let source = core::str::from_utf8(source).map_err(|err| {
                     let msg = format!(
                         "(unicode error) 'utf-8' codec can't decode byte 0x{:x?} in position {}: invalid start byte",
                         source[err.valid_up_to()],
@@ -477,7 +477,7 @@ mod builtins {
         };
 
         // everything is normal, we can just rely on rustyline to use stdin/stdout
-        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && std::io::stdin().is_terminal() {
+        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && core::io::stdin().is_terminal() {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
@@ -556,7 +556,7 @@ mod builtins {
         }
 
         let candidates = match args.args.len().cmp(&1) {
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 if default.is_some() {
                     return Err(vm.new_type_error(format!(
                         "Cannot specify a default for {func_name}() with multiple positional arguments"
@@ -564,8 +564,8 @@ mod builtins {
                 }
                 args.args
             }
-            std::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
-            std::cmp::Ordering::Less => {
+            core::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
+            core::cmp::Ordering::Less => {
                 // zero arguments means type error:
                 return Err(
                     vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))

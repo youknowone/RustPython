@@ -17,7 +17,7 @@ use crate::{
     function::{ArgBytesLike, PyMethodDef},
 };
 use once_cell::unsync::OnceCell;
-use std::{
+use core::{
     borrow::Cow,
     collections::HashMap,
     ops::{self, Range},

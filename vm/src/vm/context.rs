@@ -258,7 +258,7 @@ declare_const_name! {
 
 // Basic objects:
 impl Context {
-    pub const INT_CACHE_POOL_RANGE: std::ops::RangeInclusive<i32> = (-5)..=256;
+    pub const INT_CACHE_POOL_RANGE: core::ops::RangeInclusive<i32> = (-5)..=256;
     const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
     pub fn genesis() -> &'static PyRc<Self> {
@@ -371,7 +371,7 @@ impl Context {
     #[inline]
     pub fn empty_tuple_typed<T>(&self) -> &Py<PyTuple<T>> {
         let py: &Py<PyTuple> = &self.empty_tuple;
-        unsafe { std::mem::transmute(py) }
+        unsafe { core::mem::transmute(py) }
     }
 
     // universal pyref constructor

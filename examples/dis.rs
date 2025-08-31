@@ -11,9 +11,9 @@ extern crate log;
 
 use lexopt::ValueExt;
 use rustpython_compiler as compiler;
-use std::error::Error;
-use std::fs;
-use std::path::{Path, PathBuf};
+use core::error::Error;
+use core::fs;
+use core::path::{Path, PathBuf};
 
 fn main() -> Result<(), lexopt::Error> {
     env_logger::init();

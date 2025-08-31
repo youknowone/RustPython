@@ -1,7 +1,7 @@
 // spell-checker:disable
 
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
-use std::os::unix::io::RawFd;
+use core::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
     use nix::fcntl;
@@ -37,9 +37,9 @@ pub mod module {
     use bitflags::bitflags;
     use nix::{
         fcntl,
-        unistd::{self, Gid, Pid, Uid},
+        unicore::{self, Gid, Pid, Uid},
     };
-    use std::{
+    use core::{
         env,
         ffi::{CStr, CString},
         fs, io,
@@ -257,7 +257,7 @@ pub mod module {
         let others_mode = mode & 0o007;
         let others_permissions = get_permissions(others_mode);
 
-        let user_id = nix::unistd::getuid();
+        let user_id = nix::unicore::getuid();
         let groups_ids = getgroups_impl()?;
 
         if file_owner == user_id {
@@ -273,7 +273,7 @@ pub mod module {
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
         use libc::{c_int, gid_t};
         use nix::errno::Errno;
-        use std::ptr;
+        use core::ptr;
         let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
         let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
         let ret = unsafe {
@@ -290,7 +290,7 @@ pub mod module {
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "redox")))]
-    use nix::unistd::getgroups as getgroups_impl;
+    use nix::unicore::getgroups as getgroups_impl;
 
     #[cfg(target_os = "redox")]
     fn getgroups_impl() -> nix::Result<Vec<Gid>> {
@@ -308,7 +308,7 @@ pub mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        use std::os::unix::fs::MetadataExt;
+        use core::os::unix::fs::MetadataExt;
 
         let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
             vm.new_value_error(
@@ -370,7 +370,7 @@ pub mod module {
         let dst = args.dst.into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         {
-            nix::unistd::symlinkat(&*src, args.dir_fd.raw_opt(), &*dst)
+            nix::unicore::symlinkat(&*src, args.dir_fd.raw_opt(), &*dst)
                 .map_err(|err| err.into_pyexception(vm))
         }
         #[cfg(target_os = "redox")]
@@ -384,7 +384,7 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn fchdir(fd: RawFd, vm: &VirtualMachine) -> PyResult<()> {
-        nix::unistd::fchdir(fd).map_err(|err| err.into_pyexception(vm))
+        nix::unicore::fchdir(fd).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -392,7 +392,7 @@ pub mod module {
     fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         use crate::ospath::IOErrorBuilder;
 
-        nix::unistd::chroot(&*path.path).map_err(|err| {
+        nix::unicore::chroot(&*path.path).map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
             let err = io::Error::from_raw_os_error(err as i32);
             IOErrorBuilder::with_filename(&err, path, vm)
@@ -411,7 +411,7 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let uid = if uid >= 0 {
-            Some(nix::unistd::Uid::from_raw(uid as u32))
+            Some(nix::unicore::Uid::from_raw(uid as u32))
         } else if uid == -1 {
             None
         } else {
@@ -419,7 +419,7 @@ pub mod module {
         };
 
         let gid = if gid >= 0 {
-            Some(nix::unistd::Gid::from_raw(gid as u32))
+            Some(nix::unicore::Gid::from_raw(gid as u32))
         } else if gid == -1 {
             None
         } else {
@@ -435,9 +435,9 @@ pub mod module {
         let dir_fd = dir_fd.raw_opt();
         match path {
             OsPathOrFd::Path(ref p) => {
-                nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
+                nix::unicore::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
             }
-            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd.as_raw(), uid, gid),
+            OsPathOrFd::Fd(fd) => nix::unicore::fchown(fd.as_raw(), uid, gid),
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
@@ -811,7 +811,7 @@ pub mod module {
     #[pyfunction]
     fn sched_getparam(pid: libc::pid_t, vm: &VirtualMachine) -> PyResult<SchedParam> {
         let param = unsafe {
-            let mut param = std::mem::MaybeUninit::uninit();
+            let mut param = core::mem::MaybeUninit::uninit();
             if -1 == libc::sched_getparam(pid, param.as_mut_ptr()) {
                 return Err(errno_err(vm));
             }
@@ -895,7 +895,7 @@ pub mod module {
 
     #[pyfunction]
     fn pipe(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
-        use nix::unistd::pipe;
+        use nix::unicore::pipe;
         let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
         set_inheritable(rfd.as_raw_fd(), false, vm)?;
         set_inheritable(wfd.as_raw_fd(), false, vm)?;
@@ -915,7 +915,7 @@ pub mod module {
     #[pyfunction]
     fn pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         let oflags = fcntl::OFlag::from_bits_truncate(flags);
-        nix::unistd::pipe2(oflags).map_err(|err| err.into_pyexception(vm))
+        nix::unicore::pipe2(oflags).map_err(|err| err.into_pyexception(vm))
     }
 
     fn _chmod(
@@ -928,7 +928,7 @@ pub mod module {
         let [] = dir_fd.0;
         let err_path = path.clone();
         let body = move || {
-            use std::os::unix::fs::PermissionsExt;
+            use core::os::unix::fs::PermissionsExt;
             let meta = fs_metadata(&path, follow_symlinks.0)?;
             let mut permissions = meta.permissions();
             permissions.set_mode(mode);
@@ -995,7 +995,7 @@ pub mod module {
         if unsafe { lchmod(c_path.as_ptr(), mode as libc::mode_t) } == 0 {
             Ok(())
         } else {
-            let err = std::io::Error::last_os_error();
+            let err = core::io::Error::last_os_error();
             Err(IOErrorBuilder::with_filename(&err, path, vm))
         }
     }
@@ -1020,7 +1020,7 @@ pub mod module {
             return Err(vm.new_value_error("execv() arg 2 first element cannot be empty"));
         }
 
-        unistd::execv(&path, &argv)
+        unicore::execv(&path, &argv)
             .map(|_ok| ())
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -1069,88 +1069,88 @@ pub mod module {
 
         let env: Vec<&CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
-        unistd::execve(&path, &argv, &env).map_err(|err| err.into_pyexception(vm))?;
+        unicore::execve(&path, &argv, &env).map_err(|err| err.into_pyexception(vm))?;
         Ok(())
     }
 
     #[pyfunction]
     fn getppid(vm: &VirtualMachine) -> PyObjectRef {
-        let ppid = unistd::getppid().as_raw();
+        let ppid = unicore::getppid().as_raw();
         vm.ctx.new_int(ppid).into()
     }
 
     #[pyfunction]
     fn getgid(vm: &VirtualMachine) -> PyObjectRef {
-        let gid = unistd::getgid().as_raw();
+        let gid = unicore::getgid().as_raw();
         vm.ctx.new_int(gid).into()
     }
 
     #[pyfunction]
     fn getegid(vm: &VirtualMachine) -> PyObjectRef {
-        let egid = unistd::getegid().as_raw();
+        let egid = unicore::getegid().as_raw();
         vm.ctx.new_int(egid).into()
     }
 
     #[pyfunction]
     fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
         let pgid =
-            unistd::getpgid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
+            unicore::getpgid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
         Ok(vm.new_pyobj(pgid.as_raw()))
     }
 
     #[pyfunction]
     fn getpgrp(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(unistd::getpgrp().as_raw()).into()
+        vm.ctx.new_int(unicore::getpgrp().as_raw()).into()
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn getsid(pid: u32, vm: &VirtualMachine) -> PyResult {
         let sid =
-            unistd::getsid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
+            unicore::getsid(Some(Pid::from_raw(pid as i32))).map_err(|e| e.into_pyexception(vm))?;
         Ok(vm.new_pyobj(sid.as_raw()))
     }
 
     #[pyfunction]
     fn getuid(vm: &VirtualMachine) -> PyObjectRef {
-        let uid = unistd::getuid().as_raw();
+        let uid = unicore::getuid().as_raw();
         vm.ctx.new_int(uid).into()
     }
 
     #[pyfunction]
     fn geteuid(vm: &VirtualMachine) -> PyObjectRef {
-        let euid = unistd::geteuid().as_raw();
+        let euid = unicore::geteuid().as_raw();
         vm.ctx.new_int(euid).into()
     }
 
     #[cfg(not(any(target_os = "wasi", target_os = "android")))]
     #[pyfunction]
     fn setgid(gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setgid(gid).map_err(|err| err.into_pyexception(vm))
+        unicore::setgid(gid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn setegid(egid: Gid, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))
+        unicore::setegid(egid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn setpgid(pid: u32, pgid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
+        unicore::setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32))
             .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn setsid(vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setsid()
+        unicore::setsid()
             .map(|_ok| ())
             .map_err(|err| err.into_pyexception(vm))
     }
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
-        use std::cmp::Ordering;
+        use core::cmp::Ordering;
         let i = obj
             .try_to_ref::<PyInt>(vm)
             .map_err(|_| {
@@ -1190,13 +1190,13 @@ pub mod module {
     #[cfg(not(any(target_os = "wasi", target_os = "android")))]
     #[pyfunction]
     fn setuid(uid: Uid) -> nix::Result<()> {
-        unistd::setuid(uid)
+        unicore::setuid(uid)
     }
 
     #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
     #[pyfunction]
     fn seteuid(euid: Uid) -> nix::Result<()> {
-        unistd::seteuid(euid)
+        unicore::seteuid(euid)
     }
 
     #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
@@ -1215,7 +1215,7 @@ pub mod module {
     ))]
     #[pyfunction]
     fn setresuid(ruid: Uid, euid: Uid, suid: Uid) -> nix::Result<()> {
-        unistd::setresuid(ruid, euid, suid)
+        unicore::setresuid(ruid, euid, suid)
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1231,7 +1231,7 @@ pub mod module {
 
     #[pyfunction]
     fn ttyname(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult {
-        let name = unistd::ttyname(fd).map_err(|e| e.into_pyexception(vm))?;
+        let name = unicore::ttyname(fd).map_err(|e| e.into_pyexception(vm))?;
         let name = name.into_os_string().into_string().unwrap();
         Ok(vm.ctx.new_str(name).into())
     }
@@ -1265,7 +1265,7 @@ pub mod module {
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresuid() -> nix::Result<(u32, u32, u32)> {
-        let ret = unistd::getresuid()?;
+        let ret = unicore::getresuid()?;
         Ok((
             ret.real.as_raw(),
             ret.effective.as_raw(),
@@ -1277,7 +1277,7 @@ pub mod module {
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresgid() -> nix::Result<(u32, u32, u32)> {
-        let ret = unistd::getresgid()?;
+        let ret = unicore::getresgid()?;
         Ok((
             ret.real.as_raw(),
             ret.effective.as_raw(),
@@ -1294,7 +1294,7 @@ pub mod module {
     ))]
     #[pyfunction]
     fn setresgid(rgid: Gid, egid: Gid, sgid: Gid, vm: &VirtualMachine) -> PyResult<()> {
-        unistd::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
+        unicore::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(any(target_os = "wasi", target_os = "android", target_os = "redox")))]
@@ -1314,7 +1314,7 @@ pub mod module {
     #[pyfunction]
     fn initgroups(user_name: PyStrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         let user = user_name.to_cstring(vm)?;
-        unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
+        unicore::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
@@ -1325,7 +1325,7 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let gids = group_ids.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-        unistd::setgroups(&gids).map_err(|err| err.into_pyexception(vm))
+        unicore::setgroups(&gids).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1424,7 +1424,7 @@ pub mod module {
                 .map_err(|_| vm.new_value_error("path should not have nul bytes"))?;
 
             let mut file_actions = unsafe {
-                let mut fa = std::mem::MaybeUninit::uninit();
+                let mut fa = core::mem::MaybeUninit::uninit();
                 assert!(libc::posix_spawn_file_actions_init(fa.as_mut_ptr()) == 0);
                 fa.assume_init()
             };
@@ -1470,14 +1470,14 @@ pub mod module {
                         }
                     };
                     if ret != 0 {
-                        let err = std::io::Error::from_raw_os_error(ret);
+                        let err = core::io::Error::from_raw_os_error(ret);
                         return Err(IOErrorBuilder::with_filename(&err, self.path, vm));
                     }
                 }
             }
 
             let mut attrp = unsafe {
-                let mut sa = std::mem::MaybeUninit::uninit();
+                let mut sa = core::mem::MaybeUninit::uninit();
                 assert!(libc::posix_spawnattr_init(sa.as_mut_ptr()) == 0);
                 sa.assume_init()
             };
@@ -1575,13 +1575,13 @@ pub mod module {
             let argv: Vec<*mut libc::c_char> = args
                 .iter_mut()
                 .map(|s| s.as_ptr() as _)
-                .chain(std::iter::once(std::ptr::null_mut()))
+                .chain(core::iter::once(core::ptr::null_mut()))
                 .collect();
             let mut env = envp_from_dict(self.env, vm)?;
             let envp: Vec<*mut libc::c_char> = env
                 .iter_mut()
                 .map(|s| s.as_ptr() as _)
-                .chain(std::iter::once(std::ptr::null_mut()))
+                .chain(core::iter::once(core::ptr::null_mut()))
                 .collect();
 
             let mut pid = 0;
@@ -1610,7 +1610,7 @@ pub mod module {
             if ret == 0 {
                 Ok(pid)
             } else {
-                let err = std::io::Error::from_raw_os_error(ret);
+                let err = core::io::Error::from_raw_os_error(ret);
                 Err(IOErrorBuilder::with_filename(&err, self.path, vm))
             }
         }
@@ -1728,17 +1728,17 @@ pub mod module {
     #[cfg(target_os = "macos")]
     #[pyfunction]
     fn _fcopyfile(in_fd: i32, out_fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { fcopyfile(in_fd, out_fd, std::ptr::null_mut(), flags as u32) };
+        let ret = unsafe { fcopyfile(in_fd, out_fd, core::ptr::null_mut(), flags as u32) };
         if ret < 0 { Err(errno_err(vm)) } else { Ok(()) }
     }
 
     #[pyfunction]
     fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let fd = nix::unistd::dup(fd).map_err(|e| e.into_pyexception(vm))?;
+        let fd = nix::unicore::dup(fd).map_err(|e| e.into_pyexception(vm))?;
         super::raw_set_inheritable(fd, false)
             .map(|()| fd)
             .map_err(|e| {
-                let _ = nix::unistd::close(fd);
+                let _ = nix::unicore::close(fd);
                 e.into_pyexception(vm)
             })
     }
@@ -1755,10 +1755,10 @@ pub mod module {
 
     #[pyfunction]
     fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
-        let fd = nix::unistd::dup2(args.fd, args.fd2).map_err(|e| e.into_pyexception(vm))?;
+        let fd = nix::unicore::dup2(args.fd, args.fd2).map_err(|e| e.into_pyexception(vm))?;
         if !args.inheritable {
             super::raw_set_inheritable(fd, false).map_err(|e| {
-                let _ = nix::unistd::close(fd);
+                let _ = nix::unicore::close(fd);
                 e.into_pyexception(vm)
             })?
         }
@@ -1820,7 +1820,7 @@ pub mod module {
     fn getgrouplist(user: PyStrRef, group: u32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let user = CString::new(user.as_str()).unwrap();
         let gid = Gid::from_raw(group);
-        let group_ids = unistd::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
+        let group_ids = unicore::getgrouplist(&user, gid).map_err(|err| err.into_pyexception(vm))?;
         Ok(group_ids
             .into_iter()
             .map(|gid| vm.new_pyobj(gid.as_raw()))
@@ -1895,7 +1895,7 @@ pub mod module {
         }
     }
 
-    // Copy from [nix::unistd::PathconfVar](https://docs.rs/nix/0.21.0/nix/unistd/enum.PathconfVar.html)
+    // Copy from [nix::unicore::PathconfVar](https://docs.rs/nix/0.21.0/nix/unistd/enum.PathconfVar.html)
     // Change enum name to fit python doc
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumIter, EnumString)]
     #[repr(i32)]

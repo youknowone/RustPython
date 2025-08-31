@@ -1,7 +1,7 @@
 #![allow(clippy::needless_lifetimes)]
 
 use lock_api::{MutexGuard, RawMutex};
-use std::{fmt, marker::PhantomData, ops::Deref};
+use core::{fmt, marker::PhantomData, ops::Deref};
 
 /// A mutex guard that has an exclusive lock, but only an immutable reference; useful if you
 /// need to map a mutex guard with a function that returns an `&T`. Construct using the
@@ -22,7 +22,7 @@ impl<'a, R: RawMutex, T: ?Sized> MapImmutable<'a, R, T> for MutexGuard<'a, R, T>
     {
         let raw = unsafe { MutexGuard::mutex(&s).raw() };
         let data = f(&s) as *const U;
-        std::mem::forget(s);
+        core::mem::forget(s);
         ImmutableMappedMutexGuard {
             raw,
             data,
@@ -38,7 +38,7 @@ impl<'a, R: RawMutex, T: ?Sized> ImmutableMappedMutexGuard<'a, R, T> {
     {
         let raw = s.raw;
         let data = f(&s) as *const U;
-        std::mem::forget(s);
+        core::mem::forget(s);
         ImmutableMappedMutexGuard {
             raw,
             data,

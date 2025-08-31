@@ -24,7 +24,7 @@ fn main() {
     }
 
     #[allow(clippy::unusual_byte_groupings)]
-    if let Ok(v) = std::env::var("DEP_OPENSSL_VERSION_NUMBER") {
+    if let Ok(v) = core::env::var("DEP_OPENSSL_VERSION_NUMBER") {
         println!("cargo:rustc-env=OPENSSL_API_VERSION={v}");
         // cfg setup from openssl crate's build script
         let version = u64::from_str_radix(&v, 16).unwrap();
@@ -34,14 +34,14 @@ fn main() {
             }
         }
     }
-    if let Ok(v) = std::env::var("DEP_OPENSSL_CONF") {
+    if let Ok(v) = core::env::var("DEP_OPENSSL_CONF") {
         for conf in v.split(',') {
             println!("cargo:rustc-cfg=osslconf=\"{conf}\"");
         }
     }
     // it's possible for openssl-sys to link against the system openssl under certain conditions,
     // so let the ssl module know to only perform a probe if we're actually vendored
-    if std::env::var("DEP_OPENSSL_VENDORED").is_ok_and(|s| s == "1") {
+    if core::env::var("DEP_OPENSSL_VENDORED").is_ok_and(|s| s == "1") {
         println!("cargo::rustc-cfg=openssl_vendored")
     }
 }

@@ -17,7 +17,7 @@ mod _bz2 {
     };
     use bzip2::{Decompress, Status, write::BzEncoder};
     use rustpython_vm::convert::ToPyException;
-    use std::{fmt, io::Write};
+    use core::{fmt, io::Write};
 
     const BUFSIZ: usize = 8192;
 

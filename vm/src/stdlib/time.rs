@@ -21,12 +21,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 unsafe extern "C" {
     #[cfg(not(target_os = "freebsd"))]
     #[link_name = "daylight"]
-    static c_daylight: std::ffi::c_int;
-    // pub static dstbias: std::ffi::c_int;
+    static c_daylight: core::ffi::c_int;
+    // pub static dstbias: core::ffi::c_int;
     #[link_name = "timezone"]
-    static c_timezone: std::ffi::c_long;
+    static c_timezone: core::ffi::c_long;
     #[link_name = "tzname"]
-    static c_tzname: [*const std::ffi::c_char; 2];
+    static c_tzname: [*const core::ffi::c_char; 2];
     #[link_name = "tzset"]
     fn c_tzset();
 }
@@ -43,7 +43,7 @@ mod decl {
         DateTime, Datelike, TimeZone, Timelike,
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
-    use std::time::Duration;
+    use core::time::Duration;
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     use windows::Win32::System::Time;
@@ -66,7 +66,7 @@ mod decl {
     pub(super) const NS_TO_US: i64 = 1000;
 
     fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<Duration> {
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use core::time::{SystemTime, UNIX_EPOCH};
 
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -103,9 +103,9 @@ mod decl {
 
         #[cfg(unix)]
         {
-            // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
+            // this is basically core::thread::sleep, but that catches interrupts and we don't want to;
             let ts = nix::sys::time::TimeSpec::from(dur);
-            let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
+            let res = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
             let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
 
             if interrupted {
@@ -115,7 +115,7 @@ mod decl {
 
         #[cfg(not(unix))]
         {
-            std::thread::sleep(dur);
+            core::thread::sleep(dur);
         }
 
         Ok(())
@@ -202,7 +202,7 @@ mod decl {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
-    fn timezone(_vm: &VirtualMachine) -> std::ffi::c_long {
+    fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
         unsafe { super::c_timezone }
     }
 
@@ -219,7 +219,7 @@ mod decl {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
-    fn daylight(_vm: &VirtualMachine) -> std::ffi::c_int {
+    fn daylight(_vm: &VirtualMachine) -> core::ffi::c_int {
         unsafe { super::c_daylight }
     }
 
@@ -238,8 +238,8 @@ mod decl {
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
 
-        unsafe fn to_str(s: *const std::ffi::c_char) -> String {
-            unsafe { std::ffi::CStr::from_ptr(s) }
+        unsafe fn to_str(s: *const core::ffi::c_char) -> String {
+            unsafe { core::ffi::CStr::from_ptr(s) }
                 .to_string_lossy()
                 .into_owned()
         }
@@ -349,7 +349,7 @@ mod decl {
         t: OptionalArg<PyStructTime>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use std::fmt::Write;
+        use core::fmt::Write;
 
         let instant = t.naive_or_local(vm)?;
         let mut formatted_time = String::new();
@@ -411,7 +411,7 @@ mod decl {
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let t: libc::tms = unsafe {
-            let mut t = std::mem::MaybeUninit::uninit();
+            let mut t = core::mem::MaybeUninit::uninit();
             if libc::times(t.as_mut_ptr()) == -1 {
                 return Err(vm.new_os_error("Failed to get clock time".to_owned()));
             }
@@ -428,7 +428,7 @@ mod decl {
     #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let time: libc::timespec = unsafe {
-            let mut time = std::mem::MaybeUninit::uninit();
+            let mut time = core::mem::MaybeUninit::uninit();
             if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
                 return Err(vm.new_os_error("Failed to get clock time".to_owned()));
             }
@@ -485,8 +485,8 @@ mod decl {
         tm_zone: PyObjectRef,
     }
 
-    impl std::fmt::Debug for PyStructTime {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for PyStructTime {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "struct_time()")
         }
     }
@@ -556,7 +556,7 @@ mod platform {
         convert::IntoPyException,
     };
     use nix::{sys::time::TimeSpec, time::ClockId};
-    use std::time::Duration;
+    use core::time::Duration;
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
@@ -774,7 +774,7 @@ mod platform {
         builtins::{PyNamespace, PyStrRef},
         stdlib::os::errno_err,
     };
-    use std::time::Duration;
+    use core::time::Duration;
     use windows_sys::Win32::{
         Foundation::FILETIME,
         System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency},
@@ -784,12 +784,12 @@ mod platform {
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         let large: [u32; 2] = [time.dwLowDateTime, time.dwHighDateTime];
-        unsafe { std::mem::transmute(large) }
+        unsafe { core::mem::transmute(large) }
     }
 
     fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {
         let frequency = unsafe {
-            let mut freq = std::mem::MaybeUninit::uninit();
+            let mut freq = core::mem::MaybeUninit::uninit();
             if QueryPerformanceFrequency(freq.as_mut_ptr()) == 0 {
                 return Err(errno_err(vm));
             }
@@ -816,7 +816,7 @@ mod platform {
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let ticks = unsafe {
-            let mut performance_count = std::mem::MaybeUninit::uninit();
+            let mut performance_count = core::mem::MaybeUninit::uninit();
             QueryPerformanceCounter(performance_count.as_mut_ptr());
             performance_count.assume_init()
         };
@@ -829,9 +829,9 @@ mod platform {
     }
 
     fn get_system_time_adjustment(vm: &VirtualMachine) -> PyResult<u32> {
-        let mut _time_adjustment = std::mem::MaybeUninit::uninit();
-        let mut time_increment = std::mem::MaybeUninit::uninit();
-        let mut _is_time_adjustment_disabled = std::mem::MaybeUninit::uninit();
+        let mut _time_adjustment = core::mem::MaybeUninit::uninit();
+        let mut time_increment = core::mem::MaybeUninit::uninit();
+        let mut _is_time_adjustment_disabled = core::mem::MaybeUninit::uninit();
         let time_increment = unsafe {
             if GetSystemTimeAdjustment(
                 _time_adjustment.as_mut_ptr(),
@@ -893,10 +893,10 @@ mod platform {
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let (kernel_time, user_time) = unsafe {
-            let mut _creation_time = std::mem::MaybeUninit::uninit();
-            let mut _exit_time = std::mem::MaybeUninit::uninit();
-            let mut kernel_time = std::mem::MaybeUninit::uninit();
-            let mut user_time = std::mem::MaybeUninit::uninit();
+            let mut _creation_time = core::mem::MaybeUninit::uninit();
+            let mut _exit_time = core::mem::MaybeUninit::uninit();
+            let mut kernel_time = core::mem::MaybeUninit::uninit();
+            let mut user_time = core::mem::MaybeUninit::uninit();
 
             let thread = GetCurrentThread();
             if GetThreadTimes(
@@ -918,10 +918,10 @@ mod platform {
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let (kernel_time, user_time) = unsafe {
-            let mut _creation_time = std::mem::MaybeUninit::uninit();
-            let mut _exit_time = std::mem::MaybeUninit::uninit();
-            let mut kernel_time = std::mem::MaybeUninit::uninit();
-            let mut user_time = std::mem::MaybeUninit::uninit();
+            let mut _creation_time = core::mem::MaybeUninit::uninit();
+            let mut _exit_time = core::mem::MaybeUninit::uninit();
+            let mut kernel_time = core::mem::MaybeUninit::uninit();
+            let mut user_time = core::mem::MaybeUninit::uninit();
 
             let process = GetCurrentProcess();
             if GetProcessTimes(

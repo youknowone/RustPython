@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::{env, io::prelude::*, path::PathBuf, process::Command};
+use core::{env, io::prelude::*, path::PathBuf, process::Command};
 
 fn main() {
     let frozen_libs = if cfg!(feature = "freeze-stdlib") {
@@ -29,11 +29,11 @@ fn main() {
 
     let mut env_path = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     env_path.push("env_vars.rs");
-    let mut f = std::fs::File::create(env_path).unwrap();
+    let mut f = core::fs::File::create(env_path).unwrap();
     write!(
         f,
         "sysvars! {{ {} }}",
-        std::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{k:?} => {v:?}")))
+        core::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{k:?} => {v:?}")))
     )
     .unwrap();
 }
@@ -63,7 +63,7 @@ fn rustc_version() -> String {
     command(rustc, &["-V"])
 }
 
-fn command(cmd: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> String {
+fn command(cmd: impl AsRef<core::ffi::OsStr>, args: &[&str]) -> String {
     match Command::new(cmd).args(args).output() {
         Ok(output) => match String::from_utf8(output.stdout) {
             Ok(s) => s,

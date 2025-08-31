@@ -5,11 +5,11 @@ use criterion::{
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
-use std::collections::HashMap;
-use std::path::Path;
+use core::collections::HashMap;
+use core::path::Path;
 
 fn bench_cpython_code(b: &mut Bencher, source: &str) {
-    let c_str_source_head = std::ffi::CString::new(source).unwrap();
+    let c_str_source_head = core::ffi::CString::new(source).unwrap();
     let c_str_source = c_str_source_head.as_c_str();
     pyo3::Python::with_gil(|py| {
         b.iter(|| {
@@ -93,7 +93,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             let path = entry.unwrap().path();
             (
                 path.file_name().unwrap().to_str().unwrap().to_owned(),
-                std::fs::read_to_string(path).unwrap(),
+                core::fs::read_to_string(path).unwrap(),
             )
         })
         .collect::<HashMap<_, _>>();

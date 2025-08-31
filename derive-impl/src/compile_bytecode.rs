@@ -17,8 +17,8 @@ use crate::Diagnostic;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
-use std::sync::LazyLock;
-use std::{
+use core::sync::LazyLock;
+use core::{
     collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
@@ -58,11 +58,11 @@ pub trait Compiler {
         source: &str,
         mode: Mode,
         module_name: String,
-    ) -> Result<CodeObject, Box<dyn std::error::Error>>;
+    ) -> Result<CodeObject, Box<dyn core::error::Error>>;
 }
 
 impl CompilationSource {
-    fn compile_string<D: std::fmt::Display, F: FnOnce() -> D>(
+    fn compile_string<D: core::fmt::Display, F: FnOnce() -> D>(
         &self,
         source: &str,
         mode: Mode,

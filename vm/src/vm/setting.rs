@@ -1,5 +1,5 @@
 #[cfg(feature = "flame-it")]
-use std::ffi::OsString;
+use core::ffi::OsString;
 
 /// Struct containing all kind of settings for the python vm.
 /// Mostly `PyConfig` in CPython.

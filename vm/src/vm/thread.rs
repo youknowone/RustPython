@@ -1,6 +1,6 @@
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 use itertools::Itertools;
-use std::{
+use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
     thread_local,
@@ -8,7 +8,7 @@ use std::{
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
-    static VM_CURRENT: RefCell<*const VirtualMachine> = std::ptr::null::<VirtualMachine>().into();
+    static VM_CURRENT: RefCell<*const VirtualMachine> = core::ptr::null::<VirtualMachine>().into();
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
     pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
@@ -28,10 +28,10 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     VM_STACK.with(|vms| {
         vms.borrow_mut().push(vm.into());
         let prev = VM_CURRENT.with(|current| current.replace(vm));
-        let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        let ret = core::panic::catch_unwind(core::panic::AssertUnwindSafe(f));
         vms.borrow_mut().pop();
         VM_CURRENT.with(|current| current.replace(prev));
-        ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
+        ret.unwrap_or_else(|e| core::panic::resume_unwind(e))
     })
 }
 
@@ -70,7 +70,7 @@ pub struct ThreadedVirtualMachine {
 
 #[cfg(feature = "threading")]
 impl ThreadedVirtualMachine {
-    /// Create a `FnOnce()` that can easily be passed to a function like [`std::thread::Builder::spawn`]
+    /// Create a `FnOnce()` that can easily be passed to a function like [`core::thread::Builder::spawn`]
     ///
     /// # Note
     ///
@@ -112,17 +112,17 @@ impl VirtualMachine {
     /// implementation tries to run the `__del__` destructor of a python object but finds that it's
     /// not in the context of any vm.
     #[cfg(feature = "threading")]
-    pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
+    pub fn start_thread<F, R>(&self, f: F) -> core::thread::JoinHandle<R>
     where
         F: FnOnce(&Self) -> R,
         F: Send + 'static,
         R: Send + 'static,
     {
         let func = self.new_thread().make_spawn_func(f);
-        std::thread::spawn(func)
+        core::thread::spawn(func)
     }
 
-    /// Create a new VM thread that can be passed to a function like [`std::thread::spawn`]
+    /// Create a new VM thread that can be passed to a function like [`core::thread::spawn`]
     /// to use the same interpreter on a different thread. Note that if you just want to
     /// use this with `thread::spawn`, you can use
     /// [`vm.start_thread()`](`VirtualMachine::start_thread`) as a convenience.
@@ -131,7 +131,7 @@ impl VirtualMachine {
     ///
     /// ```
     /// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-    /// use std::thread::Builder;
+    /// use core::thread::Builder;
     /// let handle = Builder::new()
     ///     .name("my thread :)".into())
     ///     .spawn(vm.new_thread().make_spawn_func(|vm| vm.ctx.none()))

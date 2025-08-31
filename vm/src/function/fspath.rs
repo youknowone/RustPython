@@ -5,7 +5,7 @@ use crate::{
     function::PyStr,
     protocol::PyBuffer,
 };
-use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
+use core::{borrow::Cow, ffi::OsStr, path::PathBuf};
 
 #[derive(Clone)]
 pub enum FsPath {
@@ -89,8 +89,8 @@ impl FsPath {
         Ok(path)
     }
 
-    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<std::ffi::CString> {
-        std::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
+    pub fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<core::ffi::CString> {
+        core::ffi::CString::new(self.as_bytes()).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(windows)]
@@ -99,7 +99,7 @@ impl FsPath {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
+    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a core::ffi::OsStr> {
         rustpython_common::os::bytes_as_os_str(b)
             .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
     }

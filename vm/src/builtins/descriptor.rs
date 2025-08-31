@@ -50,8 +50,8 @@ impl PyPayload for PyMethodDescriptor {
     }
 }
 
-impl std::fmt::Debug for PyMethodDescriptor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyMethodDescriptor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "method descriptor for '{}'", self.common.name)
     }
 }
@@ -211,8 +211,8 @@ impl PyMemberDef {
     }
 }
 
-impl std::fmt::Debug for PyMemberDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyMemberDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyMemberDef")
             .field("name", &self.name)
             .field("kind", &self.kind)

@@ -40,7 +40,7 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use std::borrow::Cow;
+use core::borrow::Cow;
 
 const MAXBLOCKS: usize = 20;
 
@@ -277,7 +277,7 @@ fn compiler_unwrap_option<T>(zelf: &Compiler, o: Option<T>) -> T {
     o.unwrap()
 }
 
-// fn compiler_result_unwrap<T, E: std::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
+// fn compiler_result_unwrap<T, E: core::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
 //     if result.is_err() {
 //         eprintln!("=== CODEGEN PANIC INFO ===");
 //         eprintln!("This IS an internal error, an result was unwrapped during codegen");
@@ -1770,7 +1770,7 @@ impl Compiler {
             name.to_owned(),
         );
 
-        let args_iter = std::iter::empty()
+        let args_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .map(|arg| &arg.parameter)
@@ -2128,7 +2128,7 @@ impl Compiler {
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
 
         // Handle positional defaults
-        let defaults: Vec<_> = std::iter::empty()
+        let defaults: Vec<_> = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .filter_map(|x| x.default.as_deref())
@@ -2256,7 +2256,7 @@ impl Compiler {
         let mut num_annotations = 0;
 
         // Handle parameter annotations
-        let parameters_iter = std::iter::empty()
+        let parameters_iter = core::iter::empty()
             .chain(&parameters.posonlyargs)
             .chain(&parameters.args)
             .chain(&parameters.kwonlyargs)
@@ -3580,7 +3580,7 @@ impl Compiler {
         // Step 2: If we have keys to match
         if size > 0 {
             // Validate and compile keys
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = core::collections::HashSet::new();
             for key in keys {
                 let is_attribute = matches!(key, Expr::Attribute(_));
                 let is_literal = matches!(
@@ -4663,7 +4663,7 @@ impl Compiler {
                 let params = parameters.as_deref().unwrap_or(&default_params);
 
                 // Prepare defaults before entering function
-                let defaults: Vec<_> = std::iter::empty()
+                let defaults: Vec<_> = core::iter::empty()
                     .chain(&params.posonlyargs)
                     .chain(&params.args)
                     .filter_map(|x| x.default.as_deref())

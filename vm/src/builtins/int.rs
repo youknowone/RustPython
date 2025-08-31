@@ -21,8 +21,8 @@ use crate::{
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use std::fmt;
-use std::ops::{Neg, Not};
+use core::fmt;
+use core::ops::{Neg, Not};
 
 #[pyclass(module = false, name = "int")]
 #[derive(Debug)]
@@ -287,7 +287,7 @@ impl PyInt {
         I::try_from(self.as_bigint()).map_err(|_| {
             vm.new_overflow_error(format!(
                 "Python int too large to convert to Rust {}",
-                std::any::type_name::<I>()
+                core::any::type_name::<I>()
             ))
         })
     }
@@ -583,7 +583,7 @@ impl PyInt {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
+        core::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
     #[pymethod]

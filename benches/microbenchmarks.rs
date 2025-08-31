@@ -5,7 +5,7 @@ use criterion::{
 use pyo3::types::PyAnyMethods;
 use rustpython_compiler::Mode;
 use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
-use std::{
+use core::{
     fs, io,
     path::{Path, PathBuf},
 };

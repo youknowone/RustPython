@@ -8,8 +8,8 @@ pub use libc::stat as StatStruct;
 pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
-pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-    let mut stat = std::mem::MaybeUninit::uninit();
+pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> core::io::Result<StatStruct> {
+    let mut stat = core::mem::MaybeUninit::uninit();
     unsafe {
         let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
         if ret == -1 {
@@ -25,10 +25,10 @@ pub mod windows {
     use crate::crt_fd;
     use crate::windows::ToWideString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
-    use std::ffi::{CString, OsStr, OsString};
-    use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::AsRawHandle;
-    use std::sync::OnceLock;
+    use core::ffi::{CString, OsStr, OsString};
+    use core::os::windows::ffi::OsStrExt;
+    use core::os::windows::io::AsRawHandle;
+    use core::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
         BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
     };
@@ -95,7 +95,7 @@ pub mod windows {
     }
 
     // _Py_fstat_noraise in cpython
-    pub fn fstat(fd: crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
+    pub fn fstat(fd: crt_fd::Borrowed<'_>) -> core::io::Result<StatStruct> {
         let h = crt_fd::as_handle(fd);
         if h.is_err() {
             unsafe { SetLastError(ERROR_INVALID_HANDLE) };
@@ -106,7 +106,7 @@ pub mod windows {
 
         let file_type = unsafe { GetFileType(h as _) };
         if file_type == FILE_TYPE_UNKNOWN {
-            return Err(std::io::Error::last_os_error());
+            return Err(core::io::Error::last_os_error());
         }
         if file_type != FILE_TYPE_DISK {
             let st_mode = if file_type == FILE_TYPE_CHAR {
@@ -122,9 +122,9 @@ pub mod windows {
             });
         }
 
-        let mut info = unsafe { std::mem::zeroed() };
-        let mut basic_info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
-        let mut id_info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
+        let mut info = unsafe { core::mem::zeroed() };
+        let mut basic_info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
+        let mut id_info: FILE_ID_INFO = unsafe { core::mem::zeroed() };
 
         if unsafe { GetFileInformationByHandle(h as _, &mut info) } == 0
             || unsafe {
@@ -132,11 +132,11 @@ pub mod windows {
                     h as _,
                     FileBasicInfo,
                     &mut basic_info as *mut _ as *mut _,
-                    std::mem::size_of_val(&basic_info) as u32,
+                    core::mem::size_of_val(&basic_info) as u32,
                 )
             } == 0
         {
-            return Err(std::io::Error::last_os_error());
+            return Err(core::io::Error::last_os_error());
         }
 
         let p_id_info = if unsafe {
@@ -144,7 +144,7 @@ pub mod windows {
                 h as _,
                 FileIdInfo,
                 &mut id_info as *mut _ as *mut _,
-                std::mem::size_of_val(&id_info) as u32,
+                core::mem::size_of_val(&id_info) as u32,
             )
         } == 0
         {
@@ -168,7 +168,7 @@ pub mod windows {
     }
 
     fn file_time_to_time_t_nsec(in_ptr: &FILETIME) -> (libc::time_t, libc::c_int) {
-        let in_val: i64 = unsafe { std::mem::transmute_copy(in_ptr) };
+        let in_val: i64 = unsafe { core::mem::transmute_copy(in_ptr) };
         let nsec_out = (in_val % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
         let time_out = (in_val / 10_000_000) - SECS_BETWEEN_EPOCHS;
         (time_out, nsec_out as _)
@@ -207,7 +207,7 @@ pub mod windows {
         let st_nlink = info.nNumberOfLinks as i32;
 
         let st_ino = if let Some(id_info) = id_info {
-            let file_id: [u64; 2] = unsafe { std::mem::transmute_copy(&id_info.FileId) };
+            let file_id: [u64; 2] = unsafe { core::mem::transmute_copy(&id_info.FileId) };
             file_id
         } else {
             let ino = ((info.nFileIndexHigh as u64) << 32) + info.nFileIndexLow as u64;
@@ -292,7 +292,7 @@ pub mod windows {
     pub fn get_file_information_by_name(
         file_name: &OsStr,
         file_information_class: FILE_INFO_BY_NAME_CLASS,
-    ) -> std::io::Result<FILE_STAT_BASIC_INFORMATION> {
+    ) -> core::io::Result<FILE_STAT_BASIC_INFORMATION> {
         static GET_FILE_INFORMATION_BY_NAME: OnceLock<
             Option<
                 unsafe extern "system" fn(
@@ -316,7 +316,7 @@ pub mod windows {
                     unsafe { GetProcAddress(module, name.as_bytes_with_nul().as_ptr()) }
                 {
                     Some(unsafe {
-                        std::mem::transmute::<
+                        core::mem::transmute::<
                             unsafe extern "system" fn() -> isize,
                             unsafe extern "system" fn(
                                 *const u16,
@@ -331,11 +331,11 @@ pub mod windows {
                     None
                 }
             })
-            .ok_or_else(|| std::io::Error::from_raw_os_error(ERROR_NOT_SUPPORTED as _))?;
+            .ok_or_else(|| core::io::Error::from_raw_os_error(ERROR_NOT_SUPPORTED as _))?;
 
         let file_name = file_name.to_wide_with_nul();
-        let file_info_buffer_size = std::mem::size_of::<FILE_STAT_BASIC_INFORMATION>() as u32;
-        let mut file_info_buffer = std::mem::MaybeUninit::<FILE_STAT_BASIC_INFORMATION>::uninit();
+        let file_info_buffer_size = core::mem::size_of::<FILE_STAT_BASIC_INFORMATION>() as u32;
+        let mut file_info_buffer = core::mem::MaybeUninit::<FILE_STAT_BASIC_INFORMATION>::uninit();
         unsafe {
             if GetFileInformationByName(
                 file_name.as_ptr(),
@@ -344,7 +344,7 @@ pub mod windows {
                 file_info_buffer_size,
             ) == 0
             {
-                Err(std::io::Error::last_os_error())
+                Err(core::io::Error::last_os_error())
             } else {
                 Ok(file_info_buffer.assume_init())
             }

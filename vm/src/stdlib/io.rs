@@ -17,7 +17,7 @@ use crate::{
 };
 pub use _io::{OpenArgs, io_open as open};
 
-impl ToPyException for std::io::Error {
+impl ToPyException for core::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let errno = self.posix_errno();
         let msg = self.to_string();
@@ -42,7 +42,7 @@ impl ToPyException for std::io::Error {
     }
 }
 
-impl IntoPyException for std::io::Error {
+impl IntoPyException for core::io::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.to_pyexception(vm)
     }
@@ -98,16 +98,16 @@ impl TryFromObject for Fildes {
 }
 
 #[cfg(unix)]
-impl std::os::fd::AsFd for Fildes {
-    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+impl core::os::fd::AsFd for Fildes {
+    fn as_fd(&self) -> core::os::fd::BorrowedFd<'_> {
         // SAFETY: none, really. but, python's os api of passing around file descriptors
         //         everywhere isn't really io-safe anyway, so, this is passed to the user.
-        unsafe { std::os::fd::BorrowedFd::borrow_raw(self.0) }
+        unsafe { core::os::fd::BorrowedFd::borrow_raw(self.0) }
     }
 }
 #[cfg(unix)]
-impl std::os::fd::AsRawFd for Fildes {
-    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+impl core::os::fd::AsRawFd for Fildes {
+    fn as_raw_fd(&self) -> core::os::fd::RawFd {
         self.0
     }
 }
@@ -146,7 +146,7 @@ mod _io {
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
-    use std::{
+    use core::{
         borrow::Cow,
         io::{self, Cursor, SeekFrom, prelude::*},
         ops::Range,
@@ -282,7 +282,7 @@ mod _io {
             // if we don't specify the number of bytes, or it's too big, give the whole rest of the slice
             let n = bytes.map_or_else(
                 || avail_slice.len(),
-                |n| std::cmp::min(n, avail_slice.len()),
+                |n| core::cmp::min(n, avail_slice.len()),
             );
             let b = avail_slice[..n].to_vec();
             self.cursor.set_position((pos + n) as u64);
@@ -955,7 +955,7 @@ mod _io {
                 // TODO: loop if write() raises an interrupt
                 vm.call_method(self.raw.as_ref().unwrap(), "write", (mem_obj,))?
             } else {
-                let v = std::mem::take(&mut self.buffer);
+                let v = core::mem::take(&mut self.buffer);
                 let write_buf = VecBuffer::from(v).into_ref(&vm.ctx);
                 let mem_obj = PyMemoryView::from_buffer_range(
                     write_buf.clone().into_pybuffer(true),
@@ -1180,7 +1180,7 @@ mod _io {
             let res = match v {
                 Either::A(v) => {
                     let v = v.unwrap_or(&mut self.buffer);
-                    let read_buf = VecBuffer::from(std::mem::take(v)).into_ref(&vm.ctx);
+                    let read_buf = VecBuffer::from(core::mem::take(v)).into_ref(&vm.ctx);
                     let mem_obj = PyMemoryView::from_buffer_range(
                         read_buf.clone().into_pybuffer(false),
                         buf_range,
@@ -1340,7 +1340,7 @@ mod _io {
                 } else if !(readinto1 && written != 0) {
                     let n = self.fill_buffer(vm)?;
                     if let Some(n) = n.filter(|&n| n > 0) {
-                        let n = std::cmp::min(n, remaining);
+                        let n = core::cmp::min(n, remaining);
                         buf.as_contiguous_mut().unwrap()[written..][..n]
                             .copy_from_slice(&self.buffer[self.pos as usize..][..n]);
                         self.pos += n as Offset;
@@ -1686,7 +1686,7 @@ mod _io {
             }
             let have = data.readahead();
             if have > 0 {
-                let n = std::cmp::min(have as usize, n);
+                let n = core::cmp::min(have as usize, n);
                 return Ok(data.read_fast(n).unwrap());
             }
             let mut v = vec![0; n];
@@ -2061,7 +2061,7 @@ mod _io {
         }
     }
 
-    impl std::ops::Add for Utf8size {
+    impl core::ops::Add for Utf8size {
         type Output = Self;
 
         #[inline]
@@ -2071,7 +2071,7 @@ mod _io {
         }
     }
 
-    impl std::ops::AddAssign for Utf8size {
+    impl core::ops::AddAssign for Utf8size {
         #[inline]
         fn add_assign(&mut self, rhs: Self) {
             self.bytes += rhs.bytes;
@@ -2079,7 +2079,7 @@ mod _io {
         }
     }
 
-    impl std::ops::Sub for Utf8size {
+    impl core::ops::Sub for Utf8size {
         type Output = Self;
 
         #[inline]
@@ -2089,7 +2089,7 @@ mod _io {
         }
     }
 
-    impl std::ops::SubAssign for Utf8size {
+    impl core::ops::SubAssign for Utf8size {
         #[inline]
         fn sub_assign(&mut self, rhs: Self) {
             self.bytes -= rhs.bytes;
@@ -2158,7 +2158,7 @@ mod _io {
     impl PendingWrites {
         fn push(&mut self, write: PendingWrite) {
             self.num_bytes += write.as_bytes().len();
-            self.data = match std::mem::take(&mut self.data) {
+            self.data = match core::mem::take(&mut self.data) {
                 PendingWritesData::None => PendingWritesData::One(write),
                 PendingWritesData::One(write1) => PendingWritesData::Many(vec![write1, write]),
                 PendingWritesData::Many(mut v) => {
@@ -2168,13 +2168,13 @@ mod _io {
             }
         }
         fn take(&mut self, vm: &VirtualMachine) -> PyBytesRef {
-            let Self { num_bytes, data } = std::mem::take(self);
+            let Self { num_bytes, data } = core::mem::take(self);
             if let PendingWritesData::One(PendingWrite::Bytes(b)) = data {
                 return b;
             }
             let writes_iter = match data {
                 PendingWritesData::None => itertools::Either::Left(vec![].into_iter()),
-                PendingWritesData::One(write) => itertools::Either::Right(std::iter::once(write)),
+                PendingWritesData::One(write) => itertools::Either::Right(core::iter::once(write)),
                 PendingWritesData::Many(writes) => itertools::Either::Left(writes.into_iter()),
             };
             let mut buf = Vec::with_capacity(num_bytes);
@@ -2196,7 +2196,7 @@ mod _io {
 
     impl TextIOCookie {
         const START_POS_OFF: usize = 0;
-        const DEC_FLAGS_OFF: usize = Self::START_POS_OFF + std::mem::size_of::<Offset>();
+        const DEC_FLAGS_OFF: usize = Self::START_POS_OFF + core::mem::size_of::<Offset>();
         const BYTES_TO_FEED_OFF: usize = Self::DEC_FLAGS_OFF + 4;
         const CHARS_TO_SKIP_OFF: usize = Self::BYTES_TO_FEED_OFF + 4;
         const NEED_EOF_OFF: usize = Self::CHARS_TO_SKIP_OFF + 4;
@@ -2213,7 +2213,7 @@ mod _io {
             macro_rules! get_field {
                 ($t:ty, $off:ident) => {{
                     <$t>::from_ne_bytes(
-                        buf[Self::$off..][..std::mem::size_of::<$t>()]
+                        buf[Self::$off..][..core::mem::size_of::<$t>()]
                             .try_into()
                             .unwrap(),
                     )
@@ -2234,7 +2234,7 @@ mod _io {
             macro_rules! set_field {
                 ($field:expr, $off:ident) => {{
                     let field = $field;
-                    buf[Self::$off..][..std::mem::size_of_val(&field)]
+                    buf[Self::$off..][..core::mem::size_of_val(&field)]
                         .copy_from_slice(&field.to_ne_bytes())
                 }};
             }
@@ -3133,7 +3133,7 @@ mod _io {
             } else {
                 size_hint
             };
-            let chunk_size = std::cmp::max(self.chunk_size, size_hint);
+            let chunk_size = core::cmp::max(self.chunk_size, size_hint);
             let input_chunk = vm.call_method(&self.buffer, method, (chunk_size,))?;
 
             let buf = ArgBytesLike::try_from_borrowed_object(vm, &input_chunk).map_err(|_| {
@@ -3215,8 +3215,8 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyStrRef {
             let empty_str = || vm.ctx.empty_str.to_owned();
-            let chars_pos = std::mem::take(&mut self.decoded_chars_used).bytes;
-            let decoded_chars = match std::mem::take(&mut self.decoded_chars) {
+            let chars_pos = core::mem::take(&mut self.decoded_chars_used).bytes;
+            let decoded_chars = match core::mem::take(&mut self.decoded_chars) {
                 None => return append.unwrap_or_else(empty_str),
                 Some(s) if s.is_empty() => return append.unwrap_or_else(empty_str),
                 Some(s) => s,
@@ -3808,7 +3808,7 @@ mod _io {
         plus: bool,
     }
 
-    impl std::str::FromStr for Mode {
+    impl core::str::FromStr for Mode {
         type Err = ParseModeError;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -4139,7 +4139,7 @@ mod fileio {
         types::{Constructor, DefaultConstructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use std::io::{Read, Write};
+    use core::io::{Read, Write};
 
     bitflags::bitflags! {
         #[derive(Copy, Clone, Debug, PartialEq)]
@@ -4352,7 +4352,7 @@ mod fileio {
                 match fd_fstat {
                     Ok(status) => {
                         if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-                            let err = std::io::Error::from_raw_os_error(libc::EISDIR);
+                            let err = core::io::Error::from_raw_os_error(libc::EISDIR);
                             return Err(IOErrorBuilder::with_filename(&err, filename, vm));
                         }
                     }
@@ -4402,7 +4402,7 @@ mod fileio {
     impl FileIO {
         fn io_error(
             zelf: &Py<Self>,
-            error: std::io::Error,
+            error: core::io::Error,
             vm: &VirtualMachine,
         ) -> PyBaseExceptionRef {
             let exc = error.to_pyexception(vm);

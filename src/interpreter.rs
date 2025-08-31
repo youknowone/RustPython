@@ -106,7 +106,7 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         let state = PyRc::get_mut(&mut vm.state).unwrap();
         let settings = &mut state.settings;
 
-        let path_list = std::mem::take(&mut settings.path_list);
+        let path_list = core::mem::take(&mut settings.path_list);
 
         // BUILDTIME_RUSTPYTHONPATH should be set when distributing
         if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {

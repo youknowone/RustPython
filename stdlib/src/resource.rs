@@ -10,7 +10,7 @@ mod resource {
         stdlib::os,
         types::PyStructSequence,
     };
-    use std::{io, mem};
+    use core::{io, mem};
 
     cfg_if::cfg_if! {
         if #[cfg(target_os = "android")] {

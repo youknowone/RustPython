@@ -16,8 +16,8 @@ pub struct PyCArrayType {
     pub(super) inner: PyCArray,
 }
 
-impl std::fmt::Debug for PyCArrayType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyCArrayType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCArrayType")
             .field("inner", &self.inner)
             .finish()
@@ -60,8 +60,8 @@ pub struct PyCArray {
     pub(super) value: PyRwLock<PyObjectRef>,
 }
 
-impl std::fmt::Debug for PyCArray {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyCArray {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCArray")
             .field("typ", &self.typ)
             .field("length", &self.length)

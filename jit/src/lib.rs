@@ -5,7 +5,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 use instructions::FunctionCompiler;
 use rustpython_compiler_core::bytecode;
-use std::{fmt, mem::ManuallyDrop};
+use core::{fmt, mem::ManuallyDrop};
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]

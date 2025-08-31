@@ -16,7 +16,7 @@ pub(crate) mod _thread {
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
-    use std::{cell::RefCell, fmt, thread, time::Duration};
+    use core::{cell::RefCell, fmt, thread, time::Duration};
     use thread_local::ThreadLocal;
 
     // PYTHREAD_NAME: show current thread name
@@ -74,7 +74,7 @@ pub(crate) mod _thread {
                     Err(vm.new_value_error("timeout value must be positive".to_owned()))
                 }
                 true => {
-                    // modified from std::time::Duration::from_secs_f64 to avoid a panic.
+                    // modified from core::time::Duration::from_secs_f64 to avoid a panic.
                     // TODO: put this in the Duration::try_from_object impl, maybe?
                     let nanos = timeout * 1_000_000_000.0;
                     if timeout > TIMEOUT_MAX as f64 || nanos < 0.0 || !nanos.is_finite() {
@@ -151,7 +151,7 @@ pub(crate) mod _thread {
 
             let new_mut = RawMutex::INIT;
             unsafe {
-                let old_mutex: &AtomicCell<RawMutex> = std::mem::transmute(&self.mu);
+                let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
                 old_mutex.swap(new_mut);
             }
 
@@ -263,7 +263,7 @@ pub(crate) mod _thread {
     }
 
     fn thread_to_id(t: &thread::Thread) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         struct U64Hash {
             v: Option<u64>,
         }

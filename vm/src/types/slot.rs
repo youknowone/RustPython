@@ -17,7 +17,7 @@ use crate::{
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
-use std::{borrow::Borrow, cmp::Ordering, ops::Deref};
+use core::{borrow::Borrow, cmp::Ordering, ops::Deref};
 
 #[macro_export]
 macro_rules! atomic_func {
@@ -112,8 +112,8 @@ impl PyTypeSlots {
     }
 }
 
-impl std::fmt::Debug for PyTypeSlots {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyTypeSlots {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("PyTypeSlots")
     }
 }
@@ -1327,7 +1327,7 @@ pub trait Iterable: PyPayload {
     fn extend_slots(_slots: &mut PyTypeSlots) {}
 }
 
-// `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
+// `Iterator` fits better, but to avoid confusion with rust core::iter::Iterator
 #[pyclass(with(Iterable))]
 pub trait IterNext: PyPayload + Iterable {
     #[pyslot]

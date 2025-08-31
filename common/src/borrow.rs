@@ -2,7 +2,7 @@ use crate::lock::{
     MapImmutable, PyImmutableMappedMutexGuard, PyMappedMutexGuard, PyMappedRwLockReadGuard,
     PyMappedRwLockWriteGuard, PyMutexGuard, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use std::{
+use core::{
     fmt,
     ops::{Deref, DerefMut},
 };

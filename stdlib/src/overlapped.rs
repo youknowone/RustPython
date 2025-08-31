@@ -36,7 +36,7 @@ mod _overlapped {
 
     #[pyattr]
     const INVALID_HANDLE_VALUE: isize =
-        unsafe { std::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
+        unsafe { core::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
 
     #[pyattr]
     const NULL: isize = 0;
@@ -58,8 +58,8 @@ mod _overlapped {
     unsafe impl Sync for OverlappedInner {}
     unsafe impl Send for OverlappedInner {}
 
-    impl std::fmt::Debug for Overlapped {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for Overlapped {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             let zelf = self.inner.lock();
             f.debug_struct("Overlapped")
                 // .field("overlapped", &(self.overlapped as *const _ as usize))
@@ -99,8 +99,8 @@ mod _overlapped {
         address_length: libc::c_int,
     }
 
-    impl std::fmt::Debug for OverlappedReadFrom {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedReadFrom {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedReadFrom")
                 .field("result", &self.result)
                 .field("allocated_buffer", &self.allocated_buffer)
@@ -120,8 +120,8 @@ mod _overlapped {
         address_length: libc::c_int,
     }
 
-    impl std::fmt::Debug for OverlappedReadFromInto {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for OverlappedReadFromInto {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("OverlappedReadFromInto")
                 .field("result", &self.result)
                 .field("user_buffer", &self.user_buffer)
@@ -144,7 +144,7 @@ mod _overlapped {
         let exc = match err {
             ERROR_CONNECTION_REFUSED => vm.ctx.exceptions.connection_refused_error,
             ERROR_CONNECTION_ABORTED => vm.ctx.exceptions.connection_aborted_error,
-            err => return std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm),
+            err => return core::io::Error::from_raw_os_error(err as i32).to_pyexception(vm),
         };
         // TODO: set errno and winerror
         vm.new_exception_empty(exc.to_owned())
@@ -227,9 +227,9 @@ mod _overlapped {
             }
 
             #[cfg(target_pointer_width = "32")]
-            let size = std::cmp::min(size, std::isize::MAX as _);
+            let size = core::cmp::min(size, core::isize::MAX as _);
 
-            let buf = vec![0u8; std::cmp::max(size, 1) as usize];
+            let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
             inner.handle = handle as _;
 
@@ -269,10 +269,10 @@ mod _overlapped {
             if event == INVALID_HANDLE_VALUE {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
-                        std::ptr::null(),
+                        core::ptr::null(),
                         Foundation::TRUE,
                         Foundation::FALSE,
-                        std::ptr::null(),
+                        core::ptr::null(),
                     ) as isize
                 };
                 if event == NULL {
@@ -280,7 +280,7 @@ mod _overlapped {
                 }
             }
 
-            let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+            let mut overlapped: OVERLAPPED = unsafe { core::mem::zeroed() };
             if event != NULL {
                 overlapped.hEvent = event as _;
             }
@@ -327,7 +327,7 @@ mod _overlapped {
     fn GetQueuedCompletionStatus(port: isize, msecs: u32, vm: &VirtualMachine) -> PyResult {
         let mut bytes_transferred = 0;
         let mut completion_key = 0;
-        let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
+        let mut overlapped: *mut OVERLAPPED = core::ptr::null_mut();
         let ret = unsafe {
             windows_sys::Win32::System::IO::GetQueuedCompletionStatus(
                 port as _,
@@ -376,11 +376,11 @@ mod _overlapped {
                 let name = widestring::WideCString::from_str(&name).unwrap();
                 name.as_ptr()
             }
-            None => std::ptr::null(),
+            None => core::ptr::null(),
         };
         let event = unsafe {
             windows_sys::Win32::System::Threading::CreateEventW(
-                std::ptr::null(),
+                core::ptr::null(),
                 manual_reset as _,
                 initial_state as _,
                 name,

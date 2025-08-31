@@ -10,8 +10,8 @@ fn main() {
     }
 
     if cfg!(windows) {
-        if let Ok(real_path) = std::fs::read_to_string("Lib") {
-            let canonicalized_path = std::fs::canonicalize(real_path)
+        if let Ok(real_path) = core::fs::read_to_string("Lib") {
+            let canonicalized_path = core::fs::canonicalize(real_path)
                 .expect("failed to resolve RUSTPYTHONPATH during build time");
             println!(
                 "cargo:rustc-env=win_lib_path={}",
@@ -30,7 +30,7 @@ fn process_python_libs(pattern: &str) {
         }
         let display = entry.display();
         if display.to_string().ends_with(".pyc") {
-            if std::fs::remove_file(&entry).is_err() {
+            if core::fs::remove_file(&entry).is_err() {
                 println!("cargo:warning=failed to remove {display}")
             }
             continue;

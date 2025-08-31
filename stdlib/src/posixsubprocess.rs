@@ -10,9 +10,9 @@ use crate::vm::{
 use itertools::Itertools;
 use nix::{
     errno::Errno,
-    unistd::{self, Pid},
+    unicore::{self, Pid},
 };
-use std::{
+use core::{
     convert::Infallible as Never,
     ffi::{CStr, CString},
     io::prelude::*,
@@ -20,8 +20,8 @@ use std::{
     ops::Deref,
     os::fd::FromRawFd,
 };
-use std::{fs::File, os::unix::io::AsRawFd};
-use unistd::{Gid, Uid};
+use core::{fs::File, os::unix::io::AsRawFd};
+use unicore::{Gid, Uid};
 
 pub(crate) use _posixsubprocess::make_module;
 
@@ -49,9 +49,9 @@ mod _posixsubprocess {
             envp: envp.as_deref(),
             extra_groups: extra_groups.as_deref(),
         };
-        match unsafe { nix::unistd::fork() }.map_err(|err| err.into_pyexception(vm))? {
-            nix::unistd::ForkResult::Child => exec(&args, procargs),
-            nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
+        match unsafe { nix::unicore::fork() }.map_err(|err| err.into_pyexception(vm))? {
+            nix::unicore::ForkResult::Child => exec(&args, procargs),
+            nix::unicore::ForkResult::Parent { child } => Ok(child.as_raw()),
         }
     }
 }
@@ -91,7 +91,7 @@ impl<'a, T: AsRef<CStr>> FromIterator<&'a T> for CharPtrVec<'a> {
         let vec = iter
             .into_iter()
             .map(|x| x.as_ref().as_ptr())
-            .chain(std::iter::once(std::ptr::null()))
+            .chain(core::iter::once(core::ptr::null()))
             .collect();
         Self {
             vec,
@@ -160,9 +160,9 @@ fn exec(args: &ForkExecArgs, procargs: ProcArgs<'_>) -> ! {
         Ok(x) => match x {},
         Err(e) => {
             let mut pipe =
-                std::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(args.errpipe_write) });
+                core::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(args.errpipe_write) });
             let _ = write!(pipe, "OSError:{}:{}", e as i32, ctx.as_msg());
-            std::process::exit(255)
+            core::process::exit(255)
         }
     }
 }
@@ -196,13 +196,13 @@ fn exec_inner(
 
     for &fd in &[args.p2cwrite, args.c2pread, args.errread] {
         if fd != -1 {
-            unistd::close(fd)?;
+            unicore::close(fd)?;
         }
     }
-    unistd::close(args.errpipe_read)?;
+    unicore::close(args.errpipe_read)?;
 
     let c2pwrite = if args.c2pwrite == 0 {
-        let fd = unistd::dup(args.c2pwrite)?;
+        let fd = unicore::dup(args.c2pwrite)?;
         posix::raw_set_inheritable(fd, true)?;
         fd
     } else {
@@ -211,7 +211,7 @@ fn exec_inner(
 
     let mut errwrite = args.errwrite;
     while errwrite == 0 || errwrite == 1 {
-        errwrite = unistd::dup(errwrite)?;
+        errwrite = unicore::dup(errwrite)?;
         posix::raw_set_inheritable(errwrite, true)?;
     }
 
@@ -219,7 +219,7 @@ fn exec_inner(
         if fd == io_fd {
             posix::raw_set_inheritable(fd, true)
         } else if fd != -1 {
-            unistd::dup2(fd, io_fd).map(drop)
+            unicore::dup2(fd, io_fd).map(drop)
         } else {
             Ok(())
         }
@@ -229,7 +229,7 @@ fn exec_inner(
     dup_into_stdio(errwrite, 2)?;
 
     if let Some(ref cwd) = args.cwd {
-        unistd::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
+        unicore::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
     }
 
     if args.child_umask >= 0 {
@@ -241,16 +241,16 @@ fn exec_inner(
     }
 
     if args.call_setsid {
-        unistd::setsid()?;
+        unicore::setsid()?;
     }
 
     if args.pgid_to_set > -1 {
-        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(args.pgid_to_set))?;
+        unicore::setpgid(Pid::from_raw(0), Pid::from_raw(args.pgid_to_set))?;
     }
 
     if let Some(_groups) = procargs.extra_groups {
         #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-        unistd::setgroups(_groups)?;
+        unicore::setgroups(_groups)?;
     }
 
     if let Some(gid) = args.gid.filter(|x| x.as_raw() != u32::MAX) {
@@ -345,7 +345,7 @@ fn close_dir_fds(keep: KeepFds<'_>) -> nix::Result<()> {
         }
         let fd = parser.num;
         if fd != dirfd && keep.should_keep(fd) {
-            let _ = unistd::close(fd);
+            let _ = unicore::close(fd);
         }
     }
     Ok(())
@@ -354,7 +354,7 @@ fn close_dir_fds(keep: KeepFds<'_>) -> nix::Result<()> {
 #[cfg(target_os = "redox")]
 fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
     use nix::fcntl;
-    use std::os::fd::{FromRawFd, OwnedFd};
+    use core::os::fd::{FromRawFd, OwnedFd};
     let fd = fcntl::open(
         c"/scheme/thisproc/current/filetable",
         fcntl::OFlag::O_RDONLY,
@@ -363,7 +363,7 @@ fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
     let filetable = unsafe { OwnedFd::from_raw_fd(fd) };
     let read_one = || -> nix::Result<_> {
         let mut byte = 0;
-        let n = nix::unistd::read(filetable.as_raw_fd(), std::slice::from_mut(&mut byte))?;
+        let n = nix::unicore::read(filetable.as_raw_fd(), core::slice::from_mut(&mut byte))?;
         Ok((n > 0).then_some(byte))
     };
     while let Some(c) = read_one()? {
@@ -380,7 +380,7 @@ fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
 
         let fd = parser.num as i32;
         if fd != filetable.as_raw_fd() && keep.should_keep(fd) {
-            let _ = unistd::close(fd);
+            let _ = unicore::close(fd);
         }
         if done {
             break;
@@ -390,13 +390,13 @@ fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
 }
 
 fn close_fds_brute_force(keep: KeepFds<'_>) {
-    let max_fd = nix::unistd::sysconf(nix::unistd::SysconfVar::OPEN_MAX)
+    let max_fd = nix::unicore::sysconf(nix::unicore::SysconfVar::OPEN_MAX)
         .ok()
         .flatten()
         .unwrap_or(256) as i32;
     let fds = itertools::chain![Some(keep.above), keep.keep.iter().copied(), Some(max_fd)];
     for fd in fds.tuple_windows().flat_map(|(start, end)| start + 1..end) {
-        let _ = unistd::close(fd);
+        let _ = unicore::close(fd);
     }
 }
 

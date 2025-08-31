@@ -5,8 +5,8 @@ use crate::types::GetAttr;
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use rustpython_common::lock::PyRwLock;
 use rustpython_vm::types::Constructor;
-use std::collections::HashMap;
-use std::fmt::Debug;
+use core::collections::HashMap;
+use core::fmt::Debug;
 
 #[pyclass(module = "_ctypes", name = "Structure", base = "PyCData")]
 #[derive(PyPayload, Debug)]

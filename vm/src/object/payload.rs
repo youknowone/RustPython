@@ -17,11 +17,11 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyPayload:
-    std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
+    core::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
 {
     #[inline]
-    fn payload_type_id() -> std::any::TypeId {
-        std::any::TypeId::of::<Self>()
+    fn payload_type_id() -> core::any::TypeId {
+        core::any::TypeId::of::<Self>()
     }
 
     /// # Safety: this function should only be called if `payload_type_id` matches the type of `obj`.
@@ -104,7 +104,7 @@ pub trait PyPayload:
 }
 
 pub trait PyObjectPayload:
-    PyPayload + std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
+    PyPayload + core::any::Any + core::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
 {
 }
 

@@ -17,7 +17,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{
+use core::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
 };
@@ -31,8 +31,8 @@ unsafe impl Traverse for PyBaseException {
     }
 }
 
-impl std::fmt::Debug for PyBaseException {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for PyBaseException {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyBaseException")
     }
@@ -345,7 +345,7 @@ fn print_source_line<W: Write>(
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
-    let file = match std::fs::File::open(filename) {
+    let file = match core::fs::File::open(filename) {
         Ok(file) => file,
         Err(_) => return Ok(()),
     };
@@ -1144,7 +1144,7 @@ pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character")
 }
 
-impl ToPyException for std::ffi::NulError {
+impl ToPyException for core::ffi::NulError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }

@@ -6,7 +6,7 @@ use crate::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use std::ops::RangeInclusive;
+use core::ops::RangeInclusive;
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
@@ -96,7 +96,7 @@ impl From<KwArgs> for FuncArgs {
 
 impl FromArgs for FuncArgs {
     fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        Ok(std::mem::take(args))
+        Ok(core::mem::take(args))
     }
 }
 
@@ -420,7 +420,7 @@ impl<T> PosArgs<T> {
         self.0
     }
 
-    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+    pub fn iter(&self) -> core::slice::Iter<'_, T> {
         self.0.iter()
     }
 }
@@ -465,7 +465,7 @@ where
 
 impl<T> IntoIterator for PosArgs<T> {
     type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
+    type IntoIter = core::vec::IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()

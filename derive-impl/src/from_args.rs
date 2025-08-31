@@ -18,7 +18,7 @@ enum ParameterKind {
 impl TryFrom<&Ident> for ParameterKind {
     type Error = ();
 
-    fn try_from(ident: &Ident) -> std::result::Result<Self, Self::Error> {
+    fn try_from(ident: &Ident) -> core::result::Result<Self, Self::Error> {
         Ok(match ident.to_string().as_str() {
             "positional" => Self::PositionalOnly,
             "any" => Self::PositionalOrKeyword,
@@ -105,12 +105,12 @@ impl ArgAttribute {
 impl TryFrom<&Field> for ArgAttribute {
     type Error = syn::Error;
 
-    fn try_from(field: &Field) -> std::result::Result<Self, Self::Error> {
+    fn try_from(field: &Field) -> core::result::Result<Self, Self::Error> {
         let mut pyarg_attrs = field
             .attrs
             .iter()
             .filter_map(Self::from_attribute)
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<core::result::Result<Vec<_>, _>>()?;
 
         if pyarg_attrs.len() >= 2 {
             bail_span!(field, "Multiple pyarg attributes on field")
@@ -126,7 +126,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     let name_string = name.map(|ident| ident.unraw().to_string());
     if matches!(&name_string, Some(s) if s.starts_with("_phantom")) {
         return Ok(quote! {
-            #name: ::std::marker::PhantomData,
+            #name: ::core::marker::PhantomData,
         });
     }
 
@@ -152,7 +152,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
 
     let ending = if let Some(default) = attr.default {
         let ty = &field.ty;
-        let default = default.unwrap_or_else(|| parse_quote!(::std::default::Default::default()));
+        let default = default.unwrap_or_else(|| parse_quote!(::core::default::Default::default()));
         quote! {
             .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
             .unwrap_or_else(|| #default)
@@ -227,14 +227,14 @@ pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
-            fn arity() -> ::std::ops::RangeInclusive<usize> {
+            fn arity() -> ::core::ops::RangeInclusive<usize> {
                 #min_arity..=#max_arity
             }
 
             fn from_args(
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::FuncArgs
-            ) -> ::std::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
+            ) -> ::core::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
                 Ok(Self { #fields })
             }
         }

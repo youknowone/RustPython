@@ -36,7 +36,7 @@ impl VirtualMachine {
         }
 
         if !self.state.settings.safe_path {
-            let dir = std::path::Path::new(path)
+            let dir = core::path::Path::new(path)
                 .parent()
                 .unwrap()
                 .to_str()
@@ -44,14 +44,14 @@ impl VirtualMachine {
             self.insert_sys_path(self.new_pyobj(dir))?;
         }
 
-        match std::fs::read_to_string(path) {
+        match core::fs::read_to_string(path) {
             Ok(source) => {
                 self.run_code_string(scope, &source, path.to_owned())?;
             }
             Err(err) => {
                 error!("Failed reading file '{path}': {err}");
                 // TODO: Need to change to ExitCode or Termination
-                std::process::exit(1);
+                core::process::exit(1);
             }
         }
         Ok(())

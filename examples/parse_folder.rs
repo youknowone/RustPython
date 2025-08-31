@@ -10,7 +10,7 @@ extern crate log;
 
 use ruff_python_parser::parse_module;
 use rustpython_compiler::ast;
-use std::{
+use core::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -18,7 +18,7 @@ use std::{
 fn main() {
     env_logger::init();
 
-    let folder: PathBuf = std::env::args_os()
+    let folder: PathBuf = core::env::args_os()
         .nth(1)
         .expect("please pass a path argument")
         .into();
@@ -39,7 +39,7 @@ fn main() {
     }
 }
 
-fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
+fn parse_folder(path: &Path) -> core::io::Result<Vec<ParsedFile>> {
     let mut res = vec![];
     info!("Parsing folder of python code: {path:?}");
     for entry in path.read_dir()? {
@@ -67,7 +67,7 @@ fn parse_folder(path: &Path) -> std::io::Result<Vec<ParsedFile>> {
 
 fn parse_python_file(filename: &Path) -> ParsedFile {
     info!("Parsing file {filename:?}");
-    match std::fs::read_to_string(filename) {
+    match core::fs::read_to_string(filename) {
         Err(e) => ParsedFile {
             num_lines: 0,
             result: Err(e.to_string()),

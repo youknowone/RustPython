@@ -15,7 +15,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 // easily, without having to have a bunch of cfgs
 cfg_if::cfg_if! {
     if #[cfg(openssl_vendored)] {
-        use std::sync::LazyLock;
+        use core::sync::LazyLock;
         static PROBE: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
         fn probe() -> &'static ProbeResult { &PROBE }
     } else {
@@ -61,7 +61,7 @@ mod _ssl {
     };
     use openssl_sys as sys;
     use rustpython_vm::ospath::OsPath;
-    use std::{
+    use core::{
         ffi::CStr,
         fmt,
         io::{Read, Write},
@@ -314,7 +314,7 @@ mod _ssl {
         let no_name = i32::from(no_name);
         let ptr = obj.as_ptr();
         let b = unsafe {
-            let buflen = sys::OBJ_obj2txt(std::ptr::null_mut(), 0, ptr, no_name);
+            let buflen = sys::OBJ_obj2txt(core::ptr::null_mut(), 0, ptr, no_name);
             assert!(buflen >= 0);
             if buflen == 0 {
                 return None;
@@ -377,8 +377,8 @@ mod _ssl {
         fn path_from_bytes(c: &CStr) -> &Path {
             #[cfg(unix)]
             {
-                use std::os::unix::ffi::OsStrExt;
-                std::ffi::OsStr::from_bytes(c.to_bytes()).as_ref()
+                use core::os::unix::ffi::OsStrExt;
+                core::ffi::OsStr::from_bytes(c.to_bytes()).as_ref()
             }
             #[cfg(windows)]
             {
@@ -795,7 +795,7 @@ mod _ssl {
                         "server_hostname cannot be an empty string or start with a leading dot.",
                     ));
                 }
-                let ip = hostname.parse::<std::net::IpAddr>();
+                let ip = hostname.parse::<core::net::IpAddr>();
                 if ip.is_err() {
                     ssl.set_hostname(hostname)
                         .map_err(|e| convert_openssl_error(vm, e))?;
@@ -1169,7 +1169,7 @@ mod _ssl {
         let cls = ssl_error(vm);
         match err.errors().last() {
             Some(e) => {
-                let caller = std::panic::Location::caller();
+                let caller = core::panic::Location::caller();
                 let (file, line) = (caller.file(), caller.line());
                 let file = file
                     .rsplit_once(&['/', '\\'][..])
@@ -1204,7 +1204,7 @@ mod _ssl {
     #[track_caller]
     fn convert_ssl_error(
         vm: &VirtualMachine,
-        e: impl std::borrow::Borrow<ssl::Error>,
+        e: impl core::borrow::Borrow<ssl::Error>,
     ) -> PyBaseExceptionRef {
         let e = e.borrow();
         let (cls, msg) = match e.code() {
@@ -1240,7 +1240,7 @@ mod _ssl {
 
             let mut certs = vec![];
             loop {
-                let cert = sys::d2i_X509_bio(bio.as_ptr(), std::ptr::null_mut());
+                let cert = sys::d2i_X509_bio(bio.as_ptr(), core::ptr::null_mut());
                 if cert.is_null() {
                     break;
                 }
@@ -1352,24 +1352,24 @@ mod _ssl {
     #[pyfunction]
     fn _test_decode_cert(path: FsPath, vm: &VirtualMachine) -> PyResult {
         let path = path.to_path_buf(vm)?;
-        let pem = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
+        let pem = core::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
         let x509 = X509::from_pem(&pem).map_err(|e| convert_openssl_error(vm, e))?;
         cert_to_py(vm, &x509, false)
     }
 
     impl Read for SocketStream {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        fn read(&mut self, buf: &mut [u8]) -> core::io::Result<usize> {
             let mut socket: &PySocket = &self.0;
             socket.read(buf)
         }
     }
 
     impl Write for SocketStream {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> core::io::Result<usize> {
             let mut socket: &PySocket = &self.0;
             socket.write(buf)
         }
-        fn flush(&mut self) -> std::io::Result<()> {
+        fn flush(&mut self) -> core::io::Result<()> {
             let mut socket: &PySocket = &self.0;
             socket.flush()
         }
@@ -1383,7 +1383,7 @@ mod _ssl {
             ssl::SslContextBuilder,
             x509::{X509, store::X509StoreBuilder},
         };
-        use std::{
+        use core::{
             fs::{File, read_dir},
             io::Read,
             path::Path,
@@ -1520,7 +1520,7 @@ mod windows {
         });
         let certs = certs
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e: std::io::Error| e.to_pyexception(vm))?;
+            .map_err(|e: core::io::Error| e.to_pyexception(vm))?;
         Ok(certs)
     }
 }
@@ -1531,7 +1531,7 @@ mod bio {
     use libc::c_int;
     use openssl::error::ErrorStack;
     use openssl_sys as sys;
-    use std::marker::PhantomData;
+    use core::marker::PhantomData;
 
     pub struct MemBioSlice<'a>(*mut sys::BIO, PhantomData<&'a [u8]>);
 

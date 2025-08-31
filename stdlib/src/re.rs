@@ -17,8 +17,8 @@ mod re {
     };
     use num_traits::Signed;
     use regex::bytes::{Captures, Regex, RegexBuilder};
-    use std::fmt;
-    use std::ops::Range;
+    use core::fmt;
+    use core::ops::Range;
 
     #[pyattr]
     #[pyclass(module = "re", name = "Pattern")]

@@ -1,10 +1,10 @@
 use crate::VirtualMachine;
 use libloading::Library;
 use rustpython_common::lock::{PyMutex, PyRwLock};
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::fmt;
-use std::ptr::null;
+use core::collections::HashMap;
+use core::ffi::c_void;
+use core::fmt;
+use core::ptr::null;
 
 pub struct SharedLibrary {
     pub(crate) lib: PyMutex<Option<Library>>,

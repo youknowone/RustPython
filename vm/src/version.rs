@@ -1,7 +1,7 @@
 //! Several function to retrieve version information.
 
 use chrono::{Local, prelude::DateTime};
-use std::time::{Duration, UNIX_EPOCH};
+use core::time::{Duration, UNIX_EPOCH};
 
 // = 3.13.0alpha
 pub const MAJOR: usize = 3;

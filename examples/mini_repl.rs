@@ -6,7 +6,7 @@
 
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // This has to be a macro because it uses the py_compile macro,
 // which compiles python source to optimized bytecode at compile time, so that
@@ -35,7 +35,7 @@ fn main() -> vm::PyResult<()> {
 
 fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let mut input = String::with_capacity(50);
-    let stdin = std::io::stdin();
+    let stdin = core::io::stdin();
 
     let scope: vm::scope::Scope = vm.new_scope_with_builtins();
 

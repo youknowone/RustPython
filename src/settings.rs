@@ -1,8 +1,8 @@
 use lexopt::Arg::*;
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
-use std::str::FromStr;
-use std::{cmp, env};
+use core::str::FromStr;
+use core::{cmp, env};
 
 pub enum RunMode {
     Script(String),
@@ -54,7 +54,7 @@ struct CliArgs {
     check_hash_based_pycs: CheckHashPycsMode,
 
     #[cfg(feature = "flame-it")]
-    profile_output: Option<std::ffi::OsString>,
+    profile_output: Option<core::ffi::OsString>,
     #[cfg(feature = "flame-it")]
     profile_format: Option<String>,
 }
@@ -112,7 +112,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
     let mut args = CliArgs::default();
     let mut parser = lexopt::Parser::from_env();
     fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<String>, lexopt::Error> {
-        std::iter::once(Ok(argv0))
+        core::iter::once(Ok(argv0))
             .chain(parser.raw_args()?.map(|arg| arg.string()))
             .collect()
     }
@@ -195,12 +195,12 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
 fn help(parser: lexopt::Parser) -> ! {
     let usage = USAGE_STRING.replace("{PROG}", parser.bin_name().unwrap_or("rustpython"));
     print!("{usage}");
-    std::process::exit(0);
+    core::process::exit(0);
 }
 
 fn version() -> ! {
     println!("Python {}", rustpython_vm::version::get_version());
-    std::process::exit(0);
+    core::process::exit(0);
 }
 
 /// Create settings by examining command line arguments and environment
@@ -253,7 +253,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                 error!(
                     "Fatal Python error: config_init_int_max_str_digits: PYTHONINTMAXSTRDIGITS: invalid limit; must be >= 640 or 0 for unlimited.\nPython runtime state: preinitialized"
                 );
-                std::process::exit(1);
+                core::process::exit(1);
             }
         };
     }
@@ -279,7 +279,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                              invalid limit; must be >= 640 or 0 for unlimited.\n\
                              Python runtime state: preinitialized"
                         );
-                        std::process::exit(1);
+                        core::process::exit(1);
                     }
                 };
             }
@@ -351,11 +351,11 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
 #[cfg(not(target_os = "wasi"))]
 pub(crate) use env::split_paths;
 #[cfg(target_os = "wasi")]
-pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
+pub(crate) fn split_paths<T: AsRef<core::ffi::OsStr> + ?Sized>(
     s: &T,
-) -> impl Iterator<Item = std::path::PathBuf> + '_ {
-    use std::os::wasi::ffi::OsStrExt;
+) -> impl Iterator<Item = core::path::PathBuf> + '_ {
+    use core::os::wasi::ffi::OsStrExt;
     let s = s.as_ref().as_bytes();
     s.split(|b| *b == b':')
-        .map(|x| std::ffi::OsStr::from_bytes(x).to_owned().into())
+        .map(|x| core::ffi::OsStr::from_bytes(x).to_owned().into())
 }

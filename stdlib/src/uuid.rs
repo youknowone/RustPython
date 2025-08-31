@@ -4,7 +4,7 @@ pub(crate) use _uuid::make_module;
 mod _uuid {
     use crate::{builtins::PyNone, vm::VirtualMachine};
     use mac_address::get_mac_address;
-    use std::sync::OnceLock;
+    use core::sync::OnceLock;
     use uuid::{Context, Uuid, timestamp::Timestamp};
 
     fn get_node_id() -> [u8; 6] {

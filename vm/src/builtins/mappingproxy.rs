@@ -12,7 +12,7 @@ use crate::{
         Representable,
     },
 };
-use std::sync::LazyLock;
+use core::sync::LazyLock;
 
 #[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]

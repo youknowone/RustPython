@@ -142,7 +142,7 @@ pub trait PyClassImpl: PyClassDef {
             Self::extend_class(ctx, unsafe {
                 // typ will be saved in static_cell
                 let r: &Py<PyType> = &typ;
-                let r: &'static Py<PyType> = std::mem::transmute(r);
+                let r: &'static Py<PyType> = core::mem::transmute(r);
                 r
             });
             typ

@@ -10,7 +10,7 @@ use rustpython_vm::{
     compiler::Mode,
     scope::Scope,
 };
-use std::{
+use core::{
     cell::RefCell,
     collections::HashMap,
     rc::{Rc, Weak},
@@ -147,7 +147,7 @@ impl VMStore {
 
     pub fn destroy(id: String) {
         STORED_VMS.with(|cell| {
-            use std::collections::hash_map::Entry;
+            use core::collections::hash_map::Entry;
             match cell.borrow_mut().entry(id) {
                 Entry::Occupied(o) => {
                     let (_k, stored_vm) = o.remove_entry();

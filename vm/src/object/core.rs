@@ -28,7 +28,7 @@ use crate::{
     vm::VirtualMachine,
 };
 use itertools::Itertools;
-use std::{
+use core::{
     any::TypeId,
     borrow::Borrow,
     cell::UnsafeCell,
@@ -369,7 +369,7 @@ impl PyWeak {
     fn drop_inner(&self) {
         let dealloc = {
             let mut guard = unsafe { self.parent.as_ref().lock() };
-            let offset = std::mem::offset_of!(PyInner<Self>, payload);
+            let offset = core::mem::offset_of!(PyInner<Self>, payload);
             let py_inner = (self as *const Self)
                 .cast::<u8>()
                 .wrapping_sub(offset)
@@ -377,7 +377,7 @@ impl PyWeak {
             let node_ptr = unsafe { NonNull::new_unchecked(py_inner as *mut Py<Self>) };
             // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
             // right now so that should be obvious!!
-            std::mem::forget(unsafe { guard.list.remove(node_ptr) });
+            core::mem::forget(unsafe { guard.list.remove(node_ptr) });
             guard.ref_count -= 1;
             if Some(node_ptr) == guard.generic_weakref {
                 guard.generic_weakref = None;
@@ -439,7 +439,7 @@ impl InstanceDict {
 
     #[inline]
     pub fn replace(&self, d: PyDictRef) -> PyDictRef {
-        std::mem::replace(&mut self.d.write(), d)
+        core::mem::replace(&mut self.d.write(), d)
     }
 }
 
@@ -454,7 +454,7 @@ impl<T: PyObjectPayload> PyInner<T> {
             dict: dict.map(InstanceDict::new),
             weak_list: WeakRefList::new(),
             payload,
-            slots: std::iter::repeat_with(|| PyRwLock::new(None))
+            slots: core::iter::repeat_with(|| PyRwLock::new(None))
                 .take(member_count)
                 .collect_vec()
                 .into_boxed_slice(),
@@ -514,7 +514,7 @@ impl PyObjectRef {
     #[inline(always)]
     pub const fn into_raw(self) -> NonNull<PyObject> {
         let ptr = self.ptr;
-        std::mem::forget(self);
+        core::mem::forget(self);
         ptr
     }
 
@@ -956,12 +956,12 @@ impl<T: PyObjectPayload> Borrow<PyObject> for Py<T> {
     }
 }
 
-impl<T> std::hash::Hash for Py<T>
+impl<T> core::hash::Hash for Py<T>
 where
-    T: std::hash::Hash + PyObjectPayload,
+    T: core::hash::Hash + PyObjectPayload,
 {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.deref().hash(state)
     }
 }
@@ -1041,7 +1041,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     // #[inline(always)]
     // pub(crate) const fn into_non_null(self) -> NonNull<Py<T>> {
     //     let ptr = self.ptr;
-    //     std::mem::forget(self);
+    //     core::mem::forget(self);
     //     ptr
     // }
 
@@ -1077,7 +1077,7 @@ impl<T: PyObjectPayload> PyRef<T> {
 
     pub const fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
-        std::mem::forget(pyref);
+        core::mem::forget(pyref);
         unsafe { ptr.as_ref() }
     }
 }
@@ -1133,12 +1133,12 @@ impl<T> Deref for PyRef<T> {
     }
 }
 
-impl<T> std::hash::Hash for PyRef<T>
+impl<T> core::hash::Hash for PyRef<T>
 where
-    T: std::hash::Hash + PyObjectPayload,
+    T: core::hash::Hash + PyObjectPayload,
 {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.deref().hash(state)
     }
 }
@@ -1187,10 +1187,10 @@ macro_rules! partially_init {
                 $($uninit_field: unreachable!(),)*
             }};
         }
-        let mut m = ::std::mem::MaybeUninit::<$ty>::uninit();
+        let mut m = ::core::mem::MaybeUninit::<$ty>::uninit();
         #[allow(unused_unsafe)]
         unsafe {
-            $(::std::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
+            $(::core::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
         }
         m
     }};
@@ -1198,7 +1198,7 @@ macro_rules! partially_init {
 
 pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     use crate::{builtins::object, class::PyClassImpl};
-    use std::mem::MaybeUninit;
+    use core::mem::MaybeUninit;
 
     // `type` inherits from `object`
     // and both `type` and `object are instances of `type`.

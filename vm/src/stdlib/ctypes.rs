@@ -44,11 +44,11 @@ pub(crate) mod _ctypes {
     use crate::stdlib::ctypes::library;
     use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
-    use std::ffi::{
+    use core::ffi::{
         c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
         c_ulonglong,
     };
-    use std::mem;
+    use core::mem;
     use widestring::WideChar;
 
     #[pyattr(name = "__version__")]

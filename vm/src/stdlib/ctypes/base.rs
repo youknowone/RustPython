@@ -9,7 +9,7 @@ use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 pub fn ffi_type_from_str(_type_: &str) -> Option<libffi::middle::Type> {
     match _type_ {
@@ -186,7 +186,7 @@ pub struct PyCSimple {
 }
 
 impl Debug for PyCSimple {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCSimple")
             .field("_type_", &self._type_)
             .finish()
@@ -276,21 +276,21 @@ impl PyCSimple {
         let value = unsafe { (*self.value.as_ptr()).clone() };
         if let Ok(i) = value.try_int(vm) {
             let i = i.as_bigint();
-            if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
+            if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
                 return i.to_u8().map(|r: u8| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
                 return i.to_i8().map(|r: i8| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
                 return i.to_u16().map(|r: u16| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
                 return i.to_i16().map(|r: i16| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
                 return i.to_u32().map(|r: u32| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
                 return i.to_i32().map(|r: i32| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
                 return i.to_u64().map(|r: u64| libffi::middle::Arg::new(&r));
-            } else if std::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
+            } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
                 return i.to_i64().map(|r: i64| libffi::middle::Arg::new(&r));
             } else {
                 return None;

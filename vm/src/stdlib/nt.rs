@@ -22,8 +22,8 @@ pub(crate) mod module {
         stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, errno_err},
     };
     use libc::intptr_t;
-    use std::os::windows::io::AsRawHandle;
-    use std::{
+    use core::os::windows::io::AsRawHandle;
+    use core::{
         env, fs, io,
         mem::MaybeUninit,
         os::windows::ffi::{OsStrExt, OsStringExt},
@@ -73,7 +73,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     pub(super) fn symlink(args: SymlinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
-        use std::os::windows::fs as win_fs;
+        use core::os::windows::fs as win_fs;
         let dir = args.target_is_directory.target_is_directory
             || args
                 .dst
@@ -221,7 +221,7 @@ pub(crate) mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use std::iter::once;
+        use core::iter::once;
 
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
@@ -244,7 +244,7 @@ pub(crate) mod module {
         let argv_execv: Vec<*const u16> = argv
             .iter()
             .map(|v| v.as_ptr())
-            .chain(once(std::ptr::null()))
+            .chain(once(core::ptr::null()))
             .collect();
 
         if (unsafe { suppress_iph!(_wexecv(path.as_ptr(), argv_execv.as_ptr())) } == -1) {
@@ -272,7 +272,7 @@ pub(crate) mod module {
                 wpath.as_ptr(),
                 buffer.len() as _,
                 buffer.as_mut_ptr(),
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
             )
         };
         if ret == 0 {
@@ -285,7 +285,7 @@ pub(crate) mod module {
                     wpath.as_ptr(),
                     buffer.len() as _,
                     buffer.as_mut_ptr(),
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 )
             };
             if ret == 0 {
@@ -299,7 +299,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wide = path.to_wide_cstring(vm)?;
-        let buflen = std::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
+        let buflen = core::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
         let mut buffer = vec![0u16; buflen];
         let ret = unsafe {
             FileSystem::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
@@ -321,7 +321,7 @@ pub(crate) mod module {
             .iter()
             .copied()
             .map(|c| if c == b'/' as u16 { b'\\' as u16 } else { c })
-            .chain(std::iter::once(0)) // null-terminated
+            .chain(core::iter::once(0)) // null-terminated
             .collect();
 
         fn from_utf16(wstr: &[u16], vm: &VirtualMachine) -> PyResult<String> {
@@ -338,7 +338,7 @@ pub(crate) mod module {
                 assert!(
                     len < backslashed.len(), // backslashed is null-terminated
                     "path: {:?} {} < {}",
-                    std::path::PathBuf::from(std::ffi::OsString::from_wide(&backslashed)),
+                    core::path::PathBuf::from(core::ffi::OsString::from_wide(&backslashed)),
                     len,
                     backslashed.len()
                 );
@@ -405,14 +405,14 @@ pub(crate) mod module {
 
         if success != 0 {
             // Convert the buffer (which is UTF-16) to a Rust String
-            let username = std::ffi::OsString::from_wide(&buffer[..(size - 1) as usize]);
+            let username = core::ffi::OsString::from_wide(&buffer[..(size - 1) as usize]);
             Ok(username.to_str().unwrap().to_string())
         } else {
             Err(vm.new_os_error(format!("Error code: {success}")))
         }
     }
 
-    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> std::io::Result<()> {
+    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> core::io::Result<()> {
         let flags = if inheritable {
             Foundation::HANDLE_FLAG_INHERIT
         } else {
@@ -439,7 +439,7 @@ pub(crate) mod module {
             return Err(errno_err(vm));
         }
         if len as usize >= buffer.len() {
-            return Err(std::io::Error::from_raw_os_error(ERROR_MORE_DATA as _).to_pyexception(vm));
+            return Err(core::io::Error::from_raw_os_error(ERROR_MORE_DATA as _).to_pyexception(vm));
         }
         let drives: Vec<_> = buffer[..(len - 1) as usize]
             .split(|&c| c == 0)
@@ -468,7 +468,7 @@ pub(crate) mod module {
         let [] = dir_fd.0;
         let _ = mode;
         let wide = path.to_wide_cstring(vm)?;
-        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), core::ptr::null_mut()) };
         if res == 0 {
             return Err(errno_err(vm));
         }

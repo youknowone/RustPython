@@ -27,8 +27,8 @@ use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
 };
-use std::sync::LazyLock;
-use std::{fmt, ops::Deref};
+use core::sync::LazyLock;
+use core::{fmt, ops::Deref};
 
 pub type SetContentType = dict_inner::Dict<()>;
 
@@ -50,7 +50,7 @@ impl PySet {
 
     fn fold_op(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -68,7 +68,7 @@ impl PySet {
         Ok(Self {
             inner: self
                 .inner
-                .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
         })
     }
 }
@@ -111,7 +111,7 @@ impl PyFrozenSet {
 
     fn fold_op(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         op: fn(&PySetInner, ArgIterable, &VirtualMachine) -> PyResult<PySetInner>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -130,7 +130,7 @@ impl PyFrozenSet {
         Ok(Self {
             inner: self
                 .inner
-                .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+                .fold_op(core::iter::once(other.into_iterable(vm)?), op, vm)?,
             ..Default::default()
         })
     }
@@ -191,7 +191,7 @@ impl PySetInner {
 
     fn fold_op<O>(
         &self,
-        others: impl std::iter::Iterator<Item = O>,
+        others: impl core::iter::Iterator<Item = O>,
         op: fn(&Self, O, &VirtualMachine) -> PyResult<Self>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
@@ -352,7 +352,7 @@ impl PySetInner {
 
     fn update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -395,7 +395,7 @@ impl PySetInner {
 
     fn intersection_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let temp_inner = self.fold_op(others, Self::intersection, vm)?;
@@ -408,7 +408,7 @@ impl PySetInner {
 
     fn difference_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -422,7 +422,7 @@ impl PySetInner {
 
     fn symmetric_difference_update(
         &self,
-        others: impl std::iter::Iterator<Item = ArgIterable>,
+        others: impl core::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
@@ -539,7 +539,7 @@ impl PySet {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.sizeof()
+        core::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
@@ -731,7 +731,7 @@ impl PySet {
     #[pymethod]
     fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         zelf.inner
-            .intersection_update(std::iter::once(set.into_iterable(vm)?), vm)?;
+            .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
         Ok(zelf)
     }
 
@@ -965,7 +965,7 @@ impl PyFrozenSet {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        std::mem::size_of::<Self>() + self.inner.sizeof()
+        core::mem::size_of::<Self>() + self.inner.sizeof()
     }
 
     #[pymethod]
@@ -1245,8 +1245,8 @@ impl AnySet {
     fn into_iterable_iter(
         self,
         vm: &VirtualMachine,
-    ) -> PyResult<impl std::iter::Iterator<Item = ArgIterable>> {
-        Ok(std::iter::once(self.into_iterable(vm)?))
+    ) -> PyResult<impl core::iter::Iterator<Item = ArgIterable>> {
+        Ok(core::iter::once(self.into_iterable(vm)?))
     }
 
     fn as_inner(&self) -> &PySetInner {

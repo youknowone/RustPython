@@ -1,6 +1,6 @@
 use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, class::StaticType};
 use _contextvars::PyContext;
-use std::cell::RefCell;
+use core::cell::RefCell;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _contextvars::make_module(vm);
@@ -33,8 +33,8 @@ mod _contextvars {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use indexmap::IndexMap;
-    use std::sync::LazyLock;
-    use std::{
+    use core::sync::LazyLock;
+    use core::{
         cell::{Cell, RefCell, UnsafeCell},
         sync::atomic::Ordering,
     };
@@ -90,11 +90,11 @@ mod _contextvars {
             }
         }
 
-        fn borrow_vars(&self) -> impl std::ops::Deref<Target = Hamt> + '_ {
+        fn borrow_vars(&self) -> impl core::ops::Deref<Target = Hamt> + '_ {
             self.inner.vars.hamt.borrow()
         }
 
-        fn borrow_vars_mut(&self) -> impl std::ops::DerefMut<Target = Hamt> + '_ {
+        fn borrow_vars_mut(&self) -> impl core::ops::DerefMut<Target = Hamt> + '_ {
             self.inner.vars.hamt.borrow_mut()
         }
 
@@ -301,13 +301,13 @@ mod _contextvars {
         #[pytraverse(skip)]
         cached: AtomicCell<Option<ContextVarCache>>,
         #[pytraverse(skip)]
-        cached_id: std::sync::atomic::AtomicUsize, // cached_tsid in CPython
+        cached_id: core::sync::atomic::AtomicUsize, // cached_tsid in CPython
         #[pytraverse(skip)]
         hash: UnsafeCell<PyHash>,
     }
 
-    impl std::fmt::Debug for ContextVar {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for ContextVar {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("ContextVar").finish()
         }
     }
@@ -316,7 +316,7 @@ mod _contextvars {
 
     impl PartialEq for ContextVar {
         fn eq(&self, other: &Self) -> bool {
-            std::ptr::eq(self, other)
+            core::ptr::eq(self, other)
         }
     }
     impl Eq for ContextVar {}
@@ -516,9 +516,9 @@ mod _contextvars {
         }
     }
 
-    impl std::hash::Hash for ContextVar {
+    impl core::hash::Hash for ContextVar {
         #[inline]
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
             unsafe { *self.hash.get() }.hash(state)
         }
     }

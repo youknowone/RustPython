@@ -162,13 +162,13 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         // if obj.class().slots.dict_offset > 0
         //     && !obj.class().slots.flags.has_feature(PyTypeFlags::MANAGED_DICT)
         // {
-        //     basicsize += std::mem::size_of::<PyObjectRef>();
+        //     basicsize += core::mem::size_of::<PyObjectRef>();
         // }
         // if obj.class().slots.weaklist_offset > 0 {
-        //     basicsize += std::mem::size_of::<PyObjectRef>();
+        //     basicsize += core::mem::size_of::<PyObjectRef>();
         // }
         if let Some(ref slot_names) = slot_names {
-            basicsize += std::mem::size_of::<PyObjectRef>() * slot_names.__len__();
+            basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
         }
         if obj.class().slots.basicsize > basicsize {
             return Err(
@@ -215,7 +215,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 //             if getstate
 //                 .get_self()
 //                 .map_or(false, |self_obj| self_obj.is(obj))
-//                 && std::ptr::addr_eq(
+//                 && core::ptr::addr_eq(
 //                     getstate.as_func() as *const _,
 //                     &PyBaseObject::__getstate__ as &dyn crate::function::PyNativeFn as *const _,
 //                 ) =>

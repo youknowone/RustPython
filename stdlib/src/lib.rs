@@ -94,7 +94,7 @@ use rustpython_common as common;
 use rustpython_vm as vm;
 
 use crate::vm::{builtins, stdlib::StdlibInitFunc};
-use std::borrow::Cow;
+use core::borrow::Cow;
 
 pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInitFunc)> {
     macro_rules! modules {

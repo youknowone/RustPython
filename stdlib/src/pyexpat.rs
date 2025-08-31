@@ -34,7 +34,7 @@ mod _pyexpat {
         function::{IntoFuncArgs, OptionalArg},
     };
     use rustpython_common::lock::PyRwLock;
-    use std::io::Cursor;
+    use core::io::Cursor;
     use xml::reader::XmlEvent;
 
     type MutableObject = PyRwLock<PyObjectRef>;
@@ -101,7 +101,7 @@ mod _pyexpat {
 
         fn do_parse<T>(&self, vm: &VirtualMachine, parser: xml::EventReader<T>)
         where
-            T: std::io::Read,
+            T: core::io::Read,
         {
             for e in parser {
                 match e {

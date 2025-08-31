@@ -19,7 +19,7 @@ pub(crate) mod _signal {
         convert::{IntoPyException, TryFromBorrowedObject},
     };
     use crate::{PyObjectRef, PyResult, VirtualMachine, signal};
-    use std::sync::atomic::{self, Ordering};
+    use core::sync::atomic::{self, Ordering};
 
     #[cfg(any(unix, windows))]
     use libc::sighandler_t;
@@ -35,7 +35,7 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
-            static WAKEUP_IS_SOCKET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
             impl<'a> TryFromBorrowedObject<'a> for WakeupFd {
                 fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a crate::PyObject) -> PyResult<Self> {
@@ -63,7 +63,7 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     pub use libc::SIG_ERR;
     #[cfg(unix)]
-    pub use nix::unistd::alarm as sig_alarm;
+    pub use nix::unicore::alarm as sig_alarm;
 
     #[cfg(unix)]
     #[pyattr]
@@ -246,7 +246,7 @@ pub(crate) mod _signal {
 
             crate::windows::init_winsock();
             let mut res = 0i32;
-            let mut res_size = std::mem::size_of::<i32>() as i32;
+            let mut res_size = core::mem::size_of::<i32>() as i32;
             let res = unsafe {
                 WinSock::getsockopt(
                     fd,
@@ -259,7 +259,7 @@ pub(crate) mod _signal {
             // if getsockopt succeeded, fd is for sure a socket
             let is_socket = res == 0;
             if !is_socket {
-                let err = std::io::Error::last_os_error();
+                let err = core::io::Error::last_os_error();
                 // if getsockopt failed for some other reason, throw
                 if err.raw_os_error() != Some(WinSock::WSAENOTSOCK) {
                     return Err(err.into_pyexception(vm));

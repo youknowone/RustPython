@@ -8,7 +8,7 @@ pub mod wasm_builtins;
 extern crate rustpython_vm;
 
 use js_sys::{Reflect, WebAssembly::RuntimeError};
-use std::panic;
+use core::panic;
 pub use vm_class::add_init_func;
 pub(crate) use vm_class::weak_vm;
 use wasm_bindgen::prelude::*;
@@ -39,7 +39,7 @@ pub fn panic_hook(info: &panic::PanicHookInfo<'_>) {
 #[cfg(not(feature = "no-start-func"))]
 #[wasm_bindgen(start)]
 pub fn _setup_console_error() {
-    std::panic::set_hook(Box::new(panic_hook));
+    core::panic::set_hook(Box::new(panic_hook));
 }
 
 pub mod eval {

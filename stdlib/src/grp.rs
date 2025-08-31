@@ -11,7 +11,7 @@ mod grp {
         types::PyStructSequence,
     };
     use nix::unistd;
-    use std::ptr::NonNull;
+    use core::ptr::NonNull;
 
     #[pyattr]
     #[pyclass(module = "grp", name = "struct_group", traverse)]
@@ -27,8 +27,8 @@ mod grp {
     }
     #[pyclass(with(PyStructSequence))]
     impl Group {
-        fn from_unistd_group(group: unistd::Group, vm: &VirtualMachine) -> Self {
-            let cstr_lossy = |s: std::ffi::CString| {
+        fn from_unistd_group(group: unicore::Group, vm: &VirtualMachine) -> Self {
+            let cstr_lossy = |s: core::ffi::CString| {
                 s.into_string()
                     .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
             };
@@ -47,10 +47,10 @@ mod grp {
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<Group> {
         let gr_gid = gid.as_bigint();
         let gid = libc::gid_t::try_from(gr_gid)
-            .map(unistd::Gid::from_raw)
+            .map(unicore::Gid::from_raw)
             .ok();
         let group = gid
-            .map(unistd::Group::from_gid)
+            .map(unicore::Group::from_gid)
             .transpose()
             .map_err(|err| err.into_pyexception(vm))?
             .flatten();
@@ -70,7 +70,7 @@ mod grp {
         if gr_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        let group = unistd::Group::from_name(gr_name).map_err(|err| err.into_pyexception(vm))?;
+        let group = unicore::Group::from_name(gr_name).map_err(|err| err.into_pyexception(vm))?;
         let group = group.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
@@ -90,7 +90,7 @@ mod grp {
 
         unsafe { libc::setgrent() };
         while let Some(ptr) = NonNull::new(unsafe { libc::getgrent() }) {
-            let group = unistd::Group::from(unsafe { ptr.as_ref() });
+            let group = unicore::Group::from(unsafe { ptr.as_ref() });
             let group = Group::from_unistd_group(group, vm).to_pyobject(vm);
             list.push(group);
         }

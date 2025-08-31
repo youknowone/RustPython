@@ -13,8 +13,8 @@ use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use std::ffi::CString;
-use std::fmt::Debug;
+use core::ffi::CString;
+use core::fmt::Debug;
 
 // https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
 
@@ -134,7 +134,7 @@ pub struct PyCFuncPtr {
 }
 
 impl Debug for PyCFuncPtr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyCFuncPtr")
             .field("name", &self.name)
             .finish()

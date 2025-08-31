@@ -1,12 +1,12 @@
 //! A module implementing an io type backed by the C runtime's file descriptors, i.e. what's
 //! returned from libc::open, even on windows.
 
-use std::{cmp, ffi, fmt, io};
+use core::{cmp, ffi, fmt, io};
 
 #[cfg(not(windows))]
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
+use core::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 #[cfg(windows)]
-use std::os::windows::io::BorrowedHandle;
+use core::os::windows::io::BorrowedHandle;
 
 mod c {
     pub(super) use libc::*;
@@ -59,8 +59,8 @@ type BorrowedInner<'fd> = BorrowedFd<'fd>;
 #[cfg(windows)]
 mod win {
     use super::*;
-    use std::marker::PhantomData;
-    use std::mem::ManuallyDrop;
+    use core::marker::PhantomData;
+    use core::mem::ManuallyDrop;
 
     #[repr(transparent)]
     pub(super) struct OwnedInner(i32);

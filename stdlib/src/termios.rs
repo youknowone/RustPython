@@ -260,7 +260,7 @@ mod termios {
         Ok(())
     }
 
-    fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    fn termios_error(err: core::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception(
             error_type(vm),
             vec![

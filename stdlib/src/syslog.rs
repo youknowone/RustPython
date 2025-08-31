@@ -11,7 +11,7 @@ mod syslog {
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
     };
-    use std::{ffi::CStr, os::raw::c_char};
+    use core::{ffi::CStr, os::raw::c_char};
 
     #[pyattr]
     use libc::{
@@ -50,7 +50,7 @@ mod syslog {
         fn as_ptr(&self) -> *const c_char {
             match self {
                 Self::Explicit(cstr) => cstr.as_ptr(),
-                Self::Implicit => std::ptr::null(),
+                Self::Implicit => core::ptr::null(),
             }
         }
     }

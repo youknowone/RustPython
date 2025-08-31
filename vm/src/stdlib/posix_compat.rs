@@ -17,7 +17,7 @@ pub(crate) mod module {
         ospath::OsPath,
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
-    use std::env;
+    use core::env;
 
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {

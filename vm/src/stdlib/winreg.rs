@@ -34,8 +34,8 @@ mod winreg {
         convert::ToPyException,
     };
     use ::winreg::{RegKey, RegValue, enums::RegType};
-    use std::mem::ManuallyDrop;
-    use std::{ffi::OsStr, io};
+    use core::mem::ManuallyDrop;
+    use core::{ffi::OsStr, io};
     use windows_sys::Win32::Foundation;
 
     // access rights
@@ -89,15 +89,15 @@ mod winreg {
         #[pymethod]
         fn Close(&self) {
             let null_key = RegKey::predef(0 as ::winreg::HKEY);
-            let key = std::mem::replace(&mut *self.key_mut(), null_key);
+            let key = core::mem::replace(&mut *self.key_mut(), null_key);
             drop(key);
         }
         #[pymethod]
         fn Detach(&self) -> usize {
             let null_key = RegKey::predef(0 as ::winreg::HKEY);
-            let key = std::mem::replace(&mut *self.key_mut(), null_key);
+            let key = core::mem::replace(&mut *self.key_mut(), null_key);
             let handle = key.raw_handle();
-            std::mem::forget(key);
+            core::mem::forget(key);
             handle as usize
         }
 

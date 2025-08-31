@@ -17,7 +17,7 @@ mod _js {
         protocol::PyIterReturn,
         types::{IterNext, Representable, SelfIter},
     };
-    use std::{cell, fmt, future};
+    use core::{cell, fmt, future};
     use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
     use wasm_bindgen_futures::{JsFuture, future_to_promise};
 

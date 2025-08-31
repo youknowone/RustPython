@@ -7,7 +7,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     stdlib::os::errno_err,
 };
-use std::{ffi::OsStr, time::SystemTime};
+use core::{ffi::OsStr, time::SystemTime};
 use windows::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE, INVALID_HANDLE_VALUE};
 
@@ -75,13 +75,13 @@ impl ToPyObject for HANDLE {
 pub fn init_winsock() {
     static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
     WSA_INIT.call_once(|| unsafe {
-        let mut wsa_data = std::mem::MaybeUninit::uninit();
+        let mut wsa_data = core::mem::MaybeUninit::uninit();
         let _ = windows_sys::Win32::Networking::WinSock::WSAStartup(0x0101, wsa_data.as_mut_ptr());
     })
 }
 
 // win32_xstat in cpython
-pub fn win32_xstat(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
+pub fn win32_xstat(path: &OsStr, traverse: bool) -> core::io::Result<StatStruct> {
     let mut result = win32_xstat_impl(path, traverse)?;
     // ctime is only deprecated from 3.12, so we copy birthtime across
     result.st_ctime = result.st_birthtime;
@@ -93,7 +93,7 @@ fn is_reparse_tag_name_surrogate(tag: u32) -> bool {
     (tag & 0x20000000) > 0
 }
 
-fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
+fn win32_xstat_impl(path: &OsStr, traverse: bool) -> core::io::Result<StatStruct> {
     use windows_sys::Win32::{Foundation, Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT};
 
     let stat_info =
@@ -134,8 +134,8 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
 // Ported from zed: https://github.com/zed-industries/zed/blob/v0.131.6/crates/fs/src/fs.rs#L1532-L1562
 // can we get file id not open the file twice?
 // https://github.com/rust-lang/rust/issues/63010
-fn file_id(path: &OsStr) -> std::io::Result<u64> {
-    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+fn file_id(path: &OsStr) -> core::io::Result<u64> {
+    use core::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
     use windows_sys::Win32::{
         Foundation::HANDLE,
         Storage::FileSystem::{
@@ -143,23 +143,23 @@ fn file_id(path: &OsStr) -> std::io::Result<u64> {
         },
     };
 
-    let file = std::fs::OpenOptions::new()
+    let file = core::fs::OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)?;
 
-    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
     // https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle
     // This function supports Windows XP+
     let ret = unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info) };
     if ret == 0 {
-        return Err(std::io::Error::last_os_error());
+        return Err(core::io::Error::last_os_error());
     };
 
     Ok(((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64))
 }
 
-fn meta_to_stat(meta: &std::fs::Metadata, file_id: u64) -> std::io::Result<StatStruct> {
+fn meta_to_stat(meta: &core::fs::Metadata, file_id: u64) -> core::io::Result<StatStruct> {
     let st_mode = {
         // Based on CPython fileutils.c' attributes_to_mode
         let mut m = 0;

@@ -36,9 +36,9 @@ use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
 use nix::{
     sys::signal::{SaFlags, SigAction, SigSet, Signal::SIGINT, kill, sigaction},
-    unistd::getpid,
+    unicore::getpid,
 };
-use std::{
+use core::{
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
@@ -105,7 +105,7 @@ pub struct PyGlobalState {
 }
 
 pub fn process_hash_secret_seed() -> u32 {
-    use std::sync::OnceLock;
+    use core::sync::OnceLock;
     static SEED: OnceLock<u32> = OnceLock::new();
     // os_random is expensive, but this is only ever called once
     *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
@@ -223,8 +223,8 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
-            let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
-            let pythonpath_env = std::env::var("PYTHONPATH").ok();
+            let rustpythonpath_env = core::env::var("RUSTPYTHONPATH").ok();
+            let pythonpath_env = core::env::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
             let path_contains_env = self.state.settings.path_list.iter().any(|s| {
                 Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
@@ -802,14 +802,14 @@ impl VirtualMachine {
 
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         let mut excs = self.exceptions.borrow_mut();
-        let prev = std::mem::take(&mut *excs);
+        let prev = core::mem::take(&mut *excs);
         excs.prev = Some(Box::new(prev));
         excs.exc = exc
     }
 
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let mut excs = self.exceptions.borrow_mut();
-        let cur = std::mem::take(&mut *excs);
+        let cur = core::mem::take(&mut *excs);
         *excs = *cur.prev.expect("pop_exception() without nested exc stack");
         cur.exc
     }
@@ -824,7 +824,7 @@ impl VirtualMachine {
 
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
-        let prev = std::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
+        let prev = core::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
         drop(prev);
     }
 
@@ -992,7 +992,7 @@ impl AsRef<Context> for VirtualMachine {
 }
 
 fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
-    let iter = std::iter::empty();
+    let iter = core::iter::empty();
     macro_rules! ext_modules {
         ($iter:ident, $($t:tt)*) => {
             let $iter = $iter.chain(py_freeze!($($t)*));

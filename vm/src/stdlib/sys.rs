@@ -23,8 +23,8 @@ mod sys {
     };
     use num_traits::ToPrimitive;
     #[cfg(windows)]
-    use std::os::windows::ffi::OsStrExt;
-    use std::{
+    use core::os::windows::ffi::OsStrExt;
+    use core::{
         env::{self, VarError},
         io::Read,
         path,
@@ -63,7 +63,7 @@ mod sys {
     #[pyattr(name = "maxsize")]
     pub(crate) const MAXSIZE: isize = isize::MAX;
     #[pyattr(name = "maxunicode")]
-    const MAXUNICODE: u32 = std::char::MAX as u32;
+    const MAXUNICODE: u32 = core::char::MAX as u32;
     #[pyattr(name = "platform")]
     pub(crate) const PLATFORM: &str = {
         cfg_if::cfg_if! {
@@ -315,7 +315,7 @@ mod sys {
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
         // read stdin to end
-        let stdin = std::io::stdin();
+        let stdin = core::io::stdin();
         let mut handle = stdin.lock();
         let mut source = String::new();
         handle
@@ -388,7 +388,7 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let env_var = std::env::var("PYTHONBREAKPOINT")
+        let env_var = core::env::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
                     Err(VarError::NotPresent)
@@ -483,7 +483,7 @@ mod sys {
         let sizeof = || -> PyResult<usize> {
             let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
-            Ok(res + std::mem::size_of::<PyObject>())
+            Ok(res + core::mem::size_of::<PyObject>())
         };
         sizeof()
             .map(|x| vm.ctx.new_int(x).into())
@@ -548,16 +548,16 @@ mod sys {
     }
 
     #[cfg(windows)]
-    fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
+    fn get_kernel32_version() -> core::io::Result<(u32, u32, u32)> {
         unsafe {
             // Create a wide string for "kernel32.dll"
-            let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll")
+            let module_name: Vec<u16> = core::ffi::OsStr::new("kernel32.dll")
                 .encode_wide()
                 .chain(Some(0))
                 .collect();
             let h_kernel32 = GetModuleHandleW(module_name.as_ptr());
             if h_kernel32.is_null() {
-                return Err(std::io::Error::last_os_error());
+                return Err(core::io::Error::last_os_error());
             }
 
             // Prepare a buffer for the module file path
@@ -568,14 +568,14 @@ mod sys {
                 kernel32_path.len() as u32,
             );
             if len == 0 {
-                return Err(std::io::Error::last_os_error());
+                return Err(core::io::Error::last_os_error());
             }
 
             // Get the size of the version information block
             let ver_block_size =
-                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), std::ptr::null_mut());
+                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), core::ptr::null_mut());
             if ver_block_size == 0 {
-                return Err(std::io::Error::last_os_error());
+                return Err(core::io::Error::last_os_error());
             }
 
             // Allocate a buffer to hold the version information
@@ -587,16 +587,16 @@ mod sys {
                 ver_block.as_mut_ptr() as *mut _,
             ) == 0
             {
-                return Err(std::io::Error::last_os_error());
+                return Err(core::io::Error::last_os_error());
             }
 
             // Prepare an empty sub-block string (L"") as required by VerQueryValueW
-            let sub_block: Vec<u16> = std::ffi::OsStr::new("")
+            let sub_block: Vec<u16> = core::ffi::OsStr::new("")
                 .encode_wide()
                 .chain(Some(0))
                 .collect();
 
-            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
+            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
             let mut ffi_len: u32 = 0;
             if VerQueryValueW(
                 ver_block.as_ptr() as *const _,
@@ -606,7 +606,7 @@ mod sys {
             ) == 0
                 || ffi_ptr.is_null()
             {
-                return Err(std::io::Error::last_os_error());
+                return Err(core::io::Error::last_os_error());
             }
 
             // Extract the version numbers from the VS_FIXEDFILEINFO structure.
@@ -622,14 +622,14 @@ mod sys {
     #[cfg(windows)]
     #[pyfunction]
     fn getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple::PyTupleRef> {
-        use std::ffi::OsString;
-        use std::os::windows::ffi::OsStringExt;
+        use core::ffi::OsString;
+        use core::os::windows::ffi::OsStringExt;
         use windows_sys::Win32::System::SystemInformation::{
             GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW,
         };
 
-        let mut version: OSVERSIONINFOEXW = unsafe { std::mem::zeroed() };
-        version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
+        let mut version: OSVERSIONINFOEXW = unsafe { core::mem::zeroed() };
+        version.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOEXW>() as u32;
         let result = unsafe {
             let os_vi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
             // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but windows-sys crate's type currently doesn't allow to do so.
@@ -1068,7 +1068,7 @@ mod sys {
         const INFO: Self = {
             use rustpython_common::hash::*;
             Self {
-                width: std::mem::size_of::<PyHash>() * 8,
+                width: core::mem::size_of::<PyHash>() * 8,
                 modulus: MODULUS,
                 inf: INF,
                 nan: NAN,
@@ -1094,7 +1094,7 @@ mod sys {
     impl PyIntInfo {
         const INFO: Self = Self {
             bits_per_digit: 30, //?
-            sizeof_digit: std::mem::size_of::<u32>(),
+            sizeof_digit: core::mem::size_of::<u32>(),
             default_max_str_digits: 4300,
             str_digits_check_threshold: 640,
         };
@@ -1187,13 +1187,13 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
 /// writeln!(sys::PyStderr(vm), "foo bar baz :)");
 /// ```
 ///
-/// Unlike writing to a `std::io::Write` with the `write[ln]!()` macro, there's no error condition here;
+/// Unlike writing to a `core::io::Write` with the `write[ln]!()` macro, there's no error condition here;
 /// this is intended to be a replacement for the `eprint[ln]!()` macro, so `write!()`-ing to PyStderr just
 /// returns `()`.
 pub struct PyStderr<'vm>(pub &'vm VirtualMachine);
 
 impl PyStderr<'_> {
-    pub fn write_fmt(&self, args: std::fmt::Arguments<'_>) {
+    pub fn write_fmt(&self, args: core::fmt::Arguments<'_>) {
         use crate::py_io::Write;
 
         let vm = self.0;

@@ -134,7 +134,7 @@ impl<'vm> ShellHelper<'vm> {
         };
 
         // sort the completions alphabetically
-        completions.sort_by(|a, b| std::cmp::Ord::cmp(a.as_str(), b.as_str()));
+        completions.sort_by(|a, b| core::cmp::Ord::cmp(a.as_str(), b.as_str()));
 
         Some((
             startpos,

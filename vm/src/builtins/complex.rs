@@ -18,7 +18,7 @@ use crate::{
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
-use std::num::Wrapping;
+use core::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
 ///

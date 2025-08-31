@@ -7,7 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
 };
-use std::{ffi, fs, io, path::Path};
+use core::{ffi, fs, io, path::Path};
 
 pub(crate) fn fs_metadata<P: AsRef<Path>>(
     path: P,
@@ -174,7 +174,7 @@ pub(super) mod _os {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
-    use std::{
+    use core::{
         env, ffi, fs,
         fs::OpenOptions,
         io,
@@ -379,7 +379,7 @@ pub(super) mod _os {
                 {
                     use rustpython_common::os::ffi::OsStrExt;
                     let new_fd =
-                        nix::unistd::dup(fno.as_raw()).map_err(|e| e.into_pyexception(vm))?;
+                        nix::unicore::dup(fno.as_raw()).map_err(|e| e.into_pyexception(vm))?;
                     let mut dir =
                         nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
                     dir.iter()
@@ -440,7 +440,7 @@ pub(super) mod _os {
                 22,
                 format!(
                     "Invalid argument: {}",
-                    std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
+                    core::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
                 ),
             ));
         }
@@ -463,7 +463,7 @@ pub(super) mod _os {
     #[pyclass(name)]
     #[derive(Debug, PyPayload)]
     struct DirEntry {
-        file_name: std::ffi::OsString,
+        file_name: core::ffi::OsString,
         pathval: PathBuf,
         file_type: io::Result<fs::FileType>,
         mode: OutputMode,
@@ -692,7 +692,7 @@ pub(super) mod _os {
                         Ok(entry) => {
                             #[cfg(unix)]
                             let ino = {
-                                use std::os::unix::fs::DirEntryExt;
+                                use core::os::unix::fs::DirEntryExt;
                                 entry.ino()
                             };
                             #[cfg(not(unix))]
@@ -872,7 +872,7 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        let mut stat = std::mem::MaybeUninit::uninit();
+        let mut stat = core::mem::MaybeUninit::uninit();
         let ret = match file {
             OsPathOrFd::Path(path) => {
                 use rustpython_common::os::ffi::OsStrExt;
@@ -977,7 +977,7 @@ pub(super) mod _os {
             // https://github.com/WebAssembly/wasi-libc/blob/wasi-sdk-21/libc-bottom-half/getpid/getpid.c
             42
         } else {
-            std::process::id()
+            core::process::id()
         };
         vm.ctx.new_int(pid).into()
     }
@@ -990,7 +990,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn _exit(code: i32) {
-        std::process::exit(code)
+        core::process::exit(code)
     }
 
     #[pyfunction]
@@ -1027,10 +1027,10 @@ pub(super) mod _os {
         let res = unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) };
         #[cfg(windows)]
         let res = unsafe {
-            use std::os::windows::io::AsRawHandle;
+            use core::os::windows::io::AsRawHandle;
             use windows_sys::Win32::Storage::FileSystem;
             let handle = crt_fd::as_handle(fd).map_err(|e| e.into_pyexception(vm))?;
-            let mut distance_to_move: [i32; 2] = std::mem::transmute(position);
+            let mut distance_to_move: [i32; 2] = core::mem::transmute(position);
             let ret = FileSystem::SetFilePointer(
                 handle.as_raw_handle(),
                 distance_to_move[0],
@@ -1041,7 +1041,7 @@ pub(super) mod _os {
                 -1
             } else {
                 distance_to_move[0] = ret as _;
-                std::mem::transmute::<[i32; 2], i64>(distance_to_move)
+                core::mem::transmute::<[i32; 2], i64>(distance_to_move)
             }
         };
         if res < 0 { Err(errno_err(vm)) } else { Ok(res) }
@@ -1179,7 +1179,7 @@ pub(super) mod _os {
         }
         #[cfg(windows)]
         {
-            use std::{fs::OpenOptions, os::windows::prelude::*};
+            use core::{fs::OpenOptions, os::windows::prelude::*};
             type DWORD = u32;
             use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
 
@@ -1204,7 +1204,7 @@ pub(super) mod _os {
                 .map_err(|err| err.into_pyexception(vm))?;
 
             let ret = unsafe {
-                FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
+                FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {
@@ -1236,7 +1236,7 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use std::mem::MaybeUninit;
+            use core::mem::MaybeUninit;
             use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
 
             let mut _create = MaybeUninit::<FILETIME>::uninit();
@@ -1316,8 +1316,8 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
-        let p_offset_src = args.offset_src.as_ref().map_or_else(std::ptr::null, |x| x);
-        let p_offset_dst = args.offset_dst.as_ref().map_or_else(std::ptr::null, |x| x);
+        let p_offset_src = args.offset_src.as_ref().map_or_else(core::ptr::null, |x| x);
+        let p_offset_dst = args.offset_dst.as_ref().map_or_else(core::ptr::null, |x| x);
         let count: usize = args
             .count
             .try_into()
@@ -1368,7 +1368,7 @@ pub(super) mod _os {
         #[cold]
         fn error(
             vm: &VirtualMachine,
-            error: std::io::Error,
+            error: core::io::Error,
             path: OsPath,
         ) -> crate::builtins::PyBaseExceptionRef {
             IOErrorBuilder::with_filename(&error, path, vm)

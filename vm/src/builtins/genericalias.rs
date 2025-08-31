@@ -1,5 +1,5 @@
 // spell-checker:ignore iparam
-use std::sync::LazyLock;
+use core::sync::LazyLock;
 
 use super::type_;
 use crate::{
@@ -16,7 +16,7 @@ use crate::{
         PyComparisonOp, Representable,
     },
 };
-use std::fmt;
+use core::fmt;
 
 // attr_exceptions
 static ATTR_EXCEPTIONS: [&str; 12] = [

@@ -50,16 +50,16 @@ mod settings;
 mod shell;
 
 use rustpython_vm::{PyResult, VirtualMachine, scope::Scope};
-use std::env;
-use std::io::IsTerminal;
-use std::process::ExitCode;
+use core::env;
+use core::io::IsTerminal;
+use core::process::ExitCode;
 
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
 pub use settings::{InstallPipMode, RunMode, parse_opts};
 pub use shell::run_shell;
 
-/// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
+/// The main cli of the `rustpython` interpreter. This function will return `core::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
 pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     env_logger::init();
@@ -180,7 +180,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     let is_repl = matches!(run_mode, RunMode::Repl);
     if !vm.state.settings.quiet
-        && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
+        && (vm.state.settings.verbose > 0 || (is_repl && core::io::stdin().is_terminal()))
     {
         eprintln!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -229,8 +229,8 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 }
 
 #[cfg(feature = "flame-it")]
-fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
-    use std::{fs, io};
+fn write_profile(settings: &Settings) -> Result<(), Box<dyn core::error::Error>> {
+    use core::{fs, io};
 
     enum ProfileFormat {
         Html,
@@ -247,7 +247,7 @@ fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> 
         Some(other) => {
             error!("Unknown profile format {}", other);
             // TODO: Need to change to ExitCode or Termination
-            std::process::exit(1);
+            core::process::exit(1);
         }
     };
 

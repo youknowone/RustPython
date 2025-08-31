@@ -27,11 +27,11 @@ mod mmap {
     use nix::sys::stat::fstat;
     use nix::unistd;
     use num_traits::Signed;
-    use std::fs::File;
-    use std::io::{self, Write};
-    use std::ops::{Deref, DerefMut};
+    use core::fs::File;
+    use core::io::{self, Write};
+    use core::ops::{Deref, DerefMut};
     #[cfg(unix)]
-    use std::os::unix::io::{FromRawFd, RawFd};
+    use core::os::unix::io::{FromRawFd, RawFd};
 
     fn advice_try_from_i32(vm: &VirtualMachine, i: i32) -> PyResult<Advice> {
         Ok(match i {
@@ -365,12 +365,12 @@ mod mmap {
             let mut mmap_opt = MmapOptions::new();
             let mmap_opt = mmap_opt.offset(offset.try_into().unwrap()).len(map_size);
 
-            let (fd, mmap) = || -> std::io::Result<_> {
+            let (fd, mmap) = || -> core::io::Result<_> {
                 if fd == -1 {
                     let mmap = MmapObj::Write(mmap_opt.map_anon()?);
                     Ok((fd, mmap))
                 } else {
-                    let new_fd = unistd::dup(fd)?;
+                    let new_fd = unicore::dup(fd)?;
                     let mmap = match access {
                         AccessMode::Default | AccessMode::Write => {
                             MmapObj::Write(unsafe { mmap_opt.map_mut(fd) }?)
@@ -446,7 +446,7 @@ mod mmap {
 
     impl AsSequence for PyMmap {
         fn as_sequence() -> &'static PySequenceMethods {
-            use std::sync::LazyLock;
+            use core::sync::LazyLock;
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).__len__())),
                 item: atomic_func!(|seq, i, vm| {
@@ -840,8 +840,8 @@ mod mmap {
         }
 
         #[pymethod]
-        fn size(&self, vm: &VirtualMachine) -> std::io::Result<PyIntRef> {
-            let new_fd = unistd::dup(self.fd)?;
+        fn size(&self, vm: &VirtualMachine) -> core::io::Result<PyIntRef> {
+            let new_fd = unicore::dup(self.fd)?;
             let file = unsafe { File::from_raw_fd(new_fd) };
             let file_len = file.metadata()?.len();
             Ok(PyInt::from(file_len).into_ref(&vm.ctx))

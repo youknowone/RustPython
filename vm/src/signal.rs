@@ -1,6 +1,6 @@
 #![cfg_attr(target_os = "wasi", allow(dead_code))]
 use crate::{PyResult, VirtualMachine};
-use std::{
+use core::{
     fmt,
     sync::{
         atomic::{AtomicBool, Ordering},

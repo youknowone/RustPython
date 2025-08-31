@@ -16,7 +16,7 @@ use crate::{
 use malachite_bigint::BigInt;
 use num_traits::Zero;
 use rustpython_compiler_core::OneIndexed;
-use std::{borrow::Borrow, fmt, ops::Deref};
+use core::{borrow::Borrow, fmt, ops::Deref};
 
 #[derive(FromArgs)]
 pub struct ReplaceArgs {
@@ -330,7 +330,7 @@ impl PyCode {
     pub fn co_code(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
         // SAFETY: CodeUnit is #[repr(C)] with size 2, so we can safely transmute to bytes
         let bytes = unsafe {
-            std::slice::from_raw_parts(
+            core::slice::from_raw_parts(
                 self.code.instructions.as_ptr() as *const u8,
                 self.code.instructions.len() * 2,
             )

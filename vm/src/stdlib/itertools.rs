@@ -27,7 +27,7 @@ mod decl {
     use num_traits::One;
 
     use num_traits::{Signed, ToPrimitive};
-    use std::fmt;
+    use core::fmt;
 
     #[pyattr]
     #[pyclass(name = "chain")]
@@ -1305,7 +1305,7 @@ mod decl {
             for arg in iterables.iter() {
                 pools.push(arg.try_to_value(vm)?);
             }
-            let pools = std::iter::repeat_n(pools, repeat)
+            let pools = core::iter::repeat_n(pools, repeat)
                 .flatten()
                 .collect::<Vec<Vec<PyObjectRef>>>();
 
