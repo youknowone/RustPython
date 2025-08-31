@@ -387,12 +387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compiler_builtins"
-version = "0.1.160"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6376049cfa92c0aa8b9ac95fae22184b981c658208d4ed8a1dc553cd83612895"
-
-[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -968,11 +962,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26145e563e54f2cadc477553f1ec5ee650b00862f0a58bcd12cbdc5f0ea2d2f4"
 dependencies = [
  "cfg-if",
- "compiler_builtins",
  "js-sys",
  "libc",
  "r-efi",
- "rustc-std-workspace-core",
  "wasi 0.14.3+wasi-0.2.4",
  "wasm-bindgen",
 ]
@@ -2156,12 +2148,6 @@ source = "git+https://github.com/Masterchef365/rustc-hash.git?branch=hashbrown#a
 dependencies = [
  "hashbrown 0.16.0",
 ]
-
-[[package]]
-name = "rustc-std-workspace-core"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa9c45b374136f52f2d6311062c7146bff20fec063c3f5d46a410bd937746955"
 
 [[package]]
 name = "rustix"
