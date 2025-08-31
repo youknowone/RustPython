@@ -147,9 +147,10 @@ mod _io {
     use malachite_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
     use core::{
-        io::{self, Cursor, SeekFrom, prelude::*},
         ops::Range,
     };
+
+    use no_std_io::io::{self, Cursor, SeekFrom};
     use alloc::borrow::Cow;
 
     #[allow(clippy::let_and_return)]

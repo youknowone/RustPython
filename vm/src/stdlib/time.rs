@@ -66,11 +66,14 @@ mod decl {
     pub(super) const NS_TO_US: i64 = 1000;
 
     fn duration_since_system_now(vm: &VirtualMachine) -> PyResult<Duration> {
+        /*
         use core::time::{SystemTime, UNIX_EPOCH};
 
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| vm.new_value_error(format!("Time error: {e:?}")))
+        */
+        todo!("SYTEM TIME")
     }
 
     #[pyattr]

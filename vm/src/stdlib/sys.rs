@@ -25,11 +25,11 @@ mod sys {
     #[cfg(windows)]
     use core::os::windows::ffi::OsStrExt;
     use core::{
-        env::{self, VarError},
-        io::Read,
-        path,
         sync::atomic::Ordering,
+        env,
     };
+    use unix_path as path;
+    use no_std_io::io::Read;
 
     #[cfg(windows)]
     use windows_sys::Win32::{
@@ -388,6 +388,7 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        /*
         let env_var = core::env::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
@@ -396,7 +397,9 @@ mod sys {
                     Ok(env_var)
                 }
             })
-            .unwrap_or_else(|_| "pdb.set_trace".to_owned());
+            .unwrap_or_else(|_| );
+        */
+        let env_var = "pdb.set_trace".to_owned();
 
         if env_var.eq("0") {
             return Ok(vm.ctx.none());
