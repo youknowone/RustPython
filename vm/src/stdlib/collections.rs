@@ -24,7 +24,7 @@ mod _collections {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use core::cmp::max;
-    use core::collections::VecDeque;
+    use alloc::collections::VecDeque;
 
     #[pyattr]
     #[pyclass(module = "collections", name = "deque", unhashable = true)]

@@ -147,10 +147,10 @@ mod _io {
     use malachite_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
     use core::{
-        borrow::Cow,
         io::{self, Cursor, SeekFrom, prelude::*},
         ops::Range,
     };
+    use alloc::borrow::Cow;
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
