@@ -194,8 +194,8 @@ malachite-bigint = "0.6"
 malachite-q = "0.6"
 malachite-base = "0.6"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
-num-complex = "0.4.6"
-num-integer = "0.1.46"
+num-complex = { version = "0.4.6", default-features = false }
+num-integer = { version = "0.1.46", default-features = false }
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 num_enum = { version = "0.7", default-features = false }
 optional = "0.5"
