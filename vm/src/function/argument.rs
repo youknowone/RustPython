@@ -70,7 +70,7 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6
 pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
-    pub kwargs: IndexMap<String, PyObjectRef>,
+    pub kwargs: IndexMap<String, PyObjectRef, ahash::RandomState>,
 }
 
 unsafe impl Traverse for IndexMap<String, PyObjectRef> {
@@ -339,7 +339,7 @@ impl<T: TryFromObject> FromArgOptional for T {
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
 #[derive(Clone)]
-pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
+pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T, ahash::RandomState>);
 
 unsafe impl<T> Traverse for KwArgs<T>
 where
@@ -351,7 +351,7 @@ where
 }
 
 impl<T> KwArgs<T> {
-    pub const fn new(map: IndexMap<String, T>) -> Self {
+    pub const fn new(map: IndexMap<String, T, ahash::RandomState>) -> Self {
         Self(map)
     }
 

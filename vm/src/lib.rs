@@ -6,6 +6,10 @@
 //!
 //! Some stdlib modules are implemented here, but most of them are in the `rustpython-stdlib` module. The
 
+// TODO: REMOVE THIS!!!
+#![allow(warnings)]
+#![feature(let_chains)]
+
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
 #![allow(clippy::module_inception)]
