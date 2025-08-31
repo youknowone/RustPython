@@ -36,7 +36,8 @@ impl RefCount {
         let old_size = self.strong.fetch_add(1, Relaxed);
 
         if old_size & Self::MASK == Self::MASK {
-            core::process::abort();
+            //core::process::abort();
+            panic!();
         }
     }
 

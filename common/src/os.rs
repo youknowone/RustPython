@@ -1,13 +1,14 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use core::{io, str::Utf8Error};
+use core::str::Utf8Error;
 
 pub trait ErrorExt {
     fn posix_errno(&self) -> i32;
 }
 
-impl ErrorExt for io::Error {
+#[cfg(not(target_os = "none"))]
+impl ErrorExt for std::io::Error {
     #[cfg(not(windows))]
     fn posix_errno(&self) -> i32 {
         self.raw_os_error().unwrap_or(0)
@@ -20,8 +21,8 @@ impl ErrorExt for io::Error {
 }
 
 #[cfg(windows)]
-pub fn last_os_error() -> io::Error {
-    let err = io::Error::last_os_error();
+pub fn last_os_error() -> std::io::Error {
+    let err = std::io::Error::last_os_error();
     // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
     if err.raw_os_error() == Some(0) {
         unsafe extern "C" {
@@ -30,20 +31,20 @@ pub fn last_os_error() -> io::Error {
         let mut errno = 0;
         unsafe { suppress_iph!(_get_errno(&mut errno)) };
         let errno = errno_to_winerror(errno);
-        io::Error::from_raw_os_error(errno)
+        std::io::Error::from_raw_os_error(errno)
     } else {
         err
     }
 }
 
-#[cfg(not(windows))]
-pub fn last_os_error() -> io::Error {
-    io::Error::last_os_error()
+#[cfg(all(not(windows), not(target_os = "none")))]
+pub fn last_os_error() -> std::io::Error {
+    std::io::Error::last_os_error()
 }
 
 #[cfg(windows)]
 pub fn last_posix_errno() -> i32 {
-    let err = io::Error::last_os_error();
+    let err = std::io::Error::last_os_error();
     if err.raw_os_error() == Some(0) {
         unsafe extern "C" {
             fn _get_errno(pValue: *mut i32) -> i32;
@@ -56,7 +57,7 @@ pub fn last_posix_errno() -> i32 {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "none")))]
 pub fn last_posix_errno() -> i32 {
     last_os_error().posix_errno()
 }
@@ -67,7 +68,7 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&core::ffi::OsStr, Utf8Error> {
     Ok(core::ffi::OsStr::from_bytes(b))
 }
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(target_os = "none")))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&core::ffi::OsStr, Utf8Error> {
     Ok(core::str::from_utf8(b)?.as_ref())
 }

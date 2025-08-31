@@ -821,7 +821,7 @@ impl<S> CFormatStrOrBytes<S> {
 
 impl<S> IntoIterator for CFormatStrOrBytes<S> {
     type Item = (usize, CFormatPart<S>);
-    type IntoIter = core::vec::IntoIter<Self::Item>;
+    type IntoIter = alloc::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.parts.into_iter()

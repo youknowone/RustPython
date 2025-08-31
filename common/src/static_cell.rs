@@ -1,5 +1,7 @@
 #[cfg(not(feature = "threading"))]
 mod non_threading {
+    use alloc::boxed::Box;
+
     use crate::lock::OnceCell;
     //use core::thread::LocalKey;
 
@@ -20,12 +22,15 @@ mod non_threading {
         }
 
         pub fn get(&'static self) -> Option<&'static T> {
-            self.inner.with(|x| x.get().copied())
+            //self.inner.with(|x| x.get().copied())
+            self.inner.get().copied()
         }
 
         pub fn set(&'static self, value: T) -> Result<(), T> {
             // thread-safe because it's a unsync::OnceCell
-            self.inner.with(|x| {
+            //self.inner.with(|x| {
+            let x = &self.inner;
+            {
                 if x.get().is_some() {
                     Err(value)
                 } else {
@@ -33,22 +38,26 @@ mod non_threading {
                     let _ = x.set(leak(value));
                     Ok(())
                 }
-            })
+            }
         }
 
         pub fn get_or_init<F>(&'static self, f: F) -> &'static T
         where
             F: FnOnce() -> T,
         {
-            self.inner.with(|x| *x.get_or_init(|| leak(f())))
+            //self.inner.with(|x| *x.get_or_init(|| leak(f())))
+            self.inner.get_or_init(|| leak(f()))
         }
 
         pub fn get_or_try_init<F, E>(&'static self, f: F) -> Result<&'static T, E>
         where
             F: FnOnce() -> Result<T, E>,
         {
+            //self.inner
+                //.with(|x| x.get_or_try_init(|| f().map(leak)).copied())
+
             self.inner
-                .with(|x| x.get_or_try_init(|| f().map(leak)).copied())
+                .get_or_try_init(|| f().map(leak)).copied()
         }
     }
 

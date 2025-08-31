@@ -12,11 +12,10 @@ use alloc::{format, vec};
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 
-
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "none")))]
 #[allow(non_camel_case_types)]
 pub type wchar_t = libc::wchar_t;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", target_os = "none"))]
 #[allow(non_camel_case_types)]
 pub type wchar_t = u32;
 
@@ -472,7 +471,6 @@ impl fmt::Display for UnicodeEscapeCodepoint {
 
 pub mod levenshtein {
     //use core::{cell::RefCell, thread_local};
-    use core::cell::RefCell;
 
     pub const MOVE_COST: usize = 2;
     const CASE_COST: usize = 1;
@@ -495,12 +493,14 @@ pub mod levenshtein {
     }
 
     pub fn levenshtein_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
-        //thread_local! {
+        /*
+        thread_local! {
             #[allow(clippy::declare_interior_mutable_const)]
             static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = const {
                 RefCell::new([0usize; MAX_STRING_SIZE])
             };
-        //}
+        }
+        */
 
         if a == b {
             return 0;
@@ -540,8 +540,9 @@ pub mod levenshtein {
             return max_cost + 1;
         }
 
-        BUFFER.with(|buffer| {
-            let mut buffer = buffer.borrow_mut();
+        //BUFFER.with(|buffer| {
+            let mut buffer = [0usize; MAX_STRING_SIZE];
+            //let mut buffer = buffer.borrow_mut();
             for i in 0..a_end {
                 buffer[i] = (i + 1) * MOVE_COST;
             }
@@ -567,7 +568,7 @@ pub mod levenshtein {
                 }
             }
             result
-        })
+        //})
     }
 }
 
