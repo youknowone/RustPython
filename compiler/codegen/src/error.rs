@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 use rustpython_compiler_core::SourceLocation;
 use core::fmt::{self, Display};
 use thiserror::Error;

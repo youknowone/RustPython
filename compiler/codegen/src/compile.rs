@@ -5,6 +5,12 @@
 //!   <https://github.com/python/cpython/blob/main/Python/compile.c>
 //!   <https://github.com/micropython/micropython/blob/master/py/compile.c>
 
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::boxed::Box;
+use alloc::{vec, format};
+use alloc::borrow::ToOwned;
+
 // spell-checker:ignore starunpack subscripter
 
 #![deny(clippy::cast_possible_truncation)]

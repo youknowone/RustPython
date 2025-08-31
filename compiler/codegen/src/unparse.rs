@@ -7,6 +7,13 @@ use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
 use core::fmt::{self, Display as _};
 
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::boxed::Box;
+use alloc::{vec, format};
+use alloc::borrow::ToOwned;
+
+
 mod precedence {
     macro_rules! precedence {
         ($($op:ident,)*) => {

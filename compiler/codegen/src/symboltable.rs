@@ -7,6 +7,13 @@ load and store instructions for names.
 Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.c
 */
 
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::boxed::Box;
+use alloc::{vec, format};
+use alloc::borrow::ToOwned;
+
+
 use crate::{
     IndexMap,
     error::{CodegenError, CodegenErrorType},
