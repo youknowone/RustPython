@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::bytecode::*;
 use crate::marshal::{self, Read, ReadBorrowed, Write};
 

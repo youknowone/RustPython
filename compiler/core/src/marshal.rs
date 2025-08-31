@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+
 use crate::{OneIndexed, SourceLocation, bytecode::*};
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;

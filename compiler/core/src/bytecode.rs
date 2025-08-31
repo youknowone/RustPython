@@ -7,7 +7,12 @@ use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
-use core::{collections::BTreeSet, fmt, hash, marker::PhantomData, mem};
+use core::{fmt, hash, marker::PhantomData, mem};
+use alloc::collections::BTreeSet;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 #[repr(i8)]

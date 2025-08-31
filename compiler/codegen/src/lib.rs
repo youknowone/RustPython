@@ -2,6 +2,9 @@
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-compiler/")]
 
+#![no_std]
+extern crate alloc;
+
 #[macro_use]
 extern crate log;
 
