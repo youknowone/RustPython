@@ -1372,8 +1372,7 @@ dependencies = [
 [[package]]
 name = "malachite-base"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c738d3789301e957a8f7519318fcbb1b92bb95863b28f6938ae5a05be6259f34"
+source = "git+https://github.com/Masterchef365/malachite.git?branch=no_std#5e552eb079d5712a2dd2f1a393ef020de5d3c3cb"
 dependencies = [
  "hashbrown 0.15.5",
  "itertools 0.14.0",
@@ -1384,8 +1383,7 @@ dependencies = [
 [[package]]
 name = "malachite-bigint"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f46b904a4725706c5ad0133b662c20b388a3ffb04bda5154029dcb0cd28ae34"
+source = "git+https://github.com/Masterchef365/malachite.git?branch=no_std#5e552eb079d5712a2dd2f1a393ef020de5d3c3cb"
 dependencies = [
  "malachite-base",
  "malachite-nz",
@@ -1397,8 +1395,7 @@ dependencies = [
 [[package]]
 name = "malachite-nz"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1707c9a1fa36ce21749b35972bfad17bbf34cf5a7c96897c0491da321e387d3b"
+source = "git+https://github.com/Masterchef365/malachite.git?branch=no_std#5e552eb079d5712a2dd2f1a393ef020de5d3c3cb"
 dependencies = [
  "itertools 0.14.0",
  "libm",
@@ -1409,8 +1406,7 @@ dependencies = [
 [[package]]
 name = "malachite-q"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d764801aa4e96bbb69b389dcd03b50075345131cd63ca2e380bca71cc37a3675"
+source = "git+https://github.com/Masterchef365/malachite.git?branch=no_std#5e552eb079d5712a2dd2f1a393ef020de5d3c3cb"
 dependencies = [
  "itertools 0.14.0",
  "malachite-base",
@@ -1671,29 +1667,6 @@ checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "parking_lot"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70d58bf43669b5795d1576d0641cfb6fbb2057bf629506267a92807158584a13"
-dependencies = [
- "lock_api",
- "parking_lot_core",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.9.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc838d2a56b5b1a6c25f55575dfc605fabb63bb2365f6c2353ef9159aa69e4a5"
-dependencies = [
- "cfg-if",
- "libc",
- "redox_syscall 0.5.17",
- "smallvec",
- "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -2010,15 +1983,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 
 [[package]]
-name = "redox_syscall"
-version = "0.5.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5407465600fb0548f1442edf71dd20683c6ed326200ace4b1ef0763521bb3b77"
-dependencies = [
- "bitflags 2.9.3",
-]
-
-[[package]]
 name = "redox_users"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2268,7 +2232,6 @@ dependencies = [
  "num-complex",
  "num-traits",
  "once_cell",
- "parking_lot",
  "radium",
  "rustpython-literal",
  "rustpython-wtf8",
@@ -2430,7 +2393,6 @@ dependencies = [
  "openssl-probe",
  "openssl-sys",
  "page_size",
- "parking_lot",
  "paste",
  "pymath",
  "rand_core 0.9.3",
@@ -2504,7 +2466,6 @@ dependencies = [
  "num_enum",
  "once_cell",
  "optional",
- "parking_lot",
  "paste",
  "result-like",
  "ruff_python_ast",
@@ -2928,7 +2889,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7fbf4c9d56b320106cd64fd024dadfa0be7cb4706725fc44a7d7ce952d820c1"
 dependencies = [
  "libc",
- "redox_syscall 0.1.57",
+ "redox_syscall",
  "winapi",
 ]
 

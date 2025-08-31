@@ -10,7 +10,8 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["threading", "stdlib", "stdio", "importlib"]
+#default = ["threading", "stdlib", "stdio", "importlib"]
+default = ["stdlib", "stdio", "importlib"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdio = ["rustpython-vm/stdio"]
@@ -18,7 +19,7 @@ stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
-threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
+#threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
@@ -200,9 +201,13 @@ nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "
 #malachite-q = "0.6"
 #malachite-base = "0.6"
 
-malachite-bigint = { path = "../malachite/malachite-bigint" }
-malachite-q = { path = "../malachite/malachite-q" }
-malachite-base = { path = "../malachite/malachite-base" }
+#malachite-bigint = { path = "../malachite/malachite-bigint" }
+#malachite-q = { path = "../malachite/malachite-q" }
+#malachite-base = { path = "../malachite/malachite-base" }
+
+malachite-bigint = { git = "https://github.com/Masterchef365/malachite.git", branch = "no_std" }
+malachite-q = { git = "https://github.com/Masterchef365/malachite.git", branch = "no_std" }
+malachite-base = { git = "https://github.com/Masterchef365/malachite.git", branch = "no_std" }
 
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 num-complex = { version = "0.4.6", default-features = false }
