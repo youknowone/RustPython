@@ -1,6 +1,9 @@
 use crate::format::Case;
 use num_traits::{Float, Zero};
 use core::f64;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::borrow::ToOwned;
 
 pub fn parse_str(literal: &str) -> Option<f64> {
     parse_inner(literal.trim().as_bytes())

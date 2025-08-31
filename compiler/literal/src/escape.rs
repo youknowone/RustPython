@@ -1,3 +1,4 @@
+use alloc::string::String;
 use rustpython_wtf8::{CodePoint, Wtf8};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash, is_macro::Is)]

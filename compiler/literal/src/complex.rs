@@ -1,4 +1,7 @@
 use crate::float;
+use alloc::string::{String, ToString};
+use alloc::borrow::ToOwned;
+use num_traits::Float;
 
 /// Convert a complex number to a string.
 pub fn to_string(re: f64, im: f64) -> String {
