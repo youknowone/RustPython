@@ -195,9 +195,15 @@ libc = "0.2.169"
 libffi = "4.1"
 log = "0.4.27"
 nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
-malachite-bigint = "0.6"
-malachite-q = "0.6"
-malachite-base = "0.6"
+
+#malachite-bigint = "0.6"
+#malachite-q = "0.6"
+#malachite-base = "0.6"
+
+malachite-bigint = { path = "../malachite/malachite-bigint" }
+malachite-q = { path = "../malachite/malachite-q" }
+malachite-base = { path = "../malachite/malachite-base" }
+
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
 num-complex = { version = "0.4.6", default-features = false }
 num-integer = { version = "0.1.46", default-features = false }
