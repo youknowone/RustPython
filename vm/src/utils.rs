@@ -27,8 +27,8 @@ impl ToPyObject for core::convert::Infallible {
 }
 
 pub trait ToCString: AsRef<Wtf8> {
-    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<core::ffi::CString> {
-        core::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
+    fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
+        alloc::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
     }
     fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.as_ref().as_bytes().contains(&b'\0') {

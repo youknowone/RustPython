@@ -43,10 +43,12 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     VM_STACK.with(|vms| {
         vms.borrow_mut().push(vm.into());
         let prev = VM_CURRENT.with(|current| current.replace(vm));
-        let ret = core::panic::catch_unwind(core::panic::AssertUnwindSafe(f));
+        //let ret = core::panic::catch_unwind(core::panic::AssertUnwindSafe(f));
+        let ret = f();
         vms.borrow_mut().pop();
         VM_CURRENT.with(|current| current.replace(prev));
-        ret.unwrap_or_else(|e| core::panic::resume_unwind(e))
+        //ret.unwrap_or_else(|e| core::panic::resume_unwind(e))
+        ret
     })
 }
 
