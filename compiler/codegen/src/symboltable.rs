@@ -7,7 +7,6 @@ load and store instructions for names.
 Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.c
 */
 
-use alloc::vec::Vec;
 use alloc::string::{String, ToString};
 use alloc::boxed::Box;
 use alloc::{vec, format};
@@ -27,7 +26,9 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{SourceFile, SourceLocation};
-use core::{borrow::Cow, fmt};
+use core::fmt;
+use alloc::borrow::Cow;
+use alloc::vec::Vec;
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -271,11 +272,11 @@ mod stack {
     use core::panic;
     use core::ptr::NonNull;
     pub struct StackStack<T> {
-        v: Vec<NonNull<T>>,
+        v: alloc::vec::Vec<NonNull<T>>,
     }
     impl<T> Default for StackStack<T> {
         fn default() -> Self {
-            Self { v: Vec::new() }
+            Self { v: alloc::vec::Vec::new() }
         }
     }
     impl<T> StackStack<T> {

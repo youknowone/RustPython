@@ -174,7 +174,7 @@ ruff_source_file = { git = "https://github.com/Masterchef365/ruff.git", branch =
 #ruff_text_size = { path = "../ruff/crates/ruff_text_size/" }
 #ruff_source_file = { path = "../ruff/crates/ruff_source_file/" }
 
-ahash = { version = "0.8.11", default-features = false, features = ["getrandom"] }
+ahash = { version = "0.8.11", default-features = false, features = ["getrandom", "runtime-rng"] }
 ascii = { version = "1.1", default-features = false, features = ["alloc"] }
 bitflags = "2.9.1"
 bstr = { version = "1", default-features = false, features = ["alloc"] }
@@ -196,6 +196,13 @@ libc = "0.2.169"
 libffi = "4.1"
 log = "0.4.27"
 nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+
+hashbrown = { version = "0.16.0", default-features = false, features = [
+    "raw-entry",
+    "equivalent",
+    "inline-more",
+    "default-hasher",
+] }
 
 #malachite-bigint = "0.6"
 #malachite-q = "0.6"

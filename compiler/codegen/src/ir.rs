@@ -1,5 +1,13 @@
 use core::ops;
 
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::boxed::Box;
+use alloc::{vec, format};
+use alloc::borrow::ToOwned;
+
+
+
 use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
@@ -277,7 +285,7 @@ impl CodeInfo {
         'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = start_depths[block.idx()];
             if DEBUG {
-                eprintln!("===BLOCK {}===", block.0);
+                //eprintln!("===BLOCK {}===", block.0);
             }
             let block = &self.blocks[block];
             for ins in &block.instructions {
@@ -290,7 +298,7 @@ impl CodeInfo {
                         OpArg(ins.target.0)
                     };
                     let instr_display = instr.display(display_arg, self);
-                    eprint!("{instr_display}: {depth} {effect:+} => ");
+                    //eprint!("{instr_display}: {depth} {effect:+} => ");
                 }
                 let new_depth = depth.checked_add_signed(effect).ok_or({
                     if effect < 0 {
@@ -300,7 +308,7 @@ impl CodeInfo {
                     }
                 })?;
                 if DEBUG {
-                    eprintln!("{new_depth}");
+                    //eprintln!("{new_depth}");
                 }
                 if new_depth > maxdepth {
                     maxdepth = new_depth
@@ -338,7 +346,7 @@ impl CodeInfo {
             }
         }
         if DEBUG {
-            eprintln!("DONE: {maxdepth}");
+            //eprintln!("DONE: {maxdepth}");
         }
         Ok(maxdepth)
     }

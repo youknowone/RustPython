@@ -5,6 +5,13 @@
 //! after ruff has already successfully parsed the string literal, meaning
 //! we don't need to do any validation or error handling.
 
+use alloc::vec::Vec;
+use alloc::string::{String, ToString};
+use alloc::boxed::Box;
+use alloc::{vec, format};
+use alloc::borrow::ToOwned;
+
+
 use core::convert::Infallible;
 
 use ruff_python_ast::{AnyStringFlags, StringFlags};

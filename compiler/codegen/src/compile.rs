@@ -5,6 +5,8 @@
 //!   <https://github.com/python/cpython/blob/main/Python/compile.c>
 //!   <https://github.com/micropython/micropython/blob/master/py/compile.c>
 
+#![deny(clippy::cast_possible_truncation)]
+
 use alloc::vec::Vec;
 use alloc::string::{String, ToString};
 use alloc::boxed::Box;
@@ -12,8 +14,6 @@ use alloc::{vec, format};
 use alloc::borrow::ToOwned;
 
 // spell-checker:ignore starunpack subscripter
-
-#![deny(clippy::cast_possible_truncation)]
 
 use crate::{
     IndexMap, IndexSet, ToPythonName,
@@ -46,7 +46,7 @@ use rustpython_compiler_core::{
     },
 };
 use rustpython_wtf8::Wtf8Buf;
-use core::borrow::Cow;
+use alloc::borrow::Cow;
 
 const MAXBLOCKS: usize = 20;
 
@@ -251,7 +251,7 @@ fn eprint_location(zelf: &Compiler) {
         .source_file
         .to_source_code()
         .source_location(zelf.current_source_range.end());
-    eprintln!(
+    /*eprintln!(
         "LOCATION: {} from {}:{} to {}:{}",
         zelf.source_file.name(),
         start.row,
@@ -259,36 +259,43 @@ fn eprint_location(zelf: &Compiler) {
         end.row,
         end.column
     );
+    */
 }
 
 /// Better traceback for internal error
 #[track_caller]
 fn unwrap_internal<T>(zelf: &Compiler, r: InternalResult<T>) -> T {
     if let Err(ref r_err) = r {
+        /*
         eprintln!("=== CODEGEN PANIC INFO ===");
         eprintln!("This IS an internal error: {r_err}");
         eprint_location(zelf);
         eprintln!("=== END PANIC INFO ===");
+        */
     }
     r.unwrap()
 }
 
 fn compiler_unwrap_option<T>(zelf: &Compiler, o: Option<T>) -> T {
     if o.is_none() {
+        /*
         eprintln!("=== CODEGEN PANIC INFO ===");
         eprintln!("This IS an internal error, an option was unwrapped during codegen");
         eprint_location(zelf);
         eprintln!("=== END PANIC INFO ===");
+        */
     }
     o.unwrap()
 }
 
 // fn compiler_result_unwrap<T, E: core::fmt::Debug>(zelf: &Compiler, result: Result<T, E>) -> T {
 //     if result.is_err() {
+//         /*
 //         eprintln!("=== CODEGEN PANIC INFO ===");
 //         eprintln!("This IS an internal error, an result was unwrapped during codegen");
 //         eprint_location(zelf);
 //         eprintln!("=== END PANIC INFO ===");
+//         */
 //     }
 //     result.unwrap()
 // }
@@ -2816,8 +2823,7 @@ impl Compiler {
             let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1; // function, name, bases..., generic_base
 
             // Handle keyword arguments
-            if let Some(arguments) = arguments
-                && !arguments.keywords.is_empty()
+            if let (Some(arguments), true) = (arguments, arguments.map(|args| !args.keywords.is_empty()).unwrap_or(false))
             {
                 for keyword in &arguments.keywords {
                     if let Some(name) = &keyword.arg {
@@ -3586,7 +3592,7 @@ impl Compiler {
         // Step 2: If we have keys to match
         if size > 0 {
             // Validate and compile keys
-            let mut seen = core::collections::HashSet::new();
+            let mut seen = hashbrown::HashSet::new();
             for key in keys {
                 let is_attribute = matches!(key, Expr::Attribute(_));
                 let is_literal = matches!(
