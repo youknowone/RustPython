@@ -3,9 +3,9 @@ use itertools::Itertools;
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
-    thread_local,
 };
 
+/* TODO: Use a global storage
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
     static VM_CURRENT: RefCell<*const VirtualMachine> = core::ptr::null::<VirtualMachine>().into();
@@ -14,6 +14,15 @@ thread_local! {
     pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
     pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
 }
+*/
+
+pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
+static VM_CURRENT: RefCell<*const VirtualMachine> = core::ptr::null::<VirtualMachine>().into();
+
+pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
+pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
+pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
+
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
     VM_CURRENT.with(|x| unsafe {

@@ -1,7 +1,7 @@
 //! Several function to retrieve version information.
 
-use chrono::{Local, prelude::DateTime};
-use core::time::{Duration, UNIX_EPOCH};
+//use chrono::{Local, prelude::DateTime};
+//use core::time::{Duration, UNIX_EPOCH};
 
 // = 3.13.0alpha
 pub const MAJOR: usize = 3;
@@ -42,7 +42,8 @@ pub fn get_build_info() -> String {
     let git_identifier = get_git_identifier();
 
     format!(
-        "{id}{sep}{revision}, {date:.20}, {time:.9}",
+        //"{id}{sep}{revision}, {date:.20}, {time:.9}",
+        "{id}{sep}{revision}",
         id = if git_identifier.is_empty() {
             "default".to_owned()
         } else {
@@ -50,8 +51,8 @@ pub fn get_build_info() -> String {
         },
         sep = separator,
         revision = git_revision,
-        date = get_git_date(),
-        time = get_git_time(),
+        //date = get_git_date(),
+        //time = get_git_time(),
     )
 }
 
@@ -80,6 +81,7 @@ pub fn get_git_identifier() -> String {
     }
 }
 
+/*
 fn get_git_timestamp_datetime() -> DateTime<Local> {
     let timestamp = option_env!("RUSTPYTHON_GIT_TIMESTAMP")
         .unwrap_or("")
@@ -102,6 +104,7 @@ pub fn get_git_time() -> String {
 
     datetime.format("%H:%M:%S").to_string()
 }
+*/
 
 pub fn get_git_datetime() -> String {
     let date = get_git_date();

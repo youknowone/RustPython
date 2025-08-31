@@ -39,12 +39,15 @@ use nix::{
     unicore::getpid,
 };
 use core::{
-    borrow::Cow,
     cell::{Cell, Ref, RefCell},
-    collections::{HashMap, HashSet},
-    ffi::{OsStr, OsString},
     sync::atomic::AtomicBool,
 };
+
+use unix_path::Path as OsStr;
+use unix_path::PathBuf as OsString;
+
+use alloc::borrow::Cow;
+use hashbrown::{HashMap, HashSet};
 
 pub use context::Context;
 pub use interpreter::Interpreter;
@@ -105,7 +108,8 @@ pub struct PyGlobalState {
 }
 
 pub fn process_hash_secret_seed() -> u32 {
-    use core::sync::OnceLock;
+    //use core::sync::OnceLock;
+    use once_cell::sync::OnceCell as OnceLock;
     static SEED: OnceLock<u32> = OnceLock::new();
     // os_random is expensive, but this is only ever called once
     *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
