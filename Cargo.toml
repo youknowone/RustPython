@@ -163,10 +163,15 @@ rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0",
 #ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 #ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 
-ruff_python_parser = { path = "../ruff/crates/ruff_python_parser/" }
-ruff_python_ast = { path = "../ruff/crates/ruff_python_ast/" }
-ruff_text_size = { path = "../ruff/crates/ruff_text_size/" }
-ruff_source_file = { path = "../ruff/crates/ruff_source_file/" }
+ruff_python_parser = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+ruff_python_ast = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+ruff_text_size = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+ruff_source_file = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+
+#ruff_python_parser = { path = "../ruff/crates/ruff_python_parser/" }
+#ruff_python_ast = { path = "../ruff/crates/ruff_python_ast/" }
+#ruff_text_size = { path = "../ruff/crates/ruff_text_size/" }
+#ruff_source_file = { path = "../ruff/crates/ruff_source_file/" }
 
 ahash = "0.8.11"
 ascii = { version = "1.1", default-features = false, features = ["alloc"] }
@@ -191,6 +196,7 @@ libffi = "4.1"
 log = "0.4.27"
 nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 malachite-bigint = "0.6"
+wide = { version = "0.7", default-features = false }
 malachite-q = "0.6"
 malachite-base = "0.6"
 memchr = { version = "2.7.4", default-features = false, features = ["alloc"] }
@@ -209,7 +215,7 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.0", features = ["event"] }
-rustyline = "17.0.0"
+rustyline = { version = "17.0.0", default-features = false }
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.27"
 static_assertions = "1.1"
