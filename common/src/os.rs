@@ -68,8 +68,8 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&core::ffi::OsStr, Utf8Error> {
     Ok(core::ffi::OsStr::from_bytes(b))
 }
 
-#[cfg(all(not(unix), not(target_os = "none")))]
-pub fn bytes_as_os_str(b: &[u8]) -> Result<&core::ffi::OsStr, Utf8Error> {
+#[cfg(not(unix))]
+pub fn bytes_as_os_str(b: &[u8]) -> Result<&unix_path::Path, Utf8Error> {
     Ok(core::str::from_utf8(b)?.as_ref())
 }
 

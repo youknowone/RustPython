@@ -2234,6 +2234,7 @@ dependencies = [
  "rustpython-wtf8",
  "siphasher",
  "unicode_names2",
+ "unix_path",
  "widestring",
  "windows-sys 0.59.0",
 ]

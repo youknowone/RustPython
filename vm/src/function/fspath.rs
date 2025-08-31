@@ -106,7 +106,7 @@ impl FsPath {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a core::ffi::Path> {
+    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a unix_path::Path> {
         rustpython_common::os::bytes_as_os_str(b)
             .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
     }
