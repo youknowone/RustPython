@@ -2075,6 +2075,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.0"
+source = "git+https://github.com/Masterchef365/ruff.git?branch=no_std#22a7d316800d02c5128eff3fc05190471fe18558"
 dependencies = [
  "aho-corasick",
  "bitflags 2.9.3",
@@ -2093,6 +2094,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.0"
+source = "git+https://github.com/Masterchef365/ruff.git?branch=no_std#22a7d316800d02c5128eff3fc05190471fe18558"
 dependencies = [
  "bitflags 2.9.3",
  "bstr",
@@ -2111,6 +2113,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.0"
+source = "git+https://github.com/Masterchef365/ruff.git?branch=no_std#22a7d316800d02c5128eff3fc05190471fe18558"
 dependencies = [
  "itertools 0.14.0",
  "ruff_source_file",
@@ -2121,6 +2124,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.0"
+source = "git+https://github.com/Masterchef365/ruff.git?branch=no_std#22a7d316800d02c5128eff3fc05190471fe18558"
 dependencies = [
  "memchr",
  "once_cell",
@@ -2130,6 +2134,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.0"
+source = "git+https://github.com/Masterchef365/ruff.git?branch=no_std#22a7d316800d02c5128eff3fc05190471fe18558"
 
 [[package]]
 name = "rustc-hash"
