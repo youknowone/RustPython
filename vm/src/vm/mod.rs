@@ -960,7 +960,9 @@ impl VirtualMachine {
     }
 
     pub fn fsdecode(&self, s: impl Into<OsString>) -> PyStrRef {
-        match s.into().into_string() {
+        let s: OsString = s.into();//.into_unix_string();
+        self.ctx.new_str(s.to_str().unwrap())
+        /*match s.into().into_unix_string() {
             Ok(s) => self.ctx.new_str(s),
             Err(s) => {
                 let bytes = self.ctx.new_bytes(s.into_encoded_bytes());
@@ -973,14 +975,14 @@ impl VirtualMachine {
                 );
                 self.expect_pyresult(res, "fsdecode should be lossless and never fail")
             }
-        }
+        }*/
     }
 
     pub fn fsencode<'a>(&self, s: &'a Py<PyStr>) -> PyResult<Cow<'a, OsStr>> {
         if cfg!(windows) || s.is_utf8() {
             // XXX: this is sketchy on windows; it's not guaranteed that the
             //      OsStr encoding will always be compatible with WTF-8.
-            let s = unsafe { OsStr::from_encoded_bytes_unchecked(s.as_bytes()) };
+            let s = unsafe { OsStr::new(s.as_str()) };
             return Ok(Cow::Borrowed(s));
         }
         let errors = self.fs_encode_errors().to_owned();
@@ -989,9 +991,10 @@ impl VirtualMachine {
             .codec_registry
             .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
             .to_vec();
+        let string = unsafe { String::from_utf8_unchecked(bytes) };
         // XXX: this is sketchy on windows; it's not guaranteed that the
         //      OsStr encoding will always be compatible with WTF-8.
-        let s = unsafe { OsString::from_encoded_bytes_unchecked(bytes) };
+        let s = unsafe { OsStr::new(&string).to_owned() };
         Ok(Cow::Owned(s))
     }
 }
