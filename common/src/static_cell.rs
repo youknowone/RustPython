@@ -3,11 +3,17 @@ mod non_threading {
     use alloc::boxed::Box;
 
     use crate::lock::OnceCell;
-    //use core::thread::LocalKey;
+    //use core::thread::LocalKey; // :clueless:
+
+    pub struct IPromiseTheresOnlyOneThread<T>(pub T);
+
+    // Surely this cannot possibly backfire
+    unsafe impl<T> Send for IPromiseTheresOnlyOneThread<T> {}
+    unsafe impl<T> Sync for IPromiseTheresOnlyOneThread<T> {}
 
     pub struct StaticCell<T: 'static> {
         //inner: &'static LocalKey<OnceCell<&'static T>>,
-        inner: &'static OnceCell<&'static T>,
+        inner: &'static IPromiseTheresOnlyOneThread<OnceCell<&'static T>>,
     }
 
     fn leak<T>(x: T) -> &'static T {
@@ -16,20 +22,20 @@ mod non_threading {
 
     impl<T> StaticCell<T> {
         #[doc(hidden)]
-        //pub const fn _from_local_key(inner: &'static LocalKey<OnceCell<&'static T>>) -> Self {
-        pub const fn _from_local_key(inner: &'static OnceCell<&'static T>) -> Self {
+        pub const fn _from_local_key(inner: &'static IPromiseTheresOnlyOneThread<OnceCell<&'static T>>) -> Self {
+        //pub const fn _from_local_key(inner: &'static OnceCell<&'static T>) -> Self {
             Self { inner }
         }
 
         pub fn get(&'static self) -> Option<&'static T> {
             //self.inner.with(|x| x.get().copied())
-            self.inner.get().copied()
+            self.inner.0.get().copied()
         }
 
         pub fn set(&'static self, value: T) -> Result<(), T> {
             // thread-safe because it's a unsync::OnceCell
             //self.inner.with(|x| {
-            let x = &self.inner;
+            let x = &self.inner.0;
             {
                 if x.get().is_some() {
                     Err(value)
@@ -46,7 +52,7 @@ mod non_threading {
             F: FnOnce() -> T,
         {
             //self.inner.with(|x| *x.get_or_init(|| leak(f())))
-            self.inner.get_or_init(|| leak(f()))
+            self.inner.0.get_or_init(|| leak(f()))
         }
 
         pub fn get_or_try_init<F, E>(&'static self, f: F) -> Result<&'static T, E>
@@ -57,7 +63,7 @@ mod non_threading {
                 //.with(|x| x.get_or_try_init(|| f().map(leak)).copied())
 
             self.inner
-                .get_or_try_init(|| f().map(leak)).copied()
+                .0.get_or_try_init(|| f().map(leak)).copied()
         }
     }
 
@@ -67,8 +73,8 @@ mod non_threading {
             $($(#[$attr])*
             $vis static $name: $crate::static_cell::StaticCell<$t> = {
                 //::core::thread_local! {
-                     $vis static $name: $crate::lock::OnceCell<&'static $t> = const {
-                         $crate::lock::OnceCell::new()
+                     $vis static $name: $crate::static_cell::IPromiseTheresOnlyOneThread<$crate::lock::OnceCell<&'static $t>> = const {
+                         $crate::static_cell::IPromiseTheresOnlyOneThread($crate::lock::OnceCell::new())
                      };
                 //}
                 $crate::static_cell::StaticCell::_from_local_key(&$name)
