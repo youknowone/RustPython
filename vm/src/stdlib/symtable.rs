@@ -19,6 +19,13 @@ mod symtable {
     };
     use core::fmt;
 
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+    use alloc::boxed::Box;
+
+
     // Consts as defined at
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
 

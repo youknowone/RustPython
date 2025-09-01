@@ -326,6 +326,7 @@ mod sys {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
+        /*
         // read stdin to end
         let stdin = core::io::stdin();
         let mut handle = stdin.lock();
@@ -336,6 +337,8 @@ mod sys {
         vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
             .map_err(|e| vm.new_os_error(format!("Error running stdin: {e}")))?;
         Ok(())
+        */
+        todo!("STDIN")
     }
 
     #[pyfunction]
