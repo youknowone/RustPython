@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 
 pub(super) fn ast_to_object(
     clause: ruff::ElifElseClause,
-    mut rest: core::vec::IntoIter<ruff::ElifElseClause>,
+    mut rest: alloc::vec::IntoIter<ruff::ElifElseClause>,
     vm: &VirtualMachine,
     source_file: &SourceFile,
 ) -> PyObjectRef {

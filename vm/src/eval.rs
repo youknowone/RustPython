@@ -1,3 +1,5 @@
+use alloc::borrow::ToOwned;
+
 use crate::{PyResult, VirtualMachine, compiler, scope::Scope};
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {

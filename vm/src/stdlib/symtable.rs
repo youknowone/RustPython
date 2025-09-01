@@ -298,7 +298,7 @@ mod symtable {
         }
 
         #[pymethod]
-        const fn is_namespace(&self) -> bool {
+        fn is_namespace(&self) -> bool {
             !self.namespaces.is_empty()
         }
 
