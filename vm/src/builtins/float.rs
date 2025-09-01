@@ -17,7 +17,7 @@ use crate::{
 };
 use malachite_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{Float, Signed, ToPrimitive, Zero};
 use rustpython_common::int::float_to_ratio;
 
 use alloc::{vec, format};

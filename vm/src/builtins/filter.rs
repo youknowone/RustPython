@@ -1,3 +1,5 @@
+use alloc::borrow::ToOwned;
+
 use super::{PyType, PyTypeRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,

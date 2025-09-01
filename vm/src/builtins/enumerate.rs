@@ -11,6 +11,7 @@ use crate::{
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
+use alloc::borrow::ToOwned;
 use malachite_bigint::BigInt;
 use num_traits::Zero;
 

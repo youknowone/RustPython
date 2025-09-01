@@ -1020,7 +1020,6 @@ impl Wtf8 {
             .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
     }
 
-    /*
     pub fn trim(&self) -> &Self {
         let w = self.bytes.trim();
         unsafe { Wtf8::from_bytes_unchecked(w) }
@@ -1035,7 +1034,6 @@ impl Wtf8 {
         let w = self.bytes.trim_end();
         unsafe { Wtf8::from_bytes_unchecked(w) }
     }
-    */
 
     pub fn trim_start_matches(&self, f: impl Fn(CodePoint) -> bool) -> &Self {
         let mut iter = self.code_points();
