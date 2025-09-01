@@ -9,6 +9,7 @@
 // TODO: REMOVE THIS!!!
 #![allow(warnings)]
 #![feature(let_chains)]
+#![feature(unsigned_is_multiple_of)]
 
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
