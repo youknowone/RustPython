@@ -32,25 +32,34 @@ pub(crate) static ASYNC_GEN_FIRSTITER: IPromiseTheresOnlyOneThread<RefCell<Optio
 
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    /*
     VM_CURRENT.with(|x| unsafe {
         f(x.clone()
             .into_inner()
             .as_ref()
             .expect("call with_current_vm() but VM_CURRENT is null"))
     })
+    */
+    unsafe {
+        f(VM_CURRENT.0.clone()
+            .into_inner()
+            .as_ref()
+            .expect("call with_current_vm() but VM_CURRENT is null"))
+    }
+
 }
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-    VM_STACK.with(|vms| {
-        vms.borrow_mut().push(vm.into());
-        let prev = VM_CURRENT.with(|current| current.replace(vm));
+    //VM_STACK.with(|vms| {
+        VM_STACK.0.borrow_mut().push(vm.into());
+        let prev = VM_CURRENT.0.replace(vm);
         //let ret = core::panic::catch_unwind(core::panic::AssertUnwindSafe(f));
         let ret = f();
-        vms.borrow_mut().pop();
-        VM_CURRENT.with(|current| current.replace(prev));
+        VM_STACK.0.borrow_mut().pop();
+        VM_CURRENT.0.replace(prev);
         //ret.unwrap_or_else(|e| core::panic::resume_unwind(e))
         ret
-    })
+    //})
 }
 
 pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
@@ -62,8 +71,8 @@ where
         let vm = unsafe { interp.as_ref() };
         obj.fast_isinstance(vm.ctx.types.object_type)
     };
-    VM_STACK.with(|vms| {
-        let interp = match vms.borrow().iter().copied().exactly_one() {
+    //VM_STACK.with(|vms| {
+        let interp = match VM_STACK.0.borrow().iter().copied().exactly_one() {
             Ok(x) => {
                 debug_assert!(vm_owns_obj(x));
                 x
@@ -73,11 +82,11 @@ where
         // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
         // at least until this function returns and the stack unwinds to an enter_vm() call
         let vm = unsafe { interp.as_ref() };
-        let prev = VM_CURRENT.with(|current| current.replace(vm));
+        let prev = VM_CURRENT.0.replace(vm);
         let ret = f(vm);
-        VM_CURRENT.with(|current| current.replace(prev));
+        VM_CURRENT.0.replace(prev);
         Some(ret)
-    })
+    //})
 }
 
 #[must_use = "ThreadedVirtualMachine does nothing unless you move it to another thread and call .run()"]
