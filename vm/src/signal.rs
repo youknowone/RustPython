@@ -36,6 +36,7 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 #[inline(never)]
 #[cold]
 fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
+    /*
     // unwrap should never fail since we check above
     let signal_handlers = vm.signal_handlers.as_ref().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
@@ -54,6 +55,8 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
         }
     }
     Ok(())
+    */
+    todo!("Signals")
 }
 
 pub(crate) fn set_triggered() {
@@ -91,21 +94,24 @@ pub type UserSignal = Box<dyn FnOnce(&VirtualMachine) -> PyResult<()> + Send>;
 
 #[derive(Clone, Debug)]
 pub struct UserSignalSender {
-    tx: crossbeam_channel::Sender<UserSignal>,
+    //tx: crossbeam_channel::Sender<UserSignal>,
 }
 
 #[derive(Debug)]
 pub struct UserSignalReceiver {
-    rx: crossbeam_channel::Receiver<UserSignal>,
+    //rx: crossbeam_channel::Receiver<UserSignal>,
 }
 
 impl UserSignalSender {
     pub fn send(&self, sig: UserSignal) -> Result<(), UserSignalSendError> {
+        /*
         self.tx
             .send(sig)
             .map_err(|crossbeam_channel::SendError(sig)| UserSignalSendError(sig))?;
         set_triggered();
         Ok(())
+        */
+        todo!()
     }
 }
 
@@ -125,6 +131,7 @@ impl fmt::Display for UserSignalSendError {
 }
 
 pub fn user_signal_channel() -> (UserSignalSender, UserSignalReceiver) {
-    let (tx, rx) = crossbeam_channel::channel();
-    (UserSignalSender { tx }, UserSignalReceiver { rx })
+    //let (tx, rx) = crossbeam_channel::channel();
+    //(UserSignalSender { tx }, UserSignalReceiver { rx })
+    todo!("Signals")
 }

@@ -24,7 +24,7 @@ use alloc::borrow::ToOwned;
 
 impl ToPyException for no_std_io::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let errno = self.posix_errno();
+        let errno = -1;/*TODO: self.posix_errno();*/ 
         let msg = self.to_string();
         #[allow(clippy::let_and_return)]
         let exc = vm.new_errno_error(errno, msg);
