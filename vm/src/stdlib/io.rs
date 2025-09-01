@@ -21,7 +21,7 @@ use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
-use no_std_io::io::{Read, Seek, BufRead};
+use no_std_io::io::{Read, Seek, BufRead, Write};
 
 impl ToPyException for no_std_io::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -163,8 +163,7 @@ mod _io {
     use alloc::string::{String, ToString};
     use alloc::vec::Vec;
     use alloc::borrow::ToOwned;
-
-
+    use no_std_io::io::{Read, Seek, BufRead, Write};
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {

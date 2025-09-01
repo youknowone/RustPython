@@ -176,11 +176,11 @@ mod sys {
     #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> PyObjectRef {
         let ctx = &vm.ctx;
-        if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
+        /*if let Ok(var) = env::var("__PYVENV_LAUNCHER__") {
             ctx.new_str(var).into()
-        } else {
+        } else {*/
             executable(vm)
-        }
+        //}
     }
 
     #[pyattr]
@@ -191,7 +191,7 @@ mod sys {
     #[pyattr]
     fn executable(vm: &VirtualMachine) -> PyObjectRef {
         let ctx = &vm.ctx;
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "none")))]
         {
             if let Some(exec_path) = env::args_os().next() {
                 if let Ok(path) = which::which(exec_path) {

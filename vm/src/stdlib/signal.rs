@@ -21,6 +21,7 @@ pub(crate) mod _signal {
     use crate::{PyObjectRef, PyResult, VirtualMachine, signal};
     use core::sync::atomic::{self, Ordering};
 
+    use alloc::borrow::ToOwned;
     #[cfg(any(unix, windows))]
     use libc::sighandler_t;
     #[allow(non_camel_case_types)]
