@@ -157,6 +157,8 @@ pub(crate) mod _signal {
         handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
+        use alloc::borrow::ToOwned;
+
         signal::assert_in_range(signalnum, vm)?;
         let signal_handlers = vm
             .signal_handlers

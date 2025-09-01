@@ -43,6 +43,7 @@ mod decl {
         DateTime, Datelike, TimeZone, Timelike,
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
+    use num_traits::Float;
     use core::time::Duration;
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]

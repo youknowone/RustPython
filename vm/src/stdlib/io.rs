@@ -21,6 +21,7 @@ use alloc::{vec, format};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::borrow::ToOwned;
+use no_std_io::io::{Read, Seek, BufRead};
 
 impl ToPyException for no_std_io::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -228,12 +229,14 @@ mod _io {
         #[cfg(any(all(not(target_arch = "wasm32"), not(target_os = "none")), target_os = "wasi"))]
         {
             use crate::convert::ToPyException;
-            err.to_pyexception(vm)
+            return err.to_pyexception(vm);
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
-            vm.new_os_error(err.to_string())
+            return vm.new_os_error(err.to_string());
         }
+
+        todo!()
     }
 
     pub(super) fn io_closed_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
