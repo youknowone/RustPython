@@ -177,7 +177,7 @@ ruff_source_file = { git = "https://github.com/Masterchef365/ruff.git", branch =
 ahash = { version = "0.8.11", default-features = false, features = ["getrandom", "runtime-rng"] }
 ascii = { version = "1.1", default-features = false, features = ["alloc"] }
 bitflags = "2.9.1"
-bstr = { version = "1", default-features = false, features = ["alloc"] }
+bstr = { version = "1", default-features = false, features = ["alloc", "unicode"] }
 cfg-if = "1.0"
 chrono = { version = "0.4.39", default-features = false, features = ["alloc"] }
 constant_time_eq = { version = "0.4", default-features = false }
