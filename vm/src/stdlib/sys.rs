@@ -845,13 +845,15 @@ mod sys {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
-        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.set(depth as _));
+        //crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.set(depth as _));
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.0.set(depth as _);
         Ok(())
     }
 
     #[pyfunction]
     fn get_coroutine_origin_tracking_depth() -> i32 {
-        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
+        //crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.0.get() as _
     }
 
     #[pyfunction]
@@ -902,14 +904,19 @@ mod sys {
         }
 
         if let Some(finalizer) = args.finalizer.into_option() {
-            crate::vm::thread::ASYNC_GEN_FINALIZER.with(|cell| {
+            /*crate::vm::thread::ASYNC_GEN_FINALIZER.with(|cell| {
                 cell.replace(finalizer);
-            });
+            });*/
+
+            crate::vm::thread::ASYNC_GEN_FINALIZER.0.replace(finalizer);
         }
+
         if let Some(firstiter) = args.firstiter.into_option() {
-            crate::vm::thread::ASYNC_GEN_FIRSTITER.with(|cell| {
+            /*crate::vm::thread::ASYNC_GEN_FIRSTITER.with(|cell| {
                 cell.replace(firstiter);
-            });
+            });*/
+
+            crate::vm::thread::ASYNC_GEN_FIRSTITER.0.replace(firstiter);
         }
 
         Ok(())
@@ -928,10 +935,17 @@ mod sys {
     #[pyfunction]
     fn get_asyncgen_hooks(vm: &VirtualMachine) -> PyAsyncgenHooks {
         PyAsyncgenHooks {
+            /*
             firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
                 .with(|cell| cell.borrow().clone().to_pyobject(vm)),
             finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
                 .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+            */
+
+            firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
+                .0.borrow().clone().to_pyobject(vm),
+            finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
+                .0.borrow().clone().to_pyobject(vm),
         }
     }
 
