@@ -1,6 +1,8 @@
 //! This module will be replaced once #3100 is done
 //! Do not expose this type to outside of this crate
 
+use alloc::borrow::ToOwned;
+
 use super::VirtualMachine;
 use crate::{
     builtins::{PyBaseObject, PyStr, PyStrInterned},

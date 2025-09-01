@@ -113,8 +113,11 @@ pub fn get_git_time() -> String {
 */
 
 pub fn get_git_datetime() -> String {
+    /*
     let date = get_git_date();
     let time = get_git_time();
 
     format!("{date} {time}")
+    */
+    format!("TODO: Git date time")
 }
