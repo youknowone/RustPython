@@ -205,6 +205,7 @@ mod sys {
                 }
             }
         }
+        #[cfg(not(target_os = "none"))]
         if let Some(exec_path) = env::args().next() {
             let path = path::Path::new(&exec_path);
             if !path.exists() {
@@ -257,7 +258,8 @@ mod sys {
 
     #[pyattr]
     fn orig_argv(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        env::args().map(|arg| vm.ctx.new_str(arg).into()).collect()
+        //env::args().map(|arg| vm.ctx.new_str(arg).into()).collect()
+        todo!("argv")
     }
 
     #[pyattr]
