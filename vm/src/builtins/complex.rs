@@ -496,7 +496,7 @@ impl AsNumber for PyComplex {
             }),
             absolute: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
-                value.norm_sqr().sqrt().to_pyresult(vm)
+                value.norm().to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
             true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),
