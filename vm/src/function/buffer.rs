@@ -1,3 +1,5 @@
+use alloc::borrow::ToOwned;
+
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,

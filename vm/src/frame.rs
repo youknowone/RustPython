@@ -1775,7 +1775,7 @@ impl ExecutingFrame<'_> {
     fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {
         FuncArgs {
             args: self.pop_multiple(nargs as usize).collect(),
-            kwargs: IndexMap::new(),
+            kwargs: IndexMap::default(),
         }
     }
 
@@ -1796,7 +1796,7 @@ impl ExecutingFrame<'_> {
     fn collect_ex_args(&mut self, vm: &VirtualMachine, has_kwargs: bool) -> PyResult<FuncArgs> {
         let kwargs = if has_kwargs {
             let kw_obj = self.pop_value();
-            let mut kwargs = IndexMap::new();
+            let mut kwargs = IndexMap::default();
 
             // Use keys() method for all mapping objects to preserve order
             Self::iterate_mapping_keys(vm, &kw_obj, "argument after **", |key| {
@@ -1809,7 +1809,7 @@ impl ExecutingFrame<'_> {
             })?;
             kwargs
         } else {
-            IndexMap::new()
+            IndexMap::default()
         };
         // SAFETY: trust compiler
         let args = unsafe { self.pop_value().downcast_unchecked::<PyTuple>() }

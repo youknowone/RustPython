@@ -8,6 +8,7 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
     vm::Context,
 };
+use alloc::borrow::ToOwned;
 use rustpython_common::static_cell;
 
 pub trait StaticType {

@@ -62,7 +62,8 @@ impl VirtualMachine {
                 let _ = self.write_exception(&mut stderr, exc);
             } else {
                 //eprintln!("{errstr}\nlost sys.stderr");
-                let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
+                //let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
+                // TODO: PRINT EXCEPTIONS
             }
         };
         if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
@@ -366,6 +367,7 @@ fn print_source_line<W: Write>(
 
     Ok(())
     */
+    todo!("Source files")
 }
 
 /// Print exception occurrence location from traceback element

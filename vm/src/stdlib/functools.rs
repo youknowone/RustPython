@@ -262,7 +262,7 @@ mod _functools {
             combined_args.extend_from_slice(&args.args);
 
             // Merge keywords from self.keywords and args.kwargs
-            let mut final_kwargs = IndexMap::new();
+            let mut final_kwargs = IndexMap::default();
 
             // Add keywords from self.keywords
             for (key, value) in &*inner.keywords {

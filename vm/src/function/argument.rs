@@ -87,7 +87,7 @@ where
     fn from(args: A) -> Self {
         Self {
             args: args.into().into_vec(),
-            kwargs: IndexMap::new(),
+            kwargs: IndexMap::default(),
         }
     }
 }
@@ -130,7 +130,7 @@ impl FuncArgs {
 
         let pos_args = args.by_ref().take(pos_arg_count).collect();
 
-        let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _>>();
+        let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _, _>>();
 
         Self {
             args: pos_args,
@@ -372,7 +372,7 @@ impl<T> FromIterator<(String, T)> for KwArgs<T> {
 
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
-        Self(IndexMap::new())
+        Self(IndexMap::default())
     }
 }
 
@@ -381,7 +381,7 @@ where
     T: TryFromObject,
 {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        let mut kwargs = IndexMap::new();
+        let mut kwargs = IndexMap::default();
         for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, value.try_into_value(vm)?);
         }
