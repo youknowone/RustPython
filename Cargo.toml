@@ -225,7 +225,7 @@ num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 num_enum = { version = "0.7", default-features = false }
 #optional = "0.5"
 optional = { git = "https://github.com/Masterchef365/optional.git", branch = "no_std" }
-once_cell = { version = "1.20.3", default-features = false, features = ["alloc"] }
+once_cell = { version = "1.21.3", default-features = false, features = ["alloc", "critical-section"] }
 #parking_lot = "0.12.3"
 paste = "1.0.15"
 proc-macro2 = "1.0.93"
