@@ -164,15 +164,15 @@ rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0",
 #ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 #ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 
-ruff_python_parser = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
-ruff_python_ast = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
-ruff_text_size = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
-ruff_source_file = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+#ruff_python_parser = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+#ruff_python_ast = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+#ruff_text_size = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
+#ruff_source_file = { git = "https://github.com/Masterchef365/ruff.git", branch = "no_std" }
 
-#ruff_python_parser = { path = "../ruff/crates/ruff_python_parser/" }
-#ruff_python_ast = { path = "../ruff/crates/ruff_python_ast/" }
-#ruff_text_size = { path = "../ruff/crates/ruff_text_size/" }
-#ruff_source_file = { path = "../ruff/crates/ruff_source_file/" }
+ruff_python_parser = { path = "../ruff/crates/ruff_python_parser/" }
+ruff_python_ast = { path = "../ruff/crates/ruff_python_ast/" }
+ruff_text_size = { path = "../ruff/crates/ruff_text_size/" }
+ruff_source_file = { path = "../ruff/crates/ruff_source_file/" }
 
 ahash = { version = "0.8.11", default-features = false, features = ["getrandom", "runtime-rng"] }
 ascii = { version = "1.1", default-features = false, features = ["alloc"] }

@@ -10,6 +10,7 @@ pub use decl::time;
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_os = "none"))]
     unsafe {
         c_tzset()
     };
@@ -18,6 +19,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[cfg(not(target_env = "msvc"))]
 #[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_os = "none"))]
 unsafe extern "C" {
     #[cfg(not(target_os = "freebsd"))]
     #[link_name = "daylight"]
@@ -195,6 +197,7 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
+    #[cfg(not(target_os = "none"))]
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     fn get_tz_info() -> Time::TIME_ZONE_INFORMATION {
@@ -211,11 +214,13 @@ mod decl {
 
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_os = "none"))]
     #[pyattr]
     fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
         unsafe { super::c_timezone }
     }
 
+    #[cfg(not(target_os = "none"))]
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
@@ -228,11 +233,13 @@ mod decl {
     #[cfg(not(target_os = "freebsd"))]
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_os = "none"))]
     #[pyattr]
     fn daylight(_vm: &VirtualMachine) -> core::ffi::c_int {
         unsafe { super::c_daylight }
     }
 
+    #[cfg(not(target_os = "none"))]
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
@@ -244,6 +251,7 @@ mod decl {
 
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_os = "none"))]
     #[pyattr]
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
@@ -258,6 +266,7 @@ mod decl {
 
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_os = "none"))]
     #[pyattr]
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
