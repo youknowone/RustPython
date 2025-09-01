@@ -14,6 +14,7 @@ use core::{fmt, iter::Peekable, mem};
 use alloc::{vec, format};
 use alloc::string::String;
 use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
 
 type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;

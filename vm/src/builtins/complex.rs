@@ -16,7 +16,7 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use num_complex::Complex64;
-use num_traits::Zero;
+use num_traits::{Float, Zero};
 use rustpython_common::hash;
 use core::num::Wrapping;
 
@@ -496,7 +496,7 @@ impl AsNumber for PyComplex {
             }),
             absolute: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
-                value.norm().to_pyresult(vm)
+                value.norm_sqr().sqrt().to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
             true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),

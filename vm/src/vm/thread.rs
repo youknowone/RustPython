@@ -1,5 +1,6 @@
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 use itertools::Itertools;
+use rustpython_common::static_cell::IPromiseTheresOnlyOneThread;
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
@@ -22,12 +23,12 @@ thread_local! {
 }
 */
 
-pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
-static VM_CURRENT: RefCell<*const VirtualMachine> = core::ptr::null::<VirtualMachine>().into();
+pub(super) static VM_STACK: IPromiseTheresOnlyOneThread<RefCell<Vec<NonNull<VirtualMachine>>>> = IPromiseTheresOnlyOneThread(RefCell::new(Vec::new()));
+static VM_CURRENT: IPromiseTheresOnlyOneThread<RefCell<*const VirtualMachine>> = IPromiseTheresOnlyOneThread(RefCell::new(core::ptr::null::<VirtualMachine>()));
 
-pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
-pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
-pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
+pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: IPromiseTheresOnlyOneThread<Cell<u32>> = const { IPromiseTheresOnlyOneThread(Cell::new(0)) };
+pub(crate) static ASYNC_GEN_FINALIZER: IPromiseTheresOnlyOneThread<RefCell<Option<PyObjectRef>>> = const { IPromiseTheresOnlyOneThread(RefCell::new(None)) };
+pub(crate) static ASYNC_GEN_FIRSTITER: IPromiseTheresOnlyOneThread<RefCell<Option<PyObjectRef>>> = const { IPromiseTheresOnlyOneThread(RefCell::new(None)) };
 
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {

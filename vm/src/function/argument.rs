@@ -73,7 +73,7 @@ pub struct FuncArgs {
     pub kwargs: IndexMap<String, PyObjectRef, ahash::RandomState>,
 }
 
-unsafe impl Traverse for IndexMap<String, PyObjectRef> {
+unsafe impl Traverse for IndexMap<String, PyObjectRef, ahash::RandomState> {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.values().for_each(|v| v.traverse(tracer_fn));
     }
