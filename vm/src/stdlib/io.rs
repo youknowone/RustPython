@@ -276,7 +276,15 @@ mod _io {
                 return Some(0);
             }
             let length = data.len();
-            self.cursor.write_all(data).ok()?;
+
+            //self.cursor.write_all(data).ok()?;
+            let split = self.cursor.get_ref().len() - self.cursor.position() as usize;
+            let (overwrite, append) = data.split_at(split);
+
+            self.cursor.get_mut()[self.cursor.position() as usize..].copy_from_slice(&overwrite);
+            self.cursor.get_mut().extend(append);
+            self.cursor.set_position(self.cursor.position() + length as u64);
+
             Some(length as u64)
         }
 
@@ -321,9 +329,20 @@ mod _io {
             let size = match size {
                 None => {
                     let mut buf: Vec<u8> = Vec::new();
+                    loop {
+                        let mut readbyte = [0];
+                        self.cursor.read(&mut readbyte)
+                            .map_err(|err| os_err(vm, err))?;
+                        buf.push(readbyte[0]);
+                        if readbyte[0] == byte {
+                            break;
+                        }
+                    }
+                    /*
                     self.cursor
                         .read_until(byte, &mut buf)
                         .map_err(|err| os_err(vm, err))?;
+                    */
                     return Ok(buf);
                 }
                 Some(0) => {
