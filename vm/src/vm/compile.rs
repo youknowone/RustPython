@@ -6,6 +6,13 @@ use crate::{
     scope::Scope,
 };
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 impl VirtualMachine {
     pub fn compile(
         &self,
@@ -27,6 +34,7 @@ impl VirtualMachine {
     }
 
     pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {
+        /*
         if get_importer(path, self)?.is_some() {
             self.insert_sys_path(self.new_pyobj(path))?;
             let runpy = self.import("runpy", 0)?;
@@ -55,6 +63,8 @@ impl VirtualMachine {
             }
         }
         Ok(())
+        */
+        todo!("Cannot read from files")
     }
 
     pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {

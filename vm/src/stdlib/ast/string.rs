@@ -1,6 +1,13 @@
 use super::constant::{Constant, ConstantLiteral};
 use super::*;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 fn ruff_fstring_value_into_iter(
     mut fstring_value: ruff::FStringValue,
 ) -> impl Iterator<Item = ruff::FStringPart> + 'static {

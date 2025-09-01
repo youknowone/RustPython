@@ -3,6 +3,13 @@ use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ruff::str_prefix::StringLiteralPrefix;
 use rustpython_compiler_core::SourceFile;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 #[derive(Debug)]
 pub(super) struct Constant {
     pub(super) range: TextRange,

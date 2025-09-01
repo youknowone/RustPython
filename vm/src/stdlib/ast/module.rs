@@ -2,6 +2,13 @@ use super::*;
 use crate::stdlib::ast::type_ignore::TypeIgnore;
 use rustpython_compiler_core::SourceFile;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 /// Represents the different types of Python module structures.
 ///
 /// This enum is used to represent the various possible forms of a Python module

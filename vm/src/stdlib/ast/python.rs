@@ -1,5 +1,12 @@
 use super::{PY_CF_OPTIMIZED_AST, PY_CF_TYPE_COMMENTS, PY_COMPILE_FLAG_AST_ONLY};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 #[pymodule]
 pub(crate) mod _ast {
     use crate::{
@@ -8,6 +15,14 @@ pub(crate) mod _ast {
         function::FuncArgs,
         types::Constructor,
     };
+
+    use alloc::{vec, format};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use alloc::borrow::ToOwned;
+    use alloc::boxed::Box;
+
+
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
     #[derive(Debug, PyPayload)]

@@ -1,6 +1,13 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 pub(super) enum TypeIgnore {
     TypeIgnore(TypeIgnoreTypeIgnore),
 }

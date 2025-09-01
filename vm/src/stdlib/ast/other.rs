@@ -2,6 +2,13 @@ use super::*;
 use num_traits::ToPrimitive;
 use rustpython_compiler_core::{SourceFile, bytecode};
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 impl Node for ruff::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         vm.ctx.new_int(self as u8).into()

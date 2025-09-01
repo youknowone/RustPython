@@ -3,6 +3,13 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 mod pyast;
 
 use crate::builtins::{PyInt, PyStr};

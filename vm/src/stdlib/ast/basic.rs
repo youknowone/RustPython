@@ -2,6 +2,13 @@ use super::*;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_compiler_core::SourceFile;
 
+use alloc::{vec, format};
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+
+
 impl Node for ruff::Identifier {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let id = self.as_str();
