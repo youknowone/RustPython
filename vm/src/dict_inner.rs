@@ -228,7 +228,7 @@ impl<T> DictInner<T> {
         }
     }
 
-    const fn size(&self) -> DictSize {
+    fn size(&self) -> DictSize {
         DictSize {
             indices_size: self.indices.len(),
             entries_size: self.entries.len(),
@@ -238,7 +238,7 @@ impl<T> DictInner<T> {
     }
 
     #[inline]
-    const fn should_resize(&self) -> Option<usize> {
+    fn should_resize(&self) -> Option<usize> {
         if self.filled * 3 > self.indices.len() * 2 {
             Some(self.used * 2)
         } else {

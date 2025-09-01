@@ -281,7 +281,8 @@ mod _io {
             let split = self.cursor.get_ref().len() - self.cursor.position() as usize;
             let (overwrite, append) = data.split_at(split);
 
-            self.cursor.get_mut()[self.cursor.position() as usize..].copy_from_slice(&overwrite);
+            let pos = self.cursor.position() as usize;
+            self.cursor.get_mut()[pos..].copy_from_slice(&overwrite);
             self.cursor.get_mut().extend(append);
             self.cursor.set_position(self.cursor.position() + length as u64);
 
@@ -312,7 +313,7 @@ mod _io {
             Some(b)
         }
 
-        const fn tell(&self) -> u64 {
+        fn tell(&self) -> u64 {
             self.cursor.position()
         }
 

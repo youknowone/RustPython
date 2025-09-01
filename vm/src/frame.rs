@@ -346,7 +346,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline(always)]
-    const fn lasti(&self) -> u32 {
+    fn lasti(&self) -> u32 {
         #[cfg(feature = "threading")]
         {
             self.state.lasti

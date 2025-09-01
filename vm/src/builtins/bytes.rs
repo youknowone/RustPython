@@ -157,12 +157,12 @@ impl PyRef<PyBytes> {
 impl PyBytes {
     #[inline]
     #[pymethod]
-    pub const fn __len__(&self) -> usize {
+    pub fn __len__(&self) -> usize {
         self.inner.len()
     }
 
     #[inline]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 

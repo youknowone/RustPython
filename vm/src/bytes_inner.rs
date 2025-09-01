@@ -310,17 +310,17 @@ impl PyBytesInner {
     }
 
     #[inline]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.elements.len()
     }
 
     #[inline]
-    pub const fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.elements.capacity()
     }
 
     #[inline]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
