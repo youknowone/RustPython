@@ -1723,29 +1723,6 @@ impl ExecutingFrame<'_> {
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
-        // Check if we should use ExceptionTable (Python 3.13 style)
-        // If there's an exception and no blocks on stack, try ExceptionTable
-        if self.state.blocks.is_empty() {
-            if let UnwindReason::Raising { ref exception } = reason {
-                // Try to find handler in ExceptionTable
-                let lasti = self.lasti();
-                if let Some(handler) = self.code.code.exception_table.find_handler(lasti) {
-                    // Found a handler in ExceptionTable!
-                    // Python 3.13 style: push exception info on stack
-                    vm.contextualize_exception(exception);
-                    vm.set_exception(Some(exception.clone()));
-
-                    // For now, just push the exception (PUSH_EXC_INFO will handle the rest)
-                    // Don't push 3 items here - let PUSH_EXC_INFO do it
-                    self.push_value(exception.clone().into());
-
-                    // Jump to handler
-                    self.jump(bytecode::Label(handler.target));
-                    return Ok(None);
-                }
-            }
-        }
-
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             // eprintln!("unwinding block: {:.60?} {:.60?}", block.typ, reason);

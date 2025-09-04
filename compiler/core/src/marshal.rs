@@ -269,7 +269,6 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         varnames,
         cellvars,
         freevars,
-        exception_table: crate::exception_table::ExceptionTable::new(),
     })
 }
 

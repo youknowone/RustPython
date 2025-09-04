@@ -1,7 +1,7 @@
 //! Implement python as a virtual machine with bytecode. This module
 //! implements bytecode structure.
 
-use crate::{OneIndexed, SourceLocation, exception_table::ExceptionTable};
+use crate::{OneIndexed, SourceLocation};
 use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -146,8 +146,6 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
-    // Exception table for Python 3.11+ style exception handling
-    pub exception_table: ExceptionTable,
 }
 
 bitflags! {
@@ -1215,7 +1213,6 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg,
-            exception_table: self.exception_table.clone(),
         }
     }
 
@@ -1246,7 +1243,6 @@ impl<C: Constant> CodeObject<C> {
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
             cell2arg: self.cell2arg.clone(),
-            exception_table: self.exception_table.clone(),
         }
     }
 }

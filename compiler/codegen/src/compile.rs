@@ -36,9 +36,8 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, SourceFile, SourceLocation,
     bytecode::{
         self, Arg as OpArgMarker, BinaryOperator, CodeObject, ComparisonOperator, ConstantData,
-        Instruction, OpArg, OpArgType, TestOperator, UnpackExArgs,
+        Instruction, OpArg, OpArgType, UnpackExArgs,
     },
-    exception_table::ExceptionTable,
 };
 use rustpython_wtf8::Wtf8Buf;
 use std::borrow::Cow;
@@ -357,7 +356,6 @@ impl Compiler {
                 kwonlyargcount: 0,
                 firstlineno: OneIndexed::MIN,
             },
-            exception_table: ExceptionTable::new(),
             static_attributes: None,
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
@@ -594,40 +592,6 @@ impl Compiler {
         idx.to_u32()
     }
 
-    /// Get the current bytecode offset (number of instructions emitted so far)
-    fn current_offset(&self) -> u32 {
-        let info = self.code_stack.last().unwrap();
-        let mut offset = 0u32;
-
-        // Count instructions in all blocks up to current block
-        for block in &info.blocks {
-            for instr in &block.instructions {
-                offset += instr.arg.instr_size() as u32;
-            }
-        }
-
-        offset
-    }
-
-    /// Add an exception handler to the exception table
-    fn add_exception_handler(
-        &mut self,
-        start: u32,
-        end: u32,
-        target: BlockIdx,
-        depth: u32,
-        push_lasti: bool,
-    ) {
-        let info = self.code_stack.last_mut().unwrap();
-
-        // We'll use the block index as a placeholder for the target
-        // The actual offset will be computed when finalizing the code
-        info.exception_table.add_handler(
-            start, end, target.0, // Use block index as target for now
-            depth, push_lasti,
-        );
-    }
-
     /// Push the next symbol table on to the stack
     fn push_symbol_table(&mut self) -> &SymbolTable {
         // Look up the next table contained in the scope of the current table
@@ -782,7 +746,6 @@ impl Compiler {
                 kwonlyargcount: kwonlyarg_count,
                 firstlineno: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
             },
-            exception_table: ExceptionTable::new(),
             static_attributes: if scope_type == CompilerScope::Class {
                 Some(IndexSet::default())
             } else {
@@ -2016,11 +1979,10 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Handle finally case separately
         if !finalbody.is_empty() {
-            return self.compile_try_finally(body, handlers, orelse, finalbody);
+            self.compile_try_finally(body, handlers, orelse, finalbody)
+        } else {
+            self.compile_try_except(body, handlers, orelse)
         }
-
-        // Python 3.13 implementation only
-        self.compile_try_except(body, handlers, orelse)
     }
 
     fn compile_try_except(
@@ -2083,7 +2045,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::TestOperation {
-                        op: TestOperator::ExceptionMatch,
+                        op: bytecode::TestOperator::ExceptionMatch,
                     }
                 );
 
@@ -2151,7 +2113,6 @@ impl Compiler {
         orelse: &[Stmt],
         finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        // CPython-style finally implementation
         let finally_handler = self.new_block();
         let finally_exit = self.new_block();
 
