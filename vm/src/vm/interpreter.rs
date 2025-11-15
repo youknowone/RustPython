@@ -56,6 +56,21 @@ impl Interpreter {
         Self { vm }
     }
 
+    pub fn debug_init<F>(settings: Settings, init: F) -> Result<Self, i32>
+    where
+        F: FnOnce(&mut VirtualMachine),
+    {
+        // return Err(100);
+        let ctx = Context::init_genesis();
+        return Err(99);
+        // crate::types::TypeZoo::extend(ctx);
+        // crate::exceptions::ExceptionZoo::extend(ctx);
+        // let mut vm = VirtualMachine::new(settings, ctx.clone());
+        // init(&mut vm);
+        // vm.initialize();
+        // Ok(Self { vm })
+    }
+
     /// Run a function with the main virtual machine and return a PyResult of the result.
     ///
     /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.

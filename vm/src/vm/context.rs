@@ -268,8 +268,9 @@ impl Context {
         CONTEXT.get_or_init(|| PyRc::new(Self::init_genesis()))
     }
 
-    fn init_genesis() -> Self {
-        flame_guard!("init Context");
+    pub fn init_genesis() -> Self {
+        // flame_guard!("init Context");
+
         let types = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
 
