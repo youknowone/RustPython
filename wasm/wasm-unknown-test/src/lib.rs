@@ -1,6 +1,7 @@
 use rustpython_vm::{Interpreter, eval};
 
-pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> u32 {
+#[unsafe(no_mangle)]
+pub unsafe extern "Rust" fn eval(s: *const u8, l: usize) -> u32 {
     let src = std::slice::from_raw_parts(s, l);
     let src = std::str::from_utf8(src).unwrap();
     Interpreter::without_stdlib(Default::default()).enter(|vm| {
