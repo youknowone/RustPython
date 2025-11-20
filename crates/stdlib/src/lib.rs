@@ -8,6 +8,7 @@
 extern crate rustpython_derive;
 
 pub mod array;
+mod base64;
 mod binascii;
 mod bisect;
 mod cmath;
@@ -123,6 +124,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(all())]
         {
             "array" => array::make_module,
+            "_base64" => base64::make_module,
             "binascii" => binascii::make_module,
             "_bisect" => bisect::make_module,
             "_bz2" => bz2::make_module,
