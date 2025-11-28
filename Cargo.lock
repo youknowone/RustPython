@@ -3061,6 +3061,7 @@ dependencies = [
 name = "rustpython-cpython"
 version = "0.4.0"
 dependencies = [
+ "crossbeam-utils",
  "pyo3",
  "rustpython-derive",
  "rustpython-vm",
