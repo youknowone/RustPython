@@ -489,6 +489,29 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let type_type = vm.ctx.types.type_type;
             vm.call_method(type_type.as_object(), "__getattribute__", (zelf, name))
         }
+
+        /// Support type * int for array type creation (e.g., CHAR * 10)
+        /// Delegates to CPython's type.__mul__ which creates array types.
+        #[pymethod]
+        fn __mul__(zelf: PyTypeRef, n: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            // Check if this type has a CPython object reference
+            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+            {
+                // Delegate __mul__ to CPython type
+                return pyo3_binary_op_with_pyo3ref(&pyo3_ref.py_obj, &n, "__mul__", vm);
+            }
+
+            // No __pyo3_obj__ - return NotImplemented
+            Ok(vm.ctx.not_implemented())
+        }
+
+        /// Support int * type (reverse multiplication)
+        #[pymethod]
+        fn __rmul__(zelf: PyTypeRef, n: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            // Same as __mul__ for commutative operation
+            Pyo3Type::__mul__(zelf, n, vm)
+        }
     }
 
     /// Key for storing CPython object in type's __dict__
@@ -743,6 +766,19 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         pyo3_to_rustpython(result, vm)
     }
 
+    /// nb_multiply slot for Pyo3Type instances.
+    /// Delegates type * int multiplication to CPython (e.g., CHAR * 10 creates array type).
+    fn pyo3_type_multiply(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+        // a is a type with __pyo3_obj__ attribute containing the CPython type
+        if let Some(type_obj) = a.downcast_ref::<PyType>()
+            && let Some(pyo3_obj) = type_obj.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+            && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+        {
+            return pyo3_binary_op_with_pyo3ref(&pyo3_ref.py_obj, b, "__mul__", vm);
+        }
+        Ok(vm.ctx.not_implemented())
+    }
+
     /// Create a wrapper for a CPython type.
     /// Returns a RustPython type (instance of Pyo3Type) that wraps the CPython type.
     fn create_pyo3_type(
@@ -771,11 +807,17 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         // Set custom slots on Pyo3Type metaclass (only needs to be done once)
         // __new__: intercepts class creation to delegate to CPython if needed
         // __getattribute__: intercepts attribute access on types to delegate to CPython
+        // __mul__: supports type * int for array type creation (e.g., CHAR * 10)
         pyo3_type_metaclass.slots.new.store(Some(pyo3_metatype_new));
         pyo3_type_metaclass
             .slots
             .getattro
             .store(Some(pyo3_type_getattro));
+        pyo3_type_metaclass
+            .slots
+            .as_number
+            .multiply
+            .store(Some(pyo3_type_multiply));
 
         // Create slots with HEAPTYPE, BASETYPE flags and custom new/getattro slots
         let mut slots = PyTypeSlots::default();
@@ -962,6 +1004,26 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             }
         }
 
+        // Check if it's a CDLL-like object with _handle attribute
+        // This is needed for ctypes to work - CDLL instances need to be passed to CPython
+        if let Ok(handle_attr) = obj.get_attr(vm.ctx.intern_str("_handle"), vm) {
+            // Convert _handle to CPython integer
+            let handle_pyo3 = to_pyo3_object(&handle_attr, vm)?;
+            // Create a CPython object with just the _handle attribute
+            let cpython_dll = pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+                let handle_py = handle_pyo3.to_pyo3(py)?;
+                // Create a simple namespace object with _handle
+                let types_module = py.import("types")?;
+                let simple_namespace = types_module.getattr("SimpleNamespace")?;
+                let kwargs = pyo3::types::PyDict::new(py);
+                kwargs.set_item("_handle", handle_py)?;
+                let dll_proxy = simple_namespace.call((), Some(&kwargs))?;
+                Ok(dll_proxy.unbind())
+            })
+            .map_err(|e| vm.new_runtime_error(format!("Failed to create DLL proxy: {}", e)))?;
+            return Ok(ToPyo3Ref::OwnedNative(cpython_dll));
+        }
+
         // Check if it's a tuple containing Pyo3 objects
         if let Some(tuple) = obj.downcast_ref::<rustpython_vm::builtins::PyTuple>() {
             // Convert the tuple contents to CPython
@@ -1003,6 +1065,39 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         let result = pyo3::Python::attach(|py| -> Result<PyArithmeticValue<Pyo3Ref>, PyErr> {
             let a_py = a_obj.to_pyo3(py)?;
             let b_py = b_obj.to_pyo3(py)?;
+
+            let result_obj = a_py.call_method1(op, (&b_py,))?;
+
+            if result_obj.is(py.NotImplemented()) {
+                return Ok(PyArithmeticValue::NotImplemented);
+            }
+
+            Ok(PyArithmeticValue::Implemented(create_pyo3_object(
+                py,
+                &result_obj,
+            )))
+        })
+        .map_err(|e| vm.new_runtime_error(format!("CPython binary op error: {}", e)))?;
+
+        match result {
+            PyArithmeticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
+            PyArithmeticValue::Implemented(pyo3_obj) => pyo3_to_rustpython(pyo3_obj, vm),
+        }
+    }
+
+    /// Execute binary operation on CPython object with direct pyo3 object reference.
+    /// Used by Pyo3Type.__mul__ where we already have the pyo3 object.
+    fn pyo3_binary_op_with_pyo3ref(
+        py_obj: &pyo3::Py<pyo3::PyAny>,
+        other: &PyObject,
+        op: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let other_obj = to_pyo3_object(other, vm)?;
+
+        let result = pyo3::Python::attach(|py| -> Result<PyArithmeticValue<Pyo3Ref>, PyErr> {
+            let a_py = py_obj.bind(py);
+            let b_py = other_obj.to_pyo3(py)?;
 
             let result_obj = a_py.call_method1(op, (&b_py,))?;
 
