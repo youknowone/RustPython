@@ -77,11 +77,11 @@ mod _pyo3 {
         builtins::{
             PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef, PyType, PyTypeRef,
         },
-        function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
+        function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
             AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Iterable,
-            PyComparisonOp, Representable,
+            PyComparisonOp, Representable, SetAttr,
         },
     };
 
@@ -1047,6 +1047,36 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         }
     }
 
+    impl SetAttr for Pyo3Ref {
+        fn setattro(
+            zelf: &Py<Self>,
+            attr_name: &Py<PyStr>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            pyo3::Python::attach(|py| -> Result<(), pyo3::PyErr> {
+                let obj = zelf.py_obj.bind(py);
+                match value {
+                    PySetterValue::Assign(val) => {
+                        let pyo3_val = to_pyo3_object(&val, vm).map_err(|e| {
+                            pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                                "Failed to convert value: {:?}",
+                                e
+                            ))
+                        })?;
+                        let pyo3_bound = pyo3_val.to_pyo3(py)?;
+                        obj.setattr(attr_name.as_str(), pyo3_bound)?;
+                    }
+                    PySetterValue::Delete => {
+                        obj.delattr(attr_name.as_str())?;
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|e| vm.new_attribute_error(format!("CPython setattr error: {}", e)))
+        }
+    }
+
     impl Callable for Pyo3Ref {
         type Args = FuncArgs;
 
@@ -1286,6 +1316,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
     #[pyclass(with(
         GetAttr,
+        SetAttr,
         Callable,
         Representable,
         AsNumber,
