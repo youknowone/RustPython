@@ -75,15 +75,49 @@ mod _pyo3 {
     use rustpython_vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef, PyType, PyTypeRef,
+            PyBaseExceptionRef, PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef,
+            PyType, PyTypeRef,
         },
         function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
-        protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
+        protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
             AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Iterable,
             PyComparisonOp, Representable, SetAttr,
         },
     };
+
+    /// Convert pyo3::PyErr to RustPython exception with proper type mapping.
+    /// This preserves the original exception type from CPython instead of wrapping
+    /// everything as RuntimeError.
+    fn pyo3_err_to_rustpython(e: pyo3::PyErr, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        use pyo3::types::PyTypeMethods;
+
+        pyo3::Python::attach(|py| {
+            let err_type = e.get_type(py);
+            let err_msg = e.value(py).to_string();
+            let type_name = err_type
+                .name()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| "RuntimeError".to_string());
+
+            match type_name.as_str() {
+                "TypeError" => vm.new_type_error(err_msg),
+                "ValueError" => vm.new_value_error(err_msg),
+                "AttributeError" => vm.new_attribute_error(err_msg),
+                "KeyError" => vm.new_key_error(vm.ctx.new_str(err_msg).into()),
+                "IndexError" => vm.new_index_error(err_msg),
+                "NameError" => vm.new_name_error(err_msg, vm.ctx.new_str("")),
+                "StopIteration" => vm.new_stop_iteration(None),
+                "OSError" | "IOError" => vm.new_os_error(err_msg),
+                "NotImplementedError" => vm.new_not_implemented_error(err_msg),
+                "OverflowError" => vm.new_overflow_error(err_msg),
+                "ZeroDivisionError" => vm.new_zero_division_error(err_msg),
+                "RecursionError" => vm.new_recursion_error(err_msg),
+                "MemoryError" => vm.new_memory_error(err_msg),
+                _ => vm.new_runtime_error(err_msg),
+            }
+        })
+    }
 
     /// Wrapper class for executing functions in CPython.
     /// Used as a decorator: @cpython.wraps
@@ -286,7 +320,7 @@ __pickled_result__ = __pickle.dumps(__result__, protocol=4)
             let result_bytes: &pyo3::Bound<'_, Pyo3Bytes> = result.downcast()?;
             Ok(result_bytes.as_bytes().to_vec())
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython exec error: {}", e)))
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))
     }
 
     /// Execute a Python function in CPython runtime.
@@ -354,7 +388,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let result_bytes: &pyo3::Bound<'_, Pyo3Bytes> = result.downcast()?;
             Ok(result_bytes.as_bytes().to_vec())
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython eval error: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         Ok(RustPyBytes::from(result_bytes).into_ref(&vm.ctx))
     }
@@ -650,7 +684,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
             Ok(new_type.unbind())
         })
-        .map_err(|e| vm.new_runtime_error(format!("Failed to create CPython subtype: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         // Cache the CPython subtype
         let cpython_subtype_for_cache = pyo3::Python::attach(|py| cpython_subtype.clone_ref(py));
@@ -760,7 +794,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
             Ok(create_pyo3_object(py, &new_type))
         })
-        .map_err(|e| vm.new_runtime_error(format!("Failed to create class in CPython: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         // Wrap the CPython type as a Pyo3Type
         pyo3_to_rustpython(result, vm)
@@ -934,7 +968,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
             Ok(create_pyo3_object(py, &call_result))
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython call error: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         pyo3_to_rustpython(pyo3_obj, vm)
     }
@@ -1020,7 +1054,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 let dll_proxy = simple_namespace.call((), Some(&kwargs))?;
                 Ok(dll_proxy.unbind())
             })
-            .map_err(|e| vm.new_runtime_error(format!("Failed to create DLL proxy: {}", e)))?;
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
             return Ok(ToPyo3Ref::OwnedNative(cpython_dll));
         }
 
@@ -1043,7 +1077,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                         .collect::<Result<Vec<_>, _>>()?;
                     Ok(pyo3::types::PyTuple::new(py, &items)?.into_any().unbind())
                 })
-                .map_err(|e| vm.new_runtime_error(format!("Failed to convert tuple: {}", e)))?;
+                .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
             return Ok(ToPyo3Ref::OwnedNative(cpython_tuple));
         }
 
@@ -1077,7 +1111,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 &result_obj,
             )))
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython binary op error: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         match result {
             PyArithmeticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
@@ -1110,7 +1144,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 &result_obj,
             )))
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython binary op error: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         match result {
             PyArithmeticValue::NotImplemented => Ok(vm.ctx.not_implemented()),
@@ -1190,7 +1224,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 let repr_result = repr_fn.call1((obj,))?;
                 repr_result.extract()
             })
-            .map_err(|e| vm.new_runtime_error(format!("CPython repr error: {}", e)))?;
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
             Ok(result)
         }
     }
@@ -1245,7 +1279,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                     Err(_) => Ok(PyComparisonValue::NotImplemented),
                 }
             })
-            .map_err(|e| vm.new_runtime_error(format!("CPython comparison error: {}", e)))?;
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
             Ok(result)
         }
@@ -1260,7 +1294,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let len_result = len_fn.call1((obj,))?;
             len_result.extract()
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython len error: {}", e)))
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))
     }
 
     /// Helper to get item by index from CPython object
@@ -1329,7 +1363,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             }
             Ok(())
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython setitem error: {}", e)))
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))
     }
 
     /// Helper to check if item is in CPython object
@@ -1345,7 +1379,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let target_py = target_obj.to_pyo3(py)?;
             obj.contains(&target_py)
         })
-        .map_err(|e| vm.new_runtime_error(format!("CPython contains error: {}", e)))
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))
     }
 
     impl AsSequence for Pyo3Ref {
@@ -1409,6 +1443,8 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         }
     }
 
+    use rustpython_vm::types::IterNext;
+
     #[pyclass(with(
         GetAttr,
         SetAttr,
@@ -1418,9 +1454,35 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         Comparable,
         AsSequence,
         AsMapping,
-        Iterable
+        Iterable,
+        IterNext
     ))]
     impl Pyo3Ref {}
+
+    impl IterNext for Pyo3Ref {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let result = pyo3::Python::attach(|py| -> Result<Option<Pyo3Ref>, pyo3::PyErr> {
+                let obj = zelf.py_obj.bind(py);
+                let builtins = py.import("builtins")?;
+                let next_fn = builtins.getattr("next")?;
+
+                match next_fn.call1((obj,)) {
+                    Ok(result) => Ok(Some(create_pyo3_object(py, &result))),
+                    Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => Ok(None),
+                    Err(e) => Err(e),
+                }
+            });
+
+            match result {
+                Ok(Some(pyo3_obj)) => {
+                    let result = pyo3_to_rustpython(pyo3_obj, vm)?;
+                    Ok(PyIterReturn::Return(result))
+                }
+                Ok(None) => Ok(PyIterReturn::StopIteration(None)),
+                Err(e) => Err(pyo3_err_to_rustpython(e, vm)),
+            }
+        }
+    }
 
     /// Import a module from CPython and return a wrapper object.
     ///
