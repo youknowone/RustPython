@@ -73,8 +73,8 @@ mod _pyo3 {
     use pyo3::types::PyBytesMethods;
     use pyo3::types::PyDictMethods;
     use rustpython_vm::{
-        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef, PyTypeRef},
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef, PyType, PyTypeRef},
         function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
@@ -377,6 +377,79 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         pickle.call_method1("loads", (Pyo3Bytes::new(py, bytes),))
     }
 
+    /// Metaclass for CPython types wrapped in RustPython.
+    /// This is a subclass of `type`, so instances of Pyo3Type are types themselves.
+    /// The actual CPython type is stored in __pyo3_obj__ attribute.
+    #[pyattr]
+    #[pyclass(name = "pyo3_type", base = PyType, module = "_pyo3")]
+    #[derive(Debug)]
+    struct Pyo3Type {}
+
+    #[pyclass(flags(BASETYPE))]
+    impl Pyo3Type {
+        /// Called when the type is called (e.g., to create an instance or subclass).
+        /// If the type has __pyo3_obj__, delegate to CPython.
+        /// Otherwise, use default type.__call__ behavior.
+        #[pymethod]
+        fn __call__(
+            zelf: PyTypeRef,
+            args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            // Check if this type has a CPython object reference
+            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>() {
+                    // Delegate to CPython
+                    return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
+                }
+
+            // No __pyo3_obj__ - this is a RustPython subclass, use normal type call
+            // Call the default type.__call__ which handles __new__ and __init__
+            let type_type = vm.ctx.types.type_type;
+            vm.call_method(type_type.as_object(), "__call__", (zelf, args.args))
+        }
+
+        /// Get attribute from type - delegates to CPython for __pyo3_obj__ types.
+        #[pymethod]
+        fn __getattribute__(
+            zelf: PyTypeRef,
+            name: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            // First check if the attribute is __pyo3_obj__ itself or a RustPython attribute
+            let name_str = name.as_str();
+
+            // Don't intercept special attributes that should stay in RustPython
+            if name_str == PYO3_OBJ_ATTR
+                || name_str == "__class__"
+                || name_str == "__name__"
+                || name_str == "__qualname__"
+                || name_str == "__module__"
+                || name_str == "__bases__"
+                || name_str == "__mro__"
+                || name_str == "__dict__"
+            {
+                // Use default type.__getattribute__
+                let type_type = vm.ctx.types.type_type;
+                return vm.call_method(type_type.as_object(), "__getattribute__", (zelf, name));
+            }
+
+            // Check if this type has a CPython object reference
+            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>() {
+                    // Delegate attribute lookup to CPython
+                    return pyo3_getattr_impl(&pyo3_ref.py_obj, name_str, vm);
+                }
+
+            // No __pyo3_obj__ - use default type.__getattribute__
+            let type_type = vm.ctx.types.type_type;
+            vm.call_method(type_type.as_object(), "__getattribute__", (zelf, name))
+        }
+    }
+
+    /// Key for storing CPython object in type's __dict__
+    const PYO3_OBJ_ATTR: &str = "__pyo3_obj__";
+
     /// Create a Pyo3Ref from a pyo3 object, attempting to pickle it.
     fn create_pyo3_object(py: pyo3::Python<'_>, obj: &pyo3::Bound<'_, pyo3::PyAny>) -> Pyo3Ref {
         let pickled = pickle_in_cpython(py, obj).ok();
@@ -386,17 +459,82 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         }
     }
 
+    /// Create a wrapper for a CPython type.
+    /// Returns a RustPython type (instance of Pyo3Type) that wraps the CPython type.
+    fn create_pyo3_type(
+        py: pyo3::Python<'_>,
+        obj: &pyo3::Bound<'_, pyo3::PyAny>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyTypeRef> {
+        use rustpython_vm::class::PyClassImpl;
+        use rustpython_vm::types::{PyTypeFlags, PyTypeSlots};
+
+        // Get the name of the CPython type
+        let name: String = obj
+            .getattr("__name__")
+            .map_err(|e| vm.new_attribute_error(format!("CPython type has no __name__: {}", e)))?
+            .extract()
+            .map_err(|e| vm.new_type_error(format!("__name__ is not a string: {}", e)))?;
+
+        // Create a Pyo3Ref to store the CPython type
+        let pyo3_ref = create_pyo3_object(py, obj);
+        let pyo3_ref_obj: PyObjectRef = pyo3_ref.into_ref(&vm.ctx).into();
+
+        // Get Pyo3Type as the metaclass
+        let pyo3_type_metaclass = Pyo3Type::make_class(&vm.ctx);
+
+        // Create slots with HEAPTYPE and BASETYPE flags
+        let mut slots = PyTypeSlots::default();
+        slots.flags = PyTypeFlags::HEAPTYPE | PyTypeFlags::BASETYPE;
+
+        // Create a new type with Pyo3Type as metaclass
+        let new_type = PyType::new_heap(
+            &name,
+            vec![vm.ctx.types.object_type.to_owned()],
+            Default::default(),  // Empty attributes
+            slots,
+            pyo3_type_metaclass,
+            &vm.ctx,
+        )
+        .map_err(|e| vm.new_type_error(e))?;
+
+        // Store the CPython object reference
+        new_type.set_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR), pyo3_ref_obj);
+
+        Ok(new_type)
+    }
+
+    /// Check if a CPython object is a type
+    fn is_cpython_type(py_obj: &pyo3::Py<pyo3::PyAny>) -> bool {
+        pyo3::Python::attach(|py| {
+            let obj = py_obj.bind(py);
+            obj.is_instance_of::<pyo3::types::PyType>()
+        })
+    }
+
     /// Convert a Pyo3Ref to RustPython object.
     /// If pickled bytes exist, tries to unpickle to native RustPython object.
+    /// If the object is a CPython type, wraps it in Pyo3Type.
     /// Falls back to returning the Pyo3Ref wrapper.
     fn pyo3_to_rustpython(pyo3_obj: Pyo3Ref, vm: &VirtualMachine) -> PyResult {
-        if let Some(ref bytes) = pyo3_obj.pickled {
-            if let Ok(unpickled) = rustpython_pickle_loads(bytes, vm) {
+        // First, try unpickling to native RustPython object
+        if let Some(ref bytes) = pyo3_obj.pickled
+            && let Ok(unpickled) = rustpython_pickle_loads(bytes, vm) {
                 return Ok(unpickled);
             }
             // Unpickle failed (e.g., numpy arrays need numpy module)
-            // Fall through to return Pyo3Ref wrapper
+            // Fall through
+
+        // Check if it's a CPython type - wrap in Pyo3Type
+        if is_cpython_type(&pyo3_obj.py_obj) {
+            let type_ref = pyo3::Python::attach(|py| {
+                let obj = pyo3_obj.py_obj.bind(py);
+                create_pyo3_type(py, obj, vm)
+            })?;
+            return Ok(type_ref.into());
         }
+
+        // Default: return as Pyo3Ref
         Ok(pyo3_obj.into_ref(&vm.ctx).into())
     }
 
@@ -494,7 +632,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
             let result_obj = a_py.call_method1(op, (&b_py,))?;
 
-            if result_obj.is(&py.NotImplemented()) {
+            if result_obj.is(py.NotImplemented()) {
                 return Ok(PyArithmeticValue::NotImplemented);
             }
 
@@ -598,7 +736,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
                 let result = obj.call_method1(method_name, (&other_py,))?;
 
-                if result.is(&py.NotImplemented()) {
+                if result.is(py.NotImplemented()) {
                     return Ok(PyComparisonValue::NotImplemented);
                 }
 
@@ -798,7 +936,10 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
     /// Internal implementation for importing a module from CPython.
     /// Used by both the Python API and borrow_module.
-    pub(crate) fn import_module_impl(module_name: &str, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    pub(crate) fn import_module_impl(
+        module_name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let module_name_owned = module_name.to_owned();
 
         let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
@@ -808,7 +949,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         .map_err(|e| {
             vm.new_import_error(
                 format!("Cannot import '{}': {}", module_name, e),
-                vm.ctx.new_str(module_name).into(),
+                vm.ctx.new_str(module_name),
             )
         })?;
 
