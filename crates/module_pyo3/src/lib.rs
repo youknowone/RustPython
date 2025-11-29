@@ -74,7 +74,9 @@ mod _pyo3 {
     use pyo3::types::PyDictMethods;
     use rustpython_vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef, PyType, PyTypeRef},
+        builtins::{
+            PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef, PyType, PyTypeRef,
+        },
         function::{FuncArgs, PyArithmeticValue, PyComparisonValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
@@ -385,37 +387,78 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     #[derive(Debug)]
     struct Pyo3Type {}
 
-    #[pyclass(flags(BASETYPE))]
-    impl Pyo3Type {
-        /// Called when the type is called (e.g., to create an instance or subclass).
-        /// If the type has __pyo3_obj__, delegate to CPython.
-        /// Otherwise, use default type.__call__ behavior.
-        #[pymethod]
-        fn __call__(
-            zelf: PyTypeRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            // Check if this type has a CPython object reference
-            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
-                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>() {
-                    // Delegate to CPython
-                    return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
+    /// Custom __new__ slot for Pyo3Type metaclass.
+    /// Called when creating a new class with Pyo3Type as the metaclass (e.g., `class Foo(_SimpleCData)`).
+    /// If any base has __pyo3_obj__, delegate class creation to CPython.
+    fn pyo3_metatype_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Parse args as (name, bases, namespace)
+        if args.args.len() != 3 {
+            return Err(vm.new_type_error(format!(
+                "type.__new__() takes exactly 3 arguments ({} given)",
+                args.args.len()
+            )));
+        }
+
+        let bases = args.args[1]
+            .downcast_ref::<rustpython_vm::builtins::PyTuple>()
+            .ok_or_else(|| vm.new_type_error("bases must be a tuple".to_owned()))?;
+        let namespace = &args.args[2];
+
+        // Check if any base has __pyo3_obj__ - if so, create class in CPython
+        for base in bases.iter() {
+            if let Some(base_type) = base.downcast_ref::<PyType>()
+                && let Some(pyo3_obj) = base_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+            {
+                // Base has CPython type - create class in CPython
+                let class = create_class_in_cpython(&args, &pyo3_ref.py_obj, vm)?;
+
+                // Handle __classcell__ - set it to the new class for super() to work
+                // If __classcell__ exists, it's a cell object that needs to be set to the new class
+                if let Ok(classcell) = namespace.get_item(vm.ctx.intern_str("__classcell__"), vm) {
+                    // Check if it's a cell type and set its value via cell_contents property
+                    if classcell.class().is(vm.ctx.types.cell_type) {
+                        classcell
+                            .set_attr(vm.ctx.intern_str("cell_contents"), class.clone(), vm)
+                            .ok();
+                    }
                 }
 
-            // No __pyo3_obj__ - this is a RustPython subclass, use normal type call
-            // Call the default type.__call__ which handles __new__ and __init__
+                return Ok(class);
+            }
+        }
+
+        // No CPython bases - use default type.__new__ behavior
+        let type_type = vm.ctx.types.type_type;
+        type_type
+            .slots
+            .new
+            .load()
+            .expect("type should have __new__")(metatype, args, vm)
+    }
+
+    #[pyclass(flags(BASETYPE))]
+    impl Pyo3Type {
+        /// Called when the type is called (e.g., to create an instance).
+        /// If the type has __pyo3_obj__, delegate to CPython.
+        #[pymethod]
+        fn __call__(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            // Check if this type has a CPython object reference
+            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+            {
+                // Delegate to CPython
+                return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
+            }
+
+            // No __pyo3_obj__ - use default type.__call__ behavior
             let type_type = vm.ctx.types.type_type;
             vm.call_method(type_type.as_object(), "__call__", (zelf, args.args))
         }
 
         /// Get attribute from type - delegates to CPython for __pyo3_obj__ types.
         #[pymethod]
-        fn __getattribute__(
-            zelf: PyTypeRef,
-            name: PyStrRef,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+        fn __getattribute__(zelf: PyTypeRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
             // First check if the attribute is __pyo3_obj__ itself or a RustPython attribute
             let name_str = name.as_str();
 
@@ -436,10 +479,11 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
             // Check if this type has a CPython object reference
             if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
-                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>() {
-                    // Delegate attribute lookup to CPython
-                    return pyo3_getattr_impl(&pyo3_ref.py_obj, name_str, vm);
-                }
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+            {
+                // Delegate attribute lookup to CPython
+                return pyo3_getattr_impl(&pyo3_ref.py_obj, name_str, vm);
+            }
 
             // No __pyo3_obj__ - use default type.__getattribute__
             let type_type = vm.ctx.types.type_type;
@@ -459,6 +503,246 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         }
     }
 
+    /// Custom __getattribute__ slot for Pyo3Type instances.
+    /// Delegates to CPython if the type has __pyo3_obj__.
+    fn pyo3_type_getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        // If this is a type with __pyo3_obj__, delegate attribute lookup to CPython
+        if let Some(py_type) = obj.downcast_ref::<PyType>()
+            && let Some(pyo3_obj) = py_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+            && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+        {
+            return pyo3_getattr_impl(&pyo3_ref.py_obj, name.as_str(), vm);
+        }
+
+        // Fall back to type's getattro
+        let type_type = vm.ctx.types.type_type;
+        if let Some(getattro) = type_type.slots.getattro.load() {
+            return getattro(obj, name, vm);
+        }
+
+        // Default to generic object getattro
+        obj.generic_getattr(name, vm)
+    }
+
+    /// Custom __new__ slot for Pyo3Type instances.
+    /// Delegates to CPython if the type or its bases have __pyo3_obj__.
+    fn pyo3_type_new(subtype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Check if this type has __pyo3_obj__
+        if let Some(pyo3_obj) = subtype.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+            && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+        {
+            return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
+        }
+
+        // Check if any base has __pyo3_obj__ (e.g., class CFunctionType(_CFuncPtr))
+        // In this case, we need to create a corresponding CPython class first
+        if let Some(bases) = subtype.get_attr(vm.ctx.intern_str("__bases__"))
+            && let Some(bases_tuple) = bases.downcast_ref::<rustpython_vm::builtins::PyTuple>()
+        {
+            for base in bases_tuple.iter() {
+                if let Some(base_type) = base.downcast_ref::<PyType>()
+                    && let Some(pyo3_obj) = base_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                    && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+                {
+                    // Create a CPython subclass dynamically and cache it
+                    let cpython_subtype =
+                        get_or_create_cpython_subtype(&subtype, &pyo3_ref.py_obj, vm)?;
+                    return pyo3_call_impl(&cpython_subtype, args, vm);
+                }
+            }
+        }
+
+        // Default to object.__new__
+        let object_new = vm
+            .ctx
+            .types
+            .object_type
+            .slots
+            .new
+            .load()
+            .expect("object should have __new__");
+        object_new(subtype, args, vm)
+    }
+
+    /// Cache key for CPython subtypes
+    const PYO3_SUBTYPE_ATTR: &str = "__pyo3_subtype__";
+
+    /// Get or create a CPython subtype for a RustPython class that inherits from a CPython type.
+    fn get_or_create_cpython_subtype(
+        subtype: &PyTypeRef,
+        base_py_obj: &pyo3::Py<pyo3::PyAny>,
+        vm: &VirtualMachine,
+    ) -> PyResult<pyo3::Py<pyo3::PyAny>> {
+        // Check if we already created a CPython subtype for this
+        if let Some(cached) = subtype.get_attr(vm.ctx.intern_str(PYO3_SUBTYPE_ATTR))
+            && let Some(pyo3_ref) = cached.downcast_ref::<Pyo3Ref>()
+        {
+            return Ok(pyo3::Python::attach(|py| pyo3_ref.py_obj.clone_ref(py)));
+        }
+
+        // Get the class name
+        let name = subtype.name().to_string();
+
+        // Collect relevant class attributes to pass to CPython
+        let attr_names = [
+            "_argtypes_",
+            "_restype_",
+            "_flags_",
+            "_type_",
+            "_length_",
+            "_fields_",
+        ];
+
+        // Collect attribute values as owned CPython objects
+        let mut collected_attrs: Vec<(String, pyo3::Py<pyo3::PyAny>)> = Vec::new();
+        for attr_name in attr_names {
+            if let Some(val) = subtype.get_attr(vm.ctx.intern_str(attr_name))
+                && let Ok(pyo3_val) = to_pyo3_object(&val, vm)
+            {
+                let owned = pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+                    Ok(pyo3_val.to_pyo3(py)?.unbind())
+                });
+                if let Ok(py_obj) = owned {
+                    collected_attrs.push((attr_name.to_string(), py_obj));
+                }
+            }
+        }
+
+        let cpython_subtype = pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+            let base = base_py_obj.bind(py);
+
+            // Create a new dict for the CPython class
+            let class_dict = pyo3::types::PyDict::new(py);
+
+            // Copy over ctypes-specific attributes
+            for (attr_name, py_obj) in &collected_attrs {
+                class_dict.set_item(attr_name.as_str(), py_obj.bind(py))?;
+            }
+
+            // Create the CPython subclass using base's metaclass
+            // metaclass(name, (base,), dict)
+            let metaclass = base.get_type();
+            let bases = pyo3::types::PyTuple::new(py, [base])?;
+            let new_type = metaclass.call1((&name, bases, class_dict))?;
+
+            Ok(new_type.unbind())
+        })
+        .map_err(|e| vm.new_runtime_error(format!("Failed to create CPython subtype: {}", e)))?;
+
+        // Cache the CPython subtype
+        let cpython_subtype_for_cache = pyo3::Python::attach(|py| cpython_subtype.clone_ref(py));
+        let pyo3_ref = Pyo3Ref {
+            py_obj: cpython_subtype_for_cache,
+            pickled: None,
+        };
+        subtype.set_attr(
+            vm.ctx.intern_str(PYO3_SUBTYPE_ATTR),
+            pyo3_ref.into_ref(&vm.ctx).into(),
+        );
+
+        Ok(cpython_subtype)
+    }
+
+    /// Create a class in CPython when inheriting from a CPython type.
+    /// Called from Pyo3Type.__call__ when creating a class like `class Foo(CPythonBase): ...`
+    fn create_class_in_cpython(
+        args: &FuncArgs,
+        base_py_obj: &pyo3::Py<pyo3::PyAny>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        // Extract (name, bases, namespace) from args
+        if args.args.len() < 3 {
+            return Err(vm.new_type_error("type() takes 3 arguments".to_owned()));
+        }
+
+        let name = args.args[0]
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("type name must be a string".to_owned()))?
+            .as_str()
+            .to_owned();
+
+        let bases = args.args[1]
+            .downcast_ref::<rustpython_vm::builtins::PyTuple>()
+            .ok_or_else(|| vm.new_type_error("bases must be a tuple".to_owned()))?;
+
+        // Convert namespace to CPython dict
+        let namespace = &args.args[2];
+
+        // Collect namespace items that can be passed to CPython
+        let namespace_items: Vec<(String, PyObjectRef)> =
+            if let Ok(mapping) = rustpython_vm::protocol::PyMapping::try_protocol(namespace, vm) {
+                let keys = mapping.keys(vm)?;
+                let mut items = Vec::new();
+                let keys_iter = keys.get_iter(vm)?;
+                loop {
+                    use rustpython_vm::protocol::PyIterReturn;
+                    match keys_iter.next(vm)? {
+                        PyIterReturn::Return(key) => {
+                            if let Some(key_str) = key.downcast_ref::<PyStr>() {
+                                let key_name = key_str.as_str().to_owned();
+                                let value = mapping.as_ref().get_item(key_str.as_str(), vm)?;
+                                items.push((key_name, value));
+                            }
+                        }
+                        PyIterReturn::StopIteration(_) => break,
+                    }
+                }
+                items
+            } else {
+                Vec::new()
+            };
+
+        // Create the class in CPython
+        let result = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
+            let base = base_py_obj.bind(py);
+
+            // Build CPython bases tuple - get __pyo3_obj__ from each base
+            let mut cpython_bases = Vec::new();
+            for base_obj in bases.iter() {
+                if let Some(base_type) = base_obj.downcast_ref::<PyType>() {
+                    if let Some(pyo3_obj) = base_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                        && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+                    {
+                        cpython_bases.push(pyo3_ref.py_obj.bind(py).clone());
+                    } else {
+                        // RustPython base without __pyo3_obj__ - skip or error
+                        // For now, we just use the CPython base we found
+                    }
+                }
+            }
+
+            // If no CPython bases found, use the provided base
+            if cpython_bases.is_empty() {
+                cpython_bases.push(base.clone());
+            }
+
+            let bases_tuple = pyo3::types::PyTuple::new(py, &cpython_bases)?;
+
+            // Create namespace dict in CPython
+            let class_dict = pyo3::types::PyDict::new(py);
+            for (key, value) in &namespace_items {
+                // Try to convert value to CPython
+                if let Ok(pyo3_val) = to_pyo3_object(value, vm)
+                    && let Ok(py_val) = pyo3_val.to_pyo3(py)
+                {
+                    class_dict.set_item(key.as_str(), py_val)?;
+                }
+            }
+
+            // Get the metaclass from the base type
+            let metaclass = base.get_type();
+
+            // Create the new type: metaclass(name, bases, dict)
+            let new_type = metaclass.call1((&name, bases_tuple, class_dict))?;
+
+            Ok(create_pyo3_object(py, &new_type))
+        })
+        .map_err(|e| vm.new_runtime_error(format!("Failed to create class in CPython: {}", e)))?;
+
+        // Wrap the CPython type as a Pyo3Type
+        pyo3_to_rustpython(result, vm)
+    }
+
     /// Create a wrapper for a CPython type.
     /// Returns a RustPython type (instance of Pyo3Type) that wraps the CPython type.
     fn create_pyo3_type(
@@ -466,6 +750,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         obj: &pyo3::Bound<'_, pyo3::PyAny>,
         vm: &VirtualMachine,
     ) -> PyResult<PyTypeRef> {
+        use crossbeam_utils::atomic::AtomicCell;
         use rustpython_vm::class::PyClassImpl;
         use rustpython_vm::types::{PyTypeFlags, PyTypeSlots};
 
@@ -483,15 +768,26 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         // Get Pyo3Type as the metaclass
         let pyo3_type_metaclass = Pyo3Type::make_class(&vm.ctx);
 
-        // Create slots with HEAPTYPE and BASETYPE flags
+        // Set custom slots on Pyo3Type metaclass (only needs to be done once)
+        // __new__: intercepts class creation to delegate to CPython if needed
+        // __getattribute__: intercepts attribute access on types to delegate to CPython
+        pyo3_type_metaclass.slots.new.store(Some(pyo3_metatype_new));
+        pyo3_type_metaclass
+            .slots
+            .getattro
+            .store(Some(pyo3_type_getattro));
+
+        // Create slots with HEAPTYPE, BASETYPE flags and custom new/getattro slots
         let mut slots = PyTypeSlots::default();
         slots.flags = PyTypeFlags::HEAPTYPE | PyTypeFlags::BASETYPE;
+        slots.new = AtomicCell::new(Some(pyo3_type_new));
+        slots.getattro = AtomicCell::new(Some(pyo3_type_getattro));
 
         // Create a new type with Pyo3Type as metaclass
         let new_type = PyType::new_heap(
             &name,
             vec![vm.ctx.types.object_type.to_owned()],
-            Default::default(),  // Empty attributes
+            Default::default(), // Empty attributes
             slots,
             pyo3_type_metaclass,
             &vm.ctx,
@@ -519,11 +815,12 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     fn pyo3_to_rustpython(pyo3_obj: Pyo3Ref, vm: &VirtualMachine) -> PyResult {
         // First, try unpickling to native RustPython object
         if let Some(ref bytes) = pyo3_obj.pickled
-            && let Ok(unpickled) = rustpython_pickle_loads(bytes, vm) {
-                return Ok(unpickled);
-            }
-            // Unpickle failed (e.g., numpy arrays need numpy module)
-            // Fall through
+            && let Ok(unpickled) = rustpython_pickle_loads(bytes, vm)
+        {
+            return Ok(unpickled);
+        }
+        // Unpickle failed (e.g., numpy arrays need numpy module)
+        // Fall through
 
         // Check if it's a CPython type - wrap in Pyo3Type
         if is_cpython_type(&pyo3_obj.py_obj) {
@@ -560,25 +857,38 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        // Pickle args and kwargs in RustPython
-        let args_tuple = vm.ctx.new_tuple(args.args);
-        let kwargs_dict = PyDict::default().into_ref(&vm.ctx);
-        for (key, value) in args.kwargs {
-            kwargs_dict.set_item(&key, value, vm)?;
-        }
+        // Convert each arg using to_pyo3_object (handles Pyo3Ref specially)
+        let converted_args: Vec<ToPyo3Ref<'_>> = args
+            .args
+            .iter()
+            .map(|arg| to_pyo3_object(arg, vm))
+            .collect::<PyResult<Vec<_>>>()?;
 
-        let args_bytes = rustpython_pickle_dumps(args_tuple.into(), vm)?;
-        let kwargs_bytes = rustpython_pickle_dumps(kwargs_dict.into(), vm)?;
+        // Convert kwargs
+        let converted_kwargs: Vec<(String, ToPyo3Ref<'_>)> = args
+            .kwargs
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), to_pyo3_object(v, vm)?)))
+            .collect::<PyResult<Vec<_>>>()?;
 
         let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, PyErr> {
             let obj = py_obj.bind(py);
 
-            // Unpickle args/kwargs in CPython
-            let args_py = unpickle_in_cpython(py, args_bytes.as_bytes())?;
-            let kwargs_py = unpickle_in_cpython(py, kwargs_bytes.as_bytes())?;
+            // Build args tuple in CPython
+            let args_list: Vec<pyo3::Bound<'_, pyo3::PyAny>> = converted_args
+                .iter()
+                .map(|arg| arg.to_pyo3(py))
+                .collect::<Result<Vec<_>, _>>()?;
+            let args_tuple = pyo3::types::PyTuple::new(py, &args_list)?;
+
+            // Build kwargs dict in CPython
+            let kwargs_dict = pyo3::types::PyDict::new(py);
+            for (k, v) in &converted_kwargs {
+                kwargs_dict.set_item(k, v.to_pyo3(py)?)?;
+            }
 
             // Call the object
-            let call_result = obj.call(args_py.downcast()?, Some(kwargs_py.downcast()?))?;
+            let call_result = obj.call(&args_tuple, Some(&kwargs_dict))?;
 
             Ok(create_pyo3_object(py, &call_result))
         })
@@ -588,9 +898,10 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     }
 
     /// Represents an object to be passed into CPython.
-    /// Either already a CPython object (Native) or pickled RustPython object (Pickled).
+    /// Either already a CPython object (Native/OwnedNative) or pickled RustPython object (Pickled).
     enum ToPyo3Ref<'a> {
         Native(&'a pyo3::Py<pyo3::PyAny>),
+        OwnedNative(pyo3::Py<pyo3::PyAny>),
         Pickled(PyRef<RustPyBytes>),
     }
 
@@ -601,6 +912,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         ) -> Result<pyo3::Bound<'py, pyo3::PyAny>, PyErr> {
             match self {
                 ToPyo3Ref::Native(obj) => Ok(obj.bind(py).clone()),
+                ToPyo3Ref::OwnedNative(obj) => Ok(obj.bind(py).clone()),
                 ToPyo3Ref::Pickled(bytes) => unpickle_in_cpython(py, bytes.as_bytes()),
             }
         }
@@ -608,12 +920,74 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
     /// Convert a RustPython object to ToPyo3Ref for passing into CPython
     fn to_pyo3_object<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<ToPyo3Ref<'a>> {
+        // Check if it's a Pyo3Ref
         if let Some(pyo3_obj) = obj.downcast_ref::<Pyo3Ref>() {
-            Ok(ToPyo3Ref::Native(&pyo3_obj.py_obj))
-        } else {
-            let pickled = rustpython_pickle_dumps(obj.to_owned(), vm)?;
-            Ok(ToPyo3Ref::Pickled(pickled))
+            return Ok(ToPyo3Ref::Native(&pyo3_obj.py_obj));
         }
+
+        // Check if it's a Pyo3Type (PyType with __pyo3_obj__ or __pyo3_subtype__)
+        if let Some(py_type) = obj.downcast_ref::<PyType>() {
+            // First check for __pyo3_obj__ (directly wrapped CPython types)
+            if let Some(pyo3_obj) = py_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+            {
+                let cloned = pyo3::Python::attach(|py| pyo3_ref.py_obj.clone_ref(py));
+                return Ok(ToPyo3Ref::OwnedNative(cloned));
+            }
+            // Then check for __pyo3_subtype__ (RustPython subclasses of CPython types)
+            if let Some(pyo3_obj) = py_type.get_attr(vm.ctx.intern_str(PYO3_SUBTYPE_ATTR))
+                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+            {
+                let cloned = pyo3::Python::attach(|py| pyo3_ref.py_obj.clone_ref(py));
+                return Ok(ToPyo3Ref::OwnedNative(cloned));
+            }
+            // Check if any base has __pyo3_obj__ - if so, create a subtype
+            if let Some(bases) = py_type.get_attr(vm.ctx.intern_str("__bases__"))
+                && let Some(bases_tuple) = bases.downcast_ref::<rustpython_vm::builtins::PyTuple>()
+            {
+                for base in bases_tuple.iter() {
+                    if let Some(base_type) = base.downcast_ref::<PyType>()
+                        && let Some(pyo3_obj) = base_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+                        && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+                    {
+                        // Create CPython subtype for this RustPython subclass
+                        let cpython_subtype = get_or_create_cpython_subtype(
+                            &py_type.to_owned(),
+                            &pyo3_ref.py_obj,
+                            vm,
+                        )?;
+                        return Ok(ToPyo3Ref::OwnedNative(cpython_subtype));
+                    }
+                }
+            }
+        }
+
+        // Check if it's a tuple containing Pyo3 objects
+        if let Some(tuple) = obj.downcast_ref::<rustpython_vm::builtins::PyTuple>() {
+            // Convert the tuple contents to CPython
+            let cpython_tuple =
+                pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+                    let items: Vec<pyo3::Bound<'_, pyo3::PyAny>> = tuple
+                        .iter()
+                        .map(|item| {
+                            let converted = to_pyo3_object(item, vm).map_err(|e| {
+                                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                                    "Failed to convert tuple item: {:?}",
+                                    e
+                                ))
+                            })?;
+                            converted.to_pyo3(py)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(pyo3::types::PyTuple::new(py, &items)?.into_any().unbind())
+                })
+                .map_err(|e| vm.new_runtime_error(format!("Failed to convert tuple: {}", e)))?;
+            return Ok(ToPyo3Ref::OwnedNative(cpython_tuple));
+        }
+
+        // Default: try to pickle
+        let pickled = rustpython_pickle_dumps(obj.to_owned(), vm)?;
+        Ok(ToPyo3Ref::Pickled(pickled))
     }
 
     /// Execute binary operation on CPython objects
