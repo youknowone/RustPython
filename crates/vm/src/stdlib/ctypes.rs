@@ -1,4 +1,5 @@
 // spell-checker:disable
+#![allow(dead_code)]
 
 mod array;
 mod base;
