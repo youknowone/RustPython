@@ -69,12 +69,11 @@ mod _pyo3 {
     use crossbeam_utils::atomic::AtomicCell;
     use pyo3::PyErr;
     use pyo3::prelude::PyAnyMethods;
-    use pyo3::types::PyCFunction;
     use pyo3::types::PyBytes as Pyo3Bytes;
     use pyo3::types::PyBytesMethods;
+    use pyo3::types::PyCFunction;
     use pyo3::types::PyDictMethods;
     use pyo3::types::PyTupleMethods;
-    use std::sync::Arc;
     use rustpython_vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
@@ -88,6 +87,7 @@ mod _pyo3 {
             PyComparisonOp, Representable, SetAttr,
         },
     };
+    use std::sync::Arc;
 
     /// Convert pyo3::PyErr to RustPython exception with proper type mapping.
     /// This preserves the original exception type from CPython instead of wrapping
@@ -1102,24 +1102,23 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Check if it's a list - convert each item recursively
         if let Some(list) = obj.downcast_ref::<rustpython_vm::builtins::PyList>() {
-            let cpython_list =
-                pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
-                    let items: Vec<pyo3::Bound<'_, pyo3::PyAny>> = list
-                        .borrow_vec()
-                        .iter()
-                        .map(|item| {
-                            let converted = to_pyo3_object(item, vm).map_err(|e| {
-                                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                                    "Failed to convert list item: {:?}",
-                                    e
-                                ))
-                            })?;
-                            converted.to_pyo3(py)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    Ok(pyo3::types::PyList::new(py, &items)?.into_any().unbind())
-                })
-                .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
+            let cpython_list = pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+                let items: Vec<pyo3::Bound<'_, pyo3::PyAny>> = list
+                    .borrow_vec()
+                    .iter()
+                    .map(|item| {
+                        let converted = to_pyo3_object(item, vm).map_err(|e| {
+                            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                                "Failed to convert list item: {:?}",
+                                e
+                            ))
+                        })?;
+                        converted.to_pyo3(py)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(pyo3::types::PyList::new(py, &items)?.into_any().unbind())
+            })
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
             return Ok(ToPyo3Ref::OwnedNative(cpython_list));
         }
 
@@ -1145,51 +1144,46 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         // Store the callable in an Arc so it can be moved into the closure
         let callable_arc: Arc<PyObjectRef> = Arc::new(callable.to_owned());
 
-        let cpython_wrapper =
-            pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
-                // Create a closure that captures the RustPython callable
-                let callable_clone = Arc::clone(&callable_arc);
-                let wrapper_fn = move |args: &pyo3::Bound<'_, pyo3::types::PyTuple>,
-                                       _kwargs: Option<&pyo3::Bound<'_, pyo3::types::PyDict>>|
-                      -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {
-                    // Access the current RustPython VM via thread-local storage
-                    // The VM should be set when RustPython code is executing
-                    let result = rustpython_vm::vm::thread::with_current_vm(|vm| {
-                        // Convert CPython args to RustPython
-                        let rp_args: Vec<PyObjectRef> = args
-                            .iter()
-                            .map(|arg| {
-                                let pyo3_ref = create_pyo3_object(args.py(), &arg);
-                                pyo3_to_rustpython(pyo3_ref, vm)
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-
-                        // Call the RustPython callable
-                        let call_result = callable_clone.call(rp_args, vm)?;
-
-                        // Convert RustPython result back to CPython
-                        let pyo3_result = to_pyo3_object(&call_result, vm)?;
-                        pyo3::Python::attach(|py| {
-                            pyo3_result
-                                .to_pyo3(py)
-                                .map(|bound| bound.unbind())
+        let cpython_wrapper = pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+            // Create a closure that captures the RustPython callable
+            let callable_clone = Arc::clone(&callable_arc);
+            let wrapper_fn = move |args: &pyo3::Bound<'_, pyo3::types::PyTuple>,
+                                   _kwargs: Option<&pyo3::Bound<'_, pyo3::types::PyDict>>|
+                  -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {
+                // Access the current RustPython VM via thread-local storage
+                // The VM should be set when RustPython code is executing
+                let result = rustpython_vm::vm::thread::with_current_vm(|vm| {
+                    // Convert CPython args to RustPython
+                    let rp_args: Vec<PyObjectRef> = args
+                        .iter()
+                        .map(|arg| {
+                            let pyo3_ref = create_pyo3_object(args.py(), &arg);
+                            pyo3_to_rustpython(pyo3_ref, vm)
                         })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    // Call the RustPython callable
+                    let call_result = callable_clone.call(rp_args, vm)?;
+
+                    // Convert RustPython result back to CPython
+                    let pyo3_result = to_pyo3_object(&call_result, vm)?;
+                    pyo3::Python::attach(|py| pyo3_result.to_pyo3(py).map(|bound| bound.unbind()))
                         .map_err(|e| pyo3_err_to_rustpython(e, vm))
-                    });
+                });
 
-                    result.map_err(|e| {
-                        pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                            "RustPython callback error: {:?}",
-                            e
-                        ))
-                    })
-                };
+                result.map_err(|e| {
+                    pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                        "RustPython callback error: {:?}",
+                        e
+                    ))
+                })
+            };
 
-                // Create the CPython function from the closure
-                let py_func = PyCFunction::new_closure(py, None, None, wrapper_fn)?;
-                Ok(py_func.into_any().unbind())
-            })
-            .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
+            // Create the CPython function from the closure
+            let py_func = PyCFunction::new_closure(py, None, None, wrapper_fn)?;
+            Ok(py_func.into_any().unbind())
+        })
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         Ok(ToPyo3Ref::OwnedNative(cpython_wrapper))
     }
