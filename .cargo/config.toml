@@ -6,3 +6,6 @@ rustflags = "-C link-args=-Wl,--stack,8000000"
 
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
+
+[target.x86_64-pc-windows-msvc]
+linker = "Z:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
