@@ -110,9 +110,11 @@ struct FileAttributeTagInfo {
     reparse_tag: u32,
 }
 
-/// Ported from CPython's attributes_to_mode (fileutils.c)
+/// Ported from attributes_to_mode (fileutils.c)
 fn attributes_to_mode(attr: u32) -> u16 {
-    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
+    };
     let mut m: u16 = 0;
     if attr & FILE_ATTRIBUTE_DIRECTORY != 0 {
         m |= S_IFDIR | 0o111; // IFEXEC for user,group,other
@@ -127,7 +129,7 @@ fn attributes_to_mode(attr: u32) -> u16 {
     m
 }
 
-/// Ported from CPython's _Py_attribute_data_to_stat (fileutils.c)
+/// Ported from _Py_attribute_data_to_stat (fileutils.c)
 /// Converts BY_HANDLE_FILE_INFORMATION to StatStruct
 fn attribute_data_to_stat(
     info: &windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
@@ -168,12 +170,18 @@ fn attribute_data_to_stat(
         (st_mtime, st_mtime_nsec) = large_integer_to_time(bi.LastWriteTime);
         (st_atime, st_atime_nsec) = large_integer_to_time(bi.LastAccessTime);
     } else {
-        (st_birthtime, st_birthtime_nsec) =
-            filetime_to_time(info.ftCreationTime.dwLowDateTime, info.ftCreationTime.dwHighDateTime);
-        (st_mtime, st_mtime_nsec) =
-            filetime_to_time(info.ftLastWriteTime.dwLowDateTime, info.ftLastWriteTime.dwHighDateTime);
-        (st_atime, st_atime_nsec) =
-            filetime_to_time(info.ftLastAccessTime.dwLowDateTime, info.ftLastAccessTime.dwHighDateTime);
+        (st_birthtime, st_birthtime_nsec) = filetime_to_time(
+            info.ftCreationTime.dwLowDateTime,
+            info.ftCreationTime.dwHighDateTime,
+        );
+        (st_mtime, st_mtime_nsec) = filetime_to_time(
+            info.ftLastWriteTime.dwLowDateTime,
+            info.ftLastWriteTime.dwHighDateTime,
+        );
+        (st_atime, st_atime_nsec) = filetime_to_time(
+            info.ftLastAccessTime.dwLowDateTime,
+            info.ftLastAccessTime.dwHighDateTime,
+        );
     }
 
     // Get file ID from id_info or fallback to file index
@@ -196,7 +204,7 @@ fn attribute_data_to_stat(
     }
 
     StatStruct {
-        st_dev: st_dev,
+        st_dev,
         st_ino,
         st_ino_high,
         st_mode,
@@ -219,7 +227,7 @@ fn attribute_data_to_stat(
 }
 
 /// Get file info using FindFirstFileW (fallback when CreateFileW fails)
-/// Ported from CPython's attributes_from_dir
+/// Ported from attributes_from_dir
 fn attributes_from_dir(
     path: &OsStr,
 ) -> std::io::Result<(
@@ -258,7 +266,7 @@ fn attributes_from_dir(
     Ok((info, reparse_tag))
 }
 
-/// Ported from CPython's win32_xstat_slow_impl
+/// Ported from win32_xstat_slow_impl
 fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::{
@@ -272,8 +280,8 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
             FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO,
             FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
             FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TYPE_CHAR,
-            FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileAttributeTagInfo,
-            FileBasicInfo, FileIdInfo, GetFileAttributesW, GetFileInformationByHandle,
+            FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileAttributeTagInfo, FileBasicInfo,
+            FileIdInfo, GetFileAttributesW, GetFileInformationByHandle,
             GetFileInformationByHandleEx, GetFileType, INVALID_FILE_ATTRIBUTES, OPEN_EXISTING,
         },
     };
@@ -313,10 +321,10 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
                 file_info = info;
                 tag_info.reparse_tag = reparse_tag;
 
-                if file_info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-                    if traverse || !is_reparse_tag_name_surrogate(tag_info.reparse_tag) {
-                        return Err(error);
-                    }
+                if file_info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+                    && (traverse || !is_reparse_tag_name_surrogate(tag_info.reparse_tag))
+                {
+                    return Err(error);
                 }
                 // h_file remains INVALID_HANDLE_VALUE, we'll use file_info from FindFirstFileW
             }
@@ -400,7 +408,8 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
                     )
                 };
                 if ret == 0 {
-                    let err_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32;
+                    let err_code =
+                        std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32;
                     match err_code {
                         ERROR_INVALID_PARAMETER | ERROR_INVALID_FUNCTION | ERROR_NOT_SUPPORTED => {
                             local_tag_info.file_attributes = FILE_ATTRIBUTE_NORMAL;
@@ -466,7 +475,11 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatSt
             let mut result = attribute_data_to_stat(
                 &file_info,
                 tag_info.reparse_tag,
-                if has_basic_info { Some(&basic_info) } else { None },
+                if has_basic_info {
+                    Some(&basic_info)
+                } else {
+                    None
+                },
                 if has_id_info { Some(&id_info) } else { None },
             );
             result.update_st_mode_from_path(path, file_info.dwFileAttributes);
@@ -518,6 +531,6 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
         }
     }
 
-    // Fallback to slow implementation (CPython-style)
+    // Fallback to slow implementation
     win32_xstat_slow_impl(path, traverse)
 }
