@@ -184,10 +184,10 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     /// Convert a Data struct into a PyStructSequence instance.
     fn from_data(data: Self::Data, vm: &VirtualMachine) -> PyTupleRef {
+        let tuple =
+            <Self::Data as ::rustpython_vm::types::PyStructSequenceData>::into_tuple(data, vm);
         let typ = Self::static_type();
-        data.into_tuple(vm)
-            .into_ref_with_type(vm, typ.to_owned())
-            .unwrap()
+        tuple.into_ref_with_type(vm, typ.to_owned()).unwrap()
     }
 
     #[pyslot]

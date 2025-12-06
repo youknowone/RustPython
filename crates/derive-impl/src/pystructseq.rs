@@ -447,6 +447,7 @@ pub(crate) fn impl_pystruct_sequence(
 
     let output = quote! {
         // The Python type struct - newtype wrapping PyTuple
+        #[derive(Debug)]
         #[repr(transparent)]
         #pytype_vis struct #pytype_ident(pub ::rustpython_vm::builtins::PyTuple);
 
@@ -526,6 +527,19 @@ pub(crate) fn impl_pystruct_sequence(
         // PyStructSequence trait for Python type
         impl ::rustpython_vm::types::PyStructSequence for #pytype_ident {
             type Data = #data_ident;
+
+            // fn from_data(data: Self::Data, vm: &::rustpython_vm::VirtualMachine) -> ::rustpython_vm::builtins::PyTupleRef {
+            //     let tuple = <Self::Data as ::rustpython_vm::types::PyStructSequenceData>::into_tuple(data, vm);
+            //     // Create Self(tuple) as the payload
+            //     let wrapped = #pytype_ident(tuple);
+            //     let result = ::rustpython_vm::PyRef::new_ref(
+            //         wrapped,
+            //         <Self as ::rustpython_vm::class::StaticType>::static_type().to_owned(),
+            //         None
+            //     );
+            //     // SAFETY: PyRef<Self> has same layout as PyRef<PyTuple> due to #[repr(transparent)]
+            //     unsafe { ::std::mem::transmute(result) }
+            // }
         }
 
         // ToPyObject for Data struct - uses PyStructSequence::from_data
