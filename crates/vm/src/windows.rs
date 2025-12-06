@@ -93,6 +93,44 @@ fn is_reparse_tag_name_surrogate(tag: u32) -> bool {
     (tag & 0x20000000) > 0
 }
 
+/// FILE_ATTRIBUTE_TAG_INFO structure for GetFileInformationByHandleEx
+#[repr(C)]
+struct FileAttributeTagInfo {
+    file_attributes: u32,
+    reparse_tag: u32,
+}
+
+/// Get file attributes and reparse tag by opening the file with FILE_FLAG_OPEN_REPARSE_POINT
+fn get_file_attribute_tag_info(path: &OsStr) -> std::io::Result<FileAttributeTagInfo> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, GetFileInformationByHandleEx,
+            FileAttributeTagInfo as FileAttributeTagInfoClass,
+        },
+    };
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+
+    let mut tag_info: FileAttributeTagInfo = unsafe { std::mem::zeroed() };
+    let ret = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle() as HANDLE,
+            FileAttributeTagInfoClass,
+            &mut tag_info as *mut _ as *mut _,
+            std::mem::size_of::<FileAttributeTagInfo>() as u32,
+        )
+    };
+    if ret == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(tag_info)
+}
+
 fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
     use windows_sys::Win32::{Foundation, Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT};
 
@@ -124,11 +162,14 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
         }
     }
 
-    // TODO: check if win32_xstat_slow_impl(&path, result, traverse) is required
-    meta_to_stat(
-        &crate::stdlib::os::fs_metadata(path, traverse)?,
-        file_id(path)?,
-    )
+    // Fallback: use slower method that properly detects symlinks
+    let meta = crate::stdlib::os::fs_metadata(path, traverse)?;
+    let tag_info = if !traverse {
+        get_file_attribute_tag_info(path).ok()
+    } else {
+        None
+    };
+    meta_to_stat(&meta, file_id(path)?, tag_info)
 }
 
 // Ported from zed: https://github.com/zed-industries/zed/blob/v0.131.6/crates/fs/src/fs.rs#L1532-L1562
@@ -159,24 +200,42 @@ fn file_id(path: &OsStr) -> std::io::Result<u64> {
     Ok(((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64))
 }
 
-fn meta_to_stat(meta: &std::fs::Metadata, file_id: u64) -> std::io::Result<StatStruct> {
+fn meta_to_stat(
+    meta: &std::fs::Metadata,
+    file_id: u64,
+    tag_info: Option<FileAttributeTagInfo>,
+) -> std::io::Result<StatStruct> {
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+    const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
+    const S_IFMT: u16 = libc::S_IFMT as u16;
+    const S_IFDIR: u16 = libc::S_IFDIR as u16;
+    const S_IFREG: u16 = libc::S_IFREG as u16;
+    const S_IFLNK: u16 = crate::common::fileutils::windows::S_IFLNK as u16;
+
     let st_mode = {
         // Based on CPython fileutils.c' attributes_to_mode
-        let mut m = 0;
+        let mut m: u16 = 0;
         if meta.is_dir() {
-            m |= libc::S_IFDIR | 0o111; /* IFEXEC for user,group,other */
+            m |= S_IFDIR | 0o111; /* IFEXEC for user,group,other */
         } else {
-            m |= libc::S_IFREG;
+            m |= S_IFREG;
         }
-        if meta.is_symlink() {
-            m |= 0o100000;
+        // Check for symlink using reparse tag info (more reliable than meta.is_symlink() on Windows)
+        if let Some(ref info) = tag_info {
+            if info.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+                && info.reparse_tag == IO_REPARSE_TAG_SYMLINK
+            {
+                m = (m & !S_IFMT) | S_IFLNK;
+            }
+        } else if meta.is_symlink() {
+            m = (m & !S_IFMT) | S_IFLNK;
         }
         if meta.permissions().readonly() {
             m |= 0o444;
         } else {
             m |= 0o666;
         }
-        m as _
+        m
     };
     let (atime, mtime, ctime) = (meta.accessed()?, meta.modified()?, meta.created()?);
     let sec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
@@ -187,6 +246,9 @@ fn meta_to_stat(meta: &std::fs::Metadata, file_id: u64) -> std::io::Result<StatS
         Ok(d) => d.subsec_nanos() as i32,
         Err(e) => -(e.duration().subsec_nanos() as i32),
     };
+    let (st_file_attributes, st_reparse_tag) = tag_info
+        .map(|info| (info.file_attributes, info.reparse_tag))
+        .unwrap_or((0, 0));
     Ok(StatStruct {
         st_dev: 0,
         st_ino: file_id,
@@ -201,6 +263,8 @@ fn meta_to_stat(meta: &std::fs::Metadata, file_id: u64) -> std::io::Result<StatS
         st_atime_nsec: nsec(atime),
         st_mtime_nsec: nsec(mtime),
         st_birthtime_nsec: nsec(ctime),
+        st_file_attributes,
+        st_reparse_tag,
         ..Default::default()
     })
 }
