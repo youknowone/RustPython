@@ -475,6 +475,15 @@ pub(crate) mod module {
         Ok(())
     }
 
+    unsafe extern "C" {
+        fn _umask(mask: i32) -> i32;
+    }
+
+    #[pyfunction]
+    fn umask(mask: i32) -> i32 {
+        unsafe { _umask(mask) }
+    }
+
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
