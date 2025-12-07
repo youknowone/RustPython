@@ -24,16 +24,23 @@ pub fn last_os_error() -> io::Error {
     let err = io::Error::last_os_error();
     // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
     if err.raw_os_error() == Some(0) {
-        unsafe extern "C" {
-            fn _get_errno(pValue: *mut i32) -> i32;
-        }
-        let mut errno = 0;
-        unsafe { suppress_iph!(_get_errno(&mut errno)) };
-        let errno = errno_to_winerror(errno);
-        io::Error::from_raw_os_error(errno)
+        last_crt_error()
     } else {
         err
     }
+}
+
+/// Get the last error from C runtime library functions (like _dup, _dup2, _fstat, etc.)
+/// CRT functions set errno, not GetLastError(), so we need to read errno directly.
+#[cfg(windows)]
+pub fn last_crt_error() -> io::Error {
+    unsafe extern "C" {
+        fn _get_errno(pValue: *mut i32) -> i32;
+    }
+    let mut errno = 0;
+    unsafe { suppress_iph!(_get_errno(&mut errno)) };
+    let winerror = errno_to_winerror(errno);
+    io::Error::from_raw_os_error(winerror)
 }
 
 #[cfg(not(windows))]
