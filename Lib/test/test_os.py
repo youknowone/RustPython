@@ -2193,7 +2193,6 @@ class ExecTests(unittest.TestCase):
         self.assertRaises(ValueError, os.execv, 'notepad', ('',))
         self.assertRaises(ValueError, os.execv, 'notepad', [''])
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.execve not implemented yet for all platforms')
     def test_execvpe_with_bad_arglist(self):
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], None)
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], {})
@@ -2253,7 +2252,6 @@ class ExecTests(unittest.TestCase):
         if os.name != "nt":
             self._test_internal_execvpe(bytes)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.execve not implemented yet for all platforms')
     def test_execve_invalid_env(self):
         args = [sys.executable, '-c', 'pass']
 
@@ -2275,7 +2273,6 @@ class ExecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             os.execve(args[0], args, newenv)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.execve not implemented yet for all platforms')
     @unittest.skipUnless(sys.platform == "win32", "Win32-specific test")
     def test_execve_with_empty_path(self):
         # bpo-32890: Check GetLastError() misuse

@@ -263,7 +263,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn spawnv(
         mode: i32,
-        path: PyStrRef,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
@@ -272,7 +272,7 @@ pub(crate) mod module {
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
-        let path = make_widestring(path.as_str())?;
+        let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
@@ -305,7 +305,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn spawnve(
         mode: i32,
-        path: PyStrRef,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         env: PyDictRef,
         vm: &VirtualMachine,
@@ -315,7 +315,7 @@ pub(crate) mod module {
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
-        let path = make_widestring(path.as_str())?;
+        let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
@@ -341,7 +341,19 @@ pub(crate) mod module {
         for (key, value) in env.into_iter() {
             let key = PyStrRef::try_from_object(vm, key)?;
             let value = PyStrRef::try_from_object(vm, value)?;
-            let env_str = format!("{}={}", key.as_str(), value.as_str());
+            let key_str = key.as_str();
+            let value_str = value.as_str();
+
+            // Validate: no null characters in key or value
+            if key_str.contains('\0') || value_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            // Validate: no '=' in key
+            if key_str.contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+
+            let env_str = format!("{}={}", key_str, value_str);
             env_strings.push(make_widestring(&env_str)?);
         }
 
@@ -369,7 +381,7 @@ pub(crate) mod module {
     #[cfg(target_env = "msvc")]
     #[pyfunction]
     fn execv(
-        path: PyStrRef,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -378,7 +390,7 @@ pub(crate) mod module {
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
-        let path = make_widestring(path.as_str())?;
+        let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
@@ -409,7 +421,7 @@ pub(crate) mod module {
     #[cfg(target_env = "msvc")]
     #[pyfunction]
     fn execve(
-        path: PyStrRef,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         env: PyDictRef,
         vm: &VirtualMachine,
@@ -419,7 +431,7 @@ pub(crate) mod module {
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
-        let path = make_widestring(path.as_str())?;
+        let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
@@ -445,7 +457,19 @@ pub(crate) mod module {
         for (key, value) in env.into_iter() {
             let key = PyStrRef::try_from_object(vm, key)?;
             let value = PyStrRef::try_from_object(vm, value)?;
-            let env_str = format!("{}={}", key.as_str(), value.as_str());
+            let key_str = key.as_str();
+            let value_str = value.as_str();
+
+            // Validate: no null characters in key or value
+            if key_str.contains('\0') || value_str.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            // Validate: no '=' in key
+            if key_str.contains('=') {
+                return Err(vm.new_value_error("illegal environment variable name"));
+            }
+
+            let env_str = format!("{}={}", key_str, value_str);
             env_strings.push(make_widestring(&env_str)?);
         }
 
