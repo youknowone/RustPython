@@ -35,7 +35,15 @@ pub type Raw = i32;
 #[inline]
 fn cvt<I: num_traits::PrimInt>(ret: I) -> io::Result<I> {
     if ret < I::zero() {
-        Err(crate::os::last_os_error())
+        // CRT functions set errno, not GetLastError(), so use last_crt_error on Windows
+        #[cfg(windows)]
+        {
+            Err(crate::os::last_crt_error())
+        }
+        #[cfg(not(windows))]
+        {
+            Err(crate::os::last_os_error())
+        }
     } else {
         Ok(ret)
     }
@@ -345,7 +353,8 @@ pub fn as_handle(fd: Borrowed<'_>) -> io::Result<BorrowedHandle<'_>> {
     }
     let handle = unsafe { suppress_iph!(_get_osfhandle(fd)) };
     if handle as HANDLE == INVALID_HANDLE_VALUE {
-        Err(crate::os::last_os_error())
+        // _get_osfhandle is a CRT function that sets errno, not GetLastError()
+        Err(crate::os::last_crt_error())
     } else {
         Ok(unsafe { BorrowedHandle::borrow_raw(handle as _) })
     }

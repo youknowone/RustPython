@@ -21,6 +21,13 @@ pub(crate) mod module {
         ospath::OsPath,
         stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, errno_err},
     };
+
+    /// Convert the error stored in the C runtime `errno` variable into an Exception.
+    /// Use this for CRT functions like _dup, _dup2, _fstat, etc. which set errno, not GetLastError().
+    #[inline]
+    fn crt_err(vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
+        crate::common::os::last_crt_error().to_pyexception(vm)
+    }
     use libc::intptr_t;
     use std::os::windows::io::AsRawHandle;
     use std::{
@@ -497,7 +504,7 @@ pub(crate) mod module {
     fn dup(fd: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let fd2 = unsafe { suppress_iph!(_dup(fd)) };
         if fd2 < 0 {
-            return Err(errno_err(vm));
+            return Err(crt_err(vm));
         }
         // Set the new fd as non-inheritable
         let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd2) };
@@ -521,7 +528,7 @@ pub(crate) mod module {
     fn dup2(args: Dup2Args, vm: &VirtualMachine) -> PyResult<i32> {
         let result = unsafe { suppress_iph!(_dup2(args.fd, args.fd2)) };
         if result < 0 {
-            return Err(errno_err(vm));
+            return Err(crt_err(vm));
         }
         if !args.inheritable {
             let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(args.fd2) };
