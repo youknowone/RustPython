@@ -42,7 +42,31 @@ pub(crate) mod module {
     };
 
     #[pyattr]
-    use libc::{O_BINARY, O_TEMPORARY};
+    use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+
+    // Windows spawn mode constants
+    #[pyattr]
+    const P_WAIT: i32 = 0;
+    #[pyattr]
+    const P_NOWAIT: i32 = 1;
+    #[pyattr]
+    const P_OVERLAY: i32 = 2;
+    #[pyattr]
+    const P_NOWAITO: i32 = 3;
+    #[pyattr]
+    const P_DETACH: i32 = 4;
+
+    // _O_SHORT_LIVED is not in libc, define manually
+    #[pyattr]
+    const O_SHORT_LIVED: i32 = 0x1000;
+
+    // Exit code constant
+    #[pyattr]
+    const EX_OK: i32 = 0;
+
+    // Maximum number of temporary files
+    #[pyattr]
+    const TMP_MAX: i32 = i32::MAX;
 
     #[pyattr]
     use windows_sys::Win32::System::LibraryLoader::{
@@ -221,6 +245,49 @@ pub(crate) mod module {
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
         fn _wexecv(cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+        fn _wspawnv(mode: i32, cmdname: *const u16, argv: *const *const u16) -> intptr_t;
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn spawnv(
+        mode: i32,
+        path: PyStrRef,
+        argv: Either<PyListRef, PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<intptr_t> {
+        use std::iter::once;
+
+        let make_widestring =
+            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
+
+        let path = make_widestring(path.as_str())?;
+
+        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+            let arg = PyStrRef::try_from_object(vm, obj)?;
+            make_widestring(arg.as_str())
+        })?;
+
+        let first = argv
+            .first()
+            .ok_or_else(|| vm.new_value_error("spawnv() arg 3 must not be empty"))?;
+
+        if first.is_empty() {
+            return Err(vm.new_value_error("spawnv() arg 3 first element cannot be empty"));
+        }
+
+        let argv_spawn: Vec<*const u16> = argv
+            .iter()
+            .map(|v| v.as_ptr())
+            .chain(once(std::ptr::null()))
+            .collect();
+
+        let result = unsafe { suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_spawn.as_ptr())) };
+        if result == -1 {
+            Err(errno_err(vm))
+        } else {
+            Ok(result)
+        }
     }
 
     #[cfg(target_env = "msvc")]
