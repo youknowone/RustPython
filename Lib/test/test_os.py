@@ -3415,7 +3415,6 @@ class PidTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             os.waitstatus_to_exitcode(0.0)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.spawnv not implemented yet for all platforms')
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_waitpid_windows(self):
         # bpo-40138: test os.waitpid() and os.waitstatus_to_exitcode()

@@ -169,19 +169,22 @@ pub(crate) mod module {
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
-        let mut status = 0;
+    fn waitpid(pid: intptr_t, opt: i32, vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
+        let mut status: i32 = 0;
         let pid = unsafe { suppress_iph!(_cwait(&mut status, pid, opt)) };
         if pid == -1 {
             Err(errno_err(vm))
         } else {
-            Ok((pid, status << 8))
+            // Cast to unsigned to handle large exit codes (like 0xC000013A)
+            // then shift left by 8 to match POSIX waitpid format
+            let ustatus = (status as u32) as u64;
+            Ok((pid, ustatus << 8))
         }
     }
 
     #[cfg(target_env = "msvc")]
     #[pyfunction]
-    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, i32)> {
+    fn wait(vm: &VirtualMachine) -> PyResult<(intptr_t, u64)> {
         waitpid(-1, 0, vm)
     }
 
@@ -233,7 +236,29 @@ pub(crate) mod module {
         let mut csbi = MaybeUninit::uninit();
         let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
         if ret == 0 {
-            return Err(errno_err(vm));
+            // If the handle doesn't have read access (e.g., conout$ opened with 'w'),
+            // try opening CONOUT$ directly with read access like CPython does
+            let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+            let console_handle = unsafe {
+                FileSystem::CreateFileW(
+                    conout.as_ptr(),
+                    Foundation::GENERIC_READ | Foundation::GENERIC_WRITE,
+                    FileSystem::FILE_SHARE_READ | FileSystem::FILE_SHARE_WRITE,
+                    std::ptr::null(),
+                    FileSystem::OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                )
+            };
+            if console_handle == INVALID_HANDLE_VALUE {
+                return Err(errno_err(vm));
+            }
+            let ret =
+                unsafe { Console::GetConsoleScreenBufferInfo(console_handle, csbi.as_mut_ptr()) };
+            unsafe { Foundation::CloseHandle(console_handle) };
+            if ret == 0 {
+                return Err(errno_err(vm));
+            }
         }
         let csbi = unsafe { csbi.assume_init() };
         let w = csbi.srWindow;
@@ -791,10 +816,47 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn mkdir(args: MkdirArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{
+            ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        };
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+
         let [] = args.dir_fd.0;
-        let _ = args.mode; // mode is ignored on Windows
         let wide = args.path.to_wide_cstring(vm)?;
-        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+
+        // CPython special case: mode 0o700 sets a protected ACL
+        let res = if args.mode == 0o700 {
+            let mut sec_attr = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: std::ptr::null_mut(),
+                bInheritHandle: 0,
+            };
+            // Set a discretionary ACL (D) that is protected (P) and includes
+            // inheritable (OICI) entries that allow (A) full control (FA) to
+            // SYSTEM (SY), Administrators (BA), and the owner (OW).
+            let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\0"
+                .encode_utf16()
+                .collect();
+            let convert_result = unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    SDDL_REVISION_1,
+                    &mut sec_attr.lpSecurityDescriptor,
+                    std::ptr::null_mut(),
+                )
+            };
+            if convert_result == 0 {
+                return Err(errno_err(vm));
+            }
+            let res =
+                unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), &sec_attr as *const _ as _) };
+            unsafe { LocalFree(sec_attr.lpSecurityDescriptor) };
+            res
+        } else {
+            unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) }
+        };
+
         if res == 0 {
             return Err(errno_err(vm));
         }
