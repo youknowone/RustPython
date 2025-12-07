@@ -919,7 +919,6 @@ class UtimeTests(unittest.TestCase):
             os.utime(self.fname, None)
         self._test_utime_current(set_time)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_utime_nonexistent(self):
         now = time.time()
         filename = 'nonexistent'
@@ -1153,7 +1152,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
             self.assertEqual(proc.stdout.rstrip(), repr(None))
 
     # On OS X < 10.6, unsetenv() doesn't return a value (bpo-13415).
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (AssertionError: ValueError not raised by putenv)')
     @support.requires_mac_ver(10, 6)
     def test_putenv_unsetenv_error(self):
         # Empty variable name is invalid.

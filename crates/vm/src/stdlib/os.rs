@@ -446,6 +446,13 @@ pub(super) mod _os {
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
+        // On Windows, environment variable is limited to 32767 characters
+        #[cfg(windows)]
+        if key.len() + value.len() + 2 > 32767 {
+            return Err(
+                vm.new_value_error("the environment variable is longer than 32767 characters")
+            );
+        }
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
@@ -467,6 +474,13 @@ pub(super) mod _os {
                     std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
                 ),
             ));
+        }
+        // On Windows, environment variable is limited to 32767 characters
+        #[cfg(windows)]
+        if key.len() >= 32767 {
+            return Err(
+                vm.new_value_error("the environment variable is longer than 32767 characters")
+            );
         }
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
@@ -1256,15 +1270,19 @@ pub(super) mod _os {
             let f = OpenOptions::new()
                 .write(true)
                 .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
-                .open(path)
-                .map_err(|err| err.into_pyexception(vm))?;
+                .open(&path)
+                .map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
                 FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {
-                Err(io::Error::last_os_error().into_pyexception(vm))
+                Err(IOErrorBuilder::with_filename(
+                    &io::Error::last_os_error(),
+                    path,
+                    vm,
+                ))
             } else {
                 Ok(())
             }
