@@ -225,10 +225,190 @@ mod _codecs {
         }};
     }
 
+    #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct MbcsEncodeArgs {
+        #[pyarg(positional)]
+        s: PyStrRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Globalization::{
+            CP_ACP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
+        };
+
+        let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let s = args.s.as_str();
+        let char_len = args.s.char_len();
+
+        if s.is_empty() {
+            return Ok((Vec::new(), char_len));
+        }
+
+        // Convert UTF-8 string to UTF-16
+        let wide: Vec<u16> = std::ffi::OsStr::new(s).encode_wide().collect();
+
+        // Get the required buffer size
+        let size = unsafe {
+            WideCharToMultiByte(
+                CP_ACP,
+                WC_NO_BEST_FIT_CHARS,
+                wide.as_ptr(),
+                wide.len() as i32,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if size == 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(vm.new_os_error(format!("mbcs_encode failed: {}", err)));
+        }
+
+        let mut buffer = vec![0u8; size as usize];
+        let mut used_default_char: i32 = 0;
+
+        let result = unsafe {
+            WideCharToMultiByte(
+                CP_ACP,
+                WC_NO_BEST_FIT_CHARS,
+                wide.as_ptr(),
+                wide.len() as i32,
+                buffer.as_mut_ptr().cast(),
+                size,
+                std::ptr::null(),
+                if errors == "strict" {
+                    &mut used_default_char
+                } else {
+                    std::ptr::null_mut()
+                },
+            )
+        };
+
+        if result == 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(vm.new_os_error(format!("mbcs_encode failed: {}", err)));
+        }
+
+        if errors == "strict" && used_default_char != 0 {
+            return Err(vm.new_unicode_encode_error(
+                "'mbcs' codec can't encode characters: invalid character".to_string(),
+            ));
+        }
+
+        buffer.truncate(result as usize);
+        Ok((buffer, char_len))
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction]
     fn mbcs_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(mbcs_encode, args, vm)
     }
+
+    #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct MbcsDecodeArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, optional)]
+        errors: Option<PyStrRef>,
+        #[pyarg(positional, default = false)]
+        #[allow(dead_code)]
+        r#final: bool,
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn mbcs_decode(args: MbcsDecodeArgs, vm: &VirtualMachine) -> PyResult<(String, usize)> {
+        use windows_sys::Win32::Globalization::{
+            CP_ACP, MB_ERR_INVALID_CHARS, MultiByteToWideChar,
+        };
+
+        let _errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let data = args.data.borrow_buf();
+        let len = data.len();
+
+        if data.is_empty() {
+            return Ok((String::new(), 0));
+        }
+
+        // Get the required buffer size for UTF-16
+        let size = unsafe {
+            MultiByteToWideChar(
+                CP_ACP,
+                MB_ERR_INVALID_CHARS,
+                data.as_ptr().cast(),
+                len as i32,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+
+        if size == 0 {
+            // Try without MB_ERR_INVALID_CHARS for non-strict mode
+            let size = unsafe {
+                MultiByteToWideChar(
+                    CP_ACP,
+                    0,
+                    data.as_ptr().cast(),
+                    len as i32,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if size == 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
+            }
+        }
+
+        let size = unsafe {
+            MultiByteToWideChar(
+                CP_ACP,
+                0, // Use 0 flags for replacement behavior
+                data.as_ptr().cast(),
+                len as i32,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+
+        let mut buffer = vec![0u16; size as usize];
+
+        let result = unsafe {
+            MultiByteToWideChar(
+                CP_ACP,
+                0,
+                data.as_ptr().cast(),
+                len as i32,
+                buffer.as_mut_ptr(),
+                size,
+            )
+        };
+
+        if result == 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
+        }
+
+        buffer.truncate(result as usize);
+
+        // Convert UTF-16 to UTF-8 String
+        let s = String::from_utf16(&buffer)
+            .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {}", e)))?;
+
+        Ok((s, len))
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction]
     fn mbcs_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(mbcs_decode, args, vm)
