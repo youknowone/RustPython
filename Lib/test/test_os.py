@@ -2090,7 +2090,6 @@ class URandomFDTests(unittest.TestCase):
             """
         assert_python_ok('-c', code)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; on Windows (ModuleNotFoundError: No module named 'os')")
     def test_urandom_fd_closed(self):
         # Issue #21207: urandom() should reopen its fd to /dev/urandom if
         # closed.
@@ -2105,7 +2104,6 @@ class URandomFDTests(unittest.TestCase):
             """
         rc, out, err = assert_python_ok('-Sc', code)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; (ModuleNotFoundError: No module named 'os'")
     def test_urandom_fd_reopened(self):
         # Issue #21207: urandom() should detect its fd to /dev/urandom
         # changed to something else, and reopen it.
