@@ -1227,8 +1227,8 @@ pub(super) mod _os {
             let [] = dir_fd.0;
 
             let ft = |d: Duration| {
-                let intervals =
-                    ((d.as_secs() as i64 + 11644473600) * 10_000_000) + (d.as_nanos() as i64 / 100);
+                let intervals = ((d.as_secs() as i64 + 11644473600) * 10_000_000)
+                    + (d.subsec_nanos() as i64 / 100);
                 FILETIME {
                     dwLowDateTime: intervals as DWORD,
                     dwHighDateTime: (intervals >> 32) as DWORD,
