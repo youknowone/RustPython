@@ -1796,7 +1796,6 @@ class MakedirTests(unittest.TestCase):
                 self.assertEqual(os.stat(path).st_mode & 0o777, 0o555)
                 self.assertEqual(os.stat(parent).st_mode & 0o777, 0o775)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.umask not implemented yet for all platforms')
     @unittest.skipIf(
         support.is_emscripten or support.is_wasi,
         "Emscripten's/WASI's umask is a stub."
@@ -1815,7 +1814,6 @@ class MakedirTests(unittest.TestCase):
         # Issue #25583: A drive root could raise PermissionError on Windows
         os.makedirs(os.path.abspath('/'), exist_ok=True)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.umask not implemented yet for all platforms')
     @unittest.skipIf(
         support.is_emscripten or support.is_wasi,
         "Emscripten's/WASI's umask is a stub."
@@ -3440,7 +3438,6 @@ class PidTests(unittest.TestCase):
         code = f'import _winapi; _winapi.ExitProcess({STATUS_CONTROL_C_EXIT})'
         self.check_waitpid(code, exitcode=STATUS_CONTROL_C_EXIT)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (OverflowError: Python int too large to convert to Rust i32)')
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_waitstatus_to_exitcode_windows(self):
         max_exitcode = 2 ** 32 - 1
