@@ -525,17 +525,17 @@ pub(super) mod _os {
             Ok(self.mode.process_path(&self.pathval, vm))
         }
 
-        fn perform_on_metadata(
-            &self,
-            follow_symlinks: FollowSymlinks,
-            action: fn(fs::Metadata) -> bool,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
+        #[pymethod]
+        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
-                Ok(meta) => Ok(action(meta)),
+                Ok(meta) => Ok(meta.is_dir()),
                 Err(e) => {
-                    // FileNotFoundError is caught and not raised
                     if e.kind() == io::ErrorKind::NotFound {
+                        // On Windows, use cached file_type when file is removed
+                        #[cfg(windows)]
+                        if let Ok(file_type) = &self.file_type {
+                            return Ok(file_type.is_dir());
+                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
@@ -545,21 +545,22 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            self.perform_on_metadata(
-                follow_symlinks,
-                |meta: fs::Metadata| -> bool { meta.is_dir() },
-                vm,
-            )
-        }
-
-        #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            self.perform_on_metadata(
-                follow_symlinks,
-                |meta: fs::Metadata| -> bool { meta.is_file() },
-                vm,
-            )
+            match super::fs_metadata(&self.pathval, follow_symlinks.0) {
+                Ok(meta) => Ok(meta.is_file()),
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        // On Windows, use cached file_type when file is removed
+                        #[cfg(windows)]
+                        if let Ok(file_type) = &self.file_type {
+                            return Ok(file_type.is_file());
+                        }
+                        Ok(false)
+                    } else {
+                        Err(e.into_pyexception(vm))
+                    }
+                }
+            }
         }
 
         #[pymethod]
@@ -736,13 +737,32 @@ pub(super) mod _os {
                             #[cfg(not(unix))]
                             let ino = None;
 
+                            let pathval = entry.path();
+
+                            // On Windows, pre-cache lstat from directory entry metadata
+                            // This allows stat() to return cached data even if file is removed
+                            #[cfg(windows)]
+                            let lstat = {
+                                let cell = OnceCell::new();
+                                if let Ok(stat_struct) =
+                                    crate::windows::win32_xstat(pathval.as_os_str(), false)
+                                {
+                                    let stat_obj =
+                                        StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
+                                    let _ = cell.set(stat_obj);
+                                }
+                                cell
+                            };
+                            #[cfg(not(windows))]
+                            let lstat = OnceCell::new();
+
                             Ok(PyIterReturn::Return(
                                 DirEntry {
                                     file_name: entry.file_name(),
-                                    pathval: entry.path(),
+                                    pathval,
                                     file_type: entry.file_type(),
                                     mode: zelf.mode,
-                                    lstat: OnceCell::new(),
+                                    lstat,
                                     stat: OnceCell::new(),
                                     ino: AtomicCell::new(ino),
                                 }
