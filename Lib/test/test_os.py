@@ -714,7 +714,6 @@ class StatAttributeTests(unittest.TestCase):
         self.assertTrue(isinstance(result.st_file_attributes, int))
         self.assertTrue(0 <= result.st_file_attributes <= 0xFFFFFFFF)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.stat return value doesnt have st_file_attributes attribute')
     @unittest.skipUnless(sys.platform == "win32",
                          "st_file_attributes is Win32 specific")
     def test_file_attributes(self):
@@ -952,7 +951,6 @@ class UtimeTests(unittest.TestCase):
         os.utime(self.fname, (large, large))
         self.assertEqual(os.stat(self.fname).st_mtime, large)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; (AssertionError: NotImplementedError not raised)')
     def test_utime_invalid_arguments(self):
         # seconds and nanoseconds parameters are mutually exclusive
         with self.assertRaises(ValueError):
