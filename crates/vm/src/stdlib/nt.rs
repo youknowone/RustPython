@@ -187,32 +187,34 @@ pub(crate) mod module {
         fd: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<_os::TerminalSizeData> {
-        let (columns, lines) = {
-            let stdhandle = match fd {
-                OptionalArg::Present(0) => Console::STD_INPUT_HANDLE,
-                OptionalArg::Present(1) | OptionalArg::Missing => Console::STD_OUTPUT_HANDLE,
-                OptionalArg::Present(2) => Console::STD_ERROR_HANDLE,
-                _ => return Err(vm.new_value_error("bad file descriptor")),
-            };
-            let h = unsafe { Console::GetStdHandle(stdhandle) };
-            if h.is_null() {
-                return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
+        let fd = fd.unwrap_or(1); // default to stdout
+
+        // For standard streams, use GetStdHandle which returns proper console handles
+        // For other fds, use _get_osfhandle to convert
+        let h = match fd {
+            0 => unsafe { Console::GetStdHandle(Console::STD_INPUT_HANDLE) },
+            1 => unsafe { Console::GetStdHandle(Console::STD_OUTPUT_HANDLE) },
+            2 => unsafe { Console::GetStdHandle(Console::STD_ERROR_HANDLE) },
+            _ => {
+                let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+                let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
+                handle.as_raw_handle() as _
             }
-            if h == INVALID_HANDLE_VALUE {
-                return Err(errno_err(vm));
-            }
-            let mut csbi = MaybeUninit::uninit();
-            let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
-            let csbi = unsafe { csbi.assume_init() };
-            if ret == 0 {
-                return Err(errno_err(vm));
-            }
-            let w = csbi.srWindow;
-            (
-                (w.Right - w.Left + 1) as usize,
-                (w.Bottom - w.Top + 1) as usize,
-            )
         };
+
+        if h.is_null() || h == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
+
+        let mut csbi = MaybeUninit::uninit();
+        let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
+        if ret == 0 {
+            return Err(errno_err(vm));
+        }
+        let csbi = unsafe { csbi.assume_init() };
+        let w = csbi.srWindow;
+        let columns = (w.Right - w.Left + 1) as usize;
+        let lines = (w.Bottom - w.Top + 1) as usize;
         Ok(_os::TerminalSizeData { columns, lines })
     }
 
@@ -460,6 +462,87 @@ pub(crate) mod module {
             .map(|drive| vm.new_pyobj(String::from_utf16_lossy(drive)))
             .collect();
         Ok(vm.ctx.new_list(drives))
+    }
+
+    #[pyfunction]
+    fn listvolumes(vm: &VirtualMachine) -> PyResult<PyListRef> {
+        use windows_sys::Win32::Foundation::ERROR_NO_MORE_FILES;
+
+        let mut result = Vec::new();
+        let mut buffer = [0u16; Foundation::MAX_PATH as usize + 1];
+
+        let find = unsafe { FileSystem::FindFirstVolumeW(buffer.as_mut_ptr(), buffer.len() as _) };
+        if find == INVALID_HANDLE_VALUE {
+            return Err(errno_err(vm));
+        }
+
+        loop {
+            // Find the null terminator
+            let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+            let volume = String::from_utf16_lossy(&buffer[..len]);
+            result.push(vm.new_pyobj(volume));
+
+            let ret = unsafe {
+                FileSystem::FindNextVolumeW(find, buffer.as_mut_ptr(), buffer.len() as _)
+            };
+            if ret == 0 {
+                let err = io::Error::last_os_error();
+                unsafe { FileSystem::FindVolumeClose(find) };
+                if err.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+                    break;
+                }
+                return Err(err.to_pyexception(vm));
+            }
+        }
+
+        Ok(vm.ctx.new_list(result))
+    }
+
+    #[pyfunction]
+    fn listmounts(volume: OsPath, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
+
+        let wide = volume.to_wide_cstring(vm)?;
+        let mut buflen: u32 = Foundation::MAX_PATH + 1;
+        let mut buffer: Vec<u16> = vec![0; buflen as usize];
+
+        loop {
+            let success = unsafe {
+                FileSystem::GetVolumePathNamesForVolumeNameW(
+                    wide.as_ptr(),
+                    buffer.as_mut_ptr(),
+                    buflen,
+                    &mut buflen,
+                )
+            };
+            if success != 0 {
+                break;
+            }
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(ERROR_MORE_DATA as i32) {
+                buffer.resize(buflen as usize, 0);
+                continue;
+            }
+            return Err(err.to_pyexception(vm));
+        }
+
+        // Parse null-separated strings
+        let mut result = Vec::new();
+        let mut start = 0;
+        for (i, &c) in buffer.iter().enumerate() {
+            if c == 0 {
+                if i > start {
+                    let mount = String::from_utf16_lossy(&buffer[start..i]);
+                    result.push(vm.new_pyobj(mount));
+                }
+                start = i + 1;
+                if start < buffer.len() && buffer[start] == 0 {
+                    break; // Double null = end
+                }
+            }
+        }
+
+        Ok(vm.ctx.new_list(result))
     }
 
     #[pyfunction]
