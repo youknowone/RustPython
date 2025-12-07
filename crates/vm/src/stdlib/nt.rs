@@ -471,17 +471,21 @@ pub(crate) mod module {
         raw_set_handle_inheritable(handle, inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
-    #[pyfunction]
-    fn mkdir(
+    #[derive(FromArgs)]
+    struct MkdirArgs<'a> {
+        #[pyarg(any)]
         path: OsPath,
-        mode: OptionalArg<i32>,
-        dir_fd: DirFd<'_, { _os::MKDIR_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let mode = mode.unwrap_or(0o777);
-        let [] = dir_fd.0;
-        let _ = mode;
-        let wide = path.to_wide_cstring(vm)?;
+        #[pyarg(any, default = 0o777)]
+        mode: i32,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, { _os::MKDIR_DIR_FD as usize }>,
+    }
+
+    #[pyfunction]
+    fn mkdir(args: MkdirArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = args.dir_fd.0;
+        let _ = args.mode; // mode is ignored on Windows
+        let wide = args.path.to_wide_cstring(vm)?;
         let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
         if res == 0 {
             return Err(errno_err(vm));

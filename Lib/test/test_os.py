@@ -736,7 +736,6 @@ class StatAttributeTests(unittest.TestCase):
             result.st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY,
             stat.FILE_ATTRIBUTE_DIRECTORY)
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.stat (PermissionError: [Errno 5] Access is denied.)')
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_access_denied(self):
         # Default to FindFirstFile WIN32_FIND_DATA when access is
@@ -759,7 +758,6 @@ class StatAttributeTests(unittest.TestCase):
         self.assertNotEqual(result.st_size, 0)
         self.assertTrue(os.path.isfile(fname))
 
-    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON; os.stat (PermissionError: [Errno 1] Incorrect function.)')
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_stat_block_device(self):
         # bpo-38030: os.stat fails for block devices
