@@ -13,9 +13,28 @@ pub enum FsPath {
     Bytes(PyBytesRef),
 }
 
+/// Controls which error message format to use when path conversion fails.
+/// CPython uses different error messages depending on the context.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FsPathErrorFormat {
+    /// "expected str, bytes or os.PathLike object, not {}" - used by os.fspath and open()
+    OsFspath,
+    /// "should be string, bytes or os.PathLike, not {}" - used by path arguments (os.rename, etc.)
+    PathArg,
+}
+
 impl FsPath {
     // PyOS_FSPath in CPython
     pub fn try_from(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<Self> {
+        Self::try_from_ext(obj, check_for_nul, FsPathErrorFormat::OsFspath, vm)
+    }
+
+    pub fn try_from_ext(
+        obj: PyObjectRef,
+        check_for_nul: bool,
+        error_format: FsPathErrorFormat,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         let check_nul = |b: &[u8]| {
             if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
                 Ok(())
@@ -41,13 +60,29 @@ impl FsPath {
             Ok(pathlike) => return Ok(pathlike),
             Err(obj) => obj,
         };
-        let method =
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __fspath__), || {
+        let not_pathlike_error = || match error_format {
+            FsPathErrorFormat::OsFspath => {
                 format!(
-                    "should be string, bytes, os.PathLike or integer, not {}",
+                    "expected str, bytes or os.PathLike object, not {}",
                     obj.class().name()
                 )
-            })?;
+            }
+            FsPathErrorFormat::PathArg => {
+                format!(
+                    "should be string, bytes or os.PathLike, not {}",
+                    obj.class().name()
+                )
+            }
+        };
+        let method = vm.get_method_or_type_error(
+            obj.clone(),
+            identifier!(vm, __fspath__),
+            not_pathlike_error,
+        )?;
+        // If __fspath__ is explicitly set to None, treat it as if it doesn't have __fspath__
+        if vm.is_none(&method) {
+            return Err(vm.new_type_error(not_pathlike_error()));
+        }
         let result = method.call((), vm)?;
         match1(result)?.map_err(|result| {
             vm.new_type_error(format!(

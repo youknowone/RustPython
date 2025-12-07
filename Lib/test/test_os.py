@@ -4827,7 +4827,6 @@ class PathTConverterTests(unittest.TestCase):
         ('open', False, (os.O_RDONLY,), getattr(os, 'close', None)),
     ]
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: TypeError not raised)
     def test_path_t_converter(self):
         str_filename = os_helper.TESTFN
         if os.name == 'nt':
@@ -4912,7 +4911,6 @@ class TestDirEntry(unittest.TestCase):
         self.addCleanup(os_helper.rmtree, self.path)
         os.mkdir(self.path)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: TypeError not raised by DirEntry)
     def test_uninstantiable(self):
         self.assertRaises(TypeError, os.DirEntry)
 
@@ -4961,7 +4959,6 @@ class TestScandir(unittest.TestCase):
         else:
             self.assertEqual(stat1, stat2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; (AssertionError: TypeError not raised by ScandirIter)
     def test_uninstantiable(self):
         scandir_iter = os.scandir(self.path)
         self.assertRaises(TypeError, type(scandir_iter))
@@ -5349,7 +5346,6 @@ class TestPEP519(unittest.TestCase):
                 return ''
         self.assertFalse(hasattr(A(), '__dict__'))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_fspath_set_to_None(self):
         class Foo:
             __fspath__ = None
