@@ -168,7 +168,7 @@ pub(super) mod _os {
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter, Unconstructible},
         utils::ToCString,
         vm::VirtualMachine,
     };
@@ -292,10 +292,35 @@ pub(super) mod _os {
     #[pyfunction(name = "unlink")]
     fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        let is_junction = cfg!(windows)
-            && fs::metadata(&path).is_ok_and(|meta| meta.file_type().is_dir())
-            && fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink());
-        let res = if is_junction {
+        #[cfg(windows)]
+        let is_dir_link = {
+            // On Windows, we need to check if it's a directory symlink/junction
+            // using GetFileAttributesW, which doesn't follow symlinks.
+            // This is similar to CPython's Py_DeleteFileW.
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, GetFileAttributesW,
+                INVALID_FILE_ATTRIBUTES,
+            };
+            let wide_path: Vec<u16> = path
+                .path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let attrs = unsafe { GetFileAttributesW(wide_path.as_ptr()) };
+            if attrs != INVALID_FILE_ATTRIBUTES {
+                let is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+                let is_reparse = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+                is_dir && is_reparse
+            } else {
+                false
+            }
+        };
+        #[cfg(not(windows))]
+        let is_dir_link = false;
+
+        let res = if is_dir_link {
             fs::remove_dir(&path)
         } else {
             fs::remove_file(&path)
@@ -421,6 +446,13 @@ pub(super) mod _os {
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
+        // On Windows, environment variable is limited to 32767 characters
+        #[cfg(windows)]
+        if key.len() + value.len() + 2 > 32767 {
+            return Err(
+                vm.new_value_error("the environment variable is longer than 32767 characters")
+            );
+        }
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
@@ -442,6 +474,13 @@ pub(super) mod _os {
                     std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
                 ),
             ));
+        }
+        // On Windows, environment variable is limited to 32767 characters
+        #[cfg(windows)]
+        if key.len() >= 32767 {
+            return Err(
+                vm.new_value_error("the environment variable is longer than 32767 characters")
+            );
         }
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
@@ -474,7 +513,7 @@ pub(super) mod _os {
         ino: AtomicCell<Option<u64>>,
     }
 
-    #[pyclass(with(Representable))]
+    #[pyclass(with(Representable, Unconstructible))]
     impl DirEntry {
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
@@ -486,17 +525,17 @@ pub(super) mod _os {
             Ok(self.mode.process_path(&self.pathval, vm))
         }
 
-        fn perform_on_metadata(
-            &self,
-            follow_symlinks: FollowSymlinks,
-            action: fn(fs::Metadata) -> bool,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
+        #[pymethod]
+        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
             match super::fs_metadata(&self.pathval, follow_symlinks.0) {
-                Ok(meta) => Ok(action(meta)),
+                Ok(meta) => Ok(meta.is_dir()),
                 Err(e) => {
-                    // FileNotFoundError is caught and not raised
                     if e.kind() == io::ErrorKind::NotFound {
+                        // On Windows, use cached file_type when file is removed
+                        #[cfg(windows)]
+                        if let Ok(file_type) = &self.file_type {
+                            return Ok(file_type.is_dir());
+                        }
                         Ok(false)
                     } else {
                         Err(e.into_pyexception(vm))
@@ -506,21 +545,22 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            self.perform_on_metadata(
-                follow_symlinks,
-                |meta: fs::Metadata| -> bool { meta.is_dir() },
-                vm,
-            )
-        }
-
-        #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
-            self.perform_on_metadata(
-                follow_symlinks,
-                |meta: fs::Metadata| -> bool { meta.is_file() },
-                vm,
-            )
+            match super::fs_metadata(&self.pathval, follow_symlinks.0) {
+                Ok(meta) => Ok(meta.is_file()),
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::NotFound {
+                        // On Windows, use cached file_type when file is removed
+                        #[cfg(windows)]
+                        if let Ok(file_type) = &self.file_type {
+                            return Ok(file_type.is_file());
+                        }
+                        Ok(false)
+                    } else {
+                        Err(e.into_pyexception(vm))
+                    }
+                }
+            }
         }
 
         #[pymethod]
@@ -652,6 +692,7 @@ pub(super) mod _os {
             }
         }
     }
+    impl Unconstructible for DirEntry {}
 
     #[pyattr]
     #[pyclass(name = "ScandirIter")]
@@ -661,7 +702,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable, Unconstructible))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -679,6 +720,7 @@ pub(super) mod _os {
             zelf.close()
         }
     }
+    impl Unconstructible for ScandirIterator {}
     impl SelfIter for ScandirIterator {}
     impl IterNext for ScandirIterator {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -697,13 +739,32 @@ pub(super) mod _os {
                             #[cfg(not(unix))]
                             let ino = None;
 
+                            let pathval = entry.path();
+
+                            // On Windows, pre-cache lstat from directory entry metadata
+                            // This allows stat() to return cached data even if file is removed
+                            #[cfg(windows)]
+                            let lstat = {
+                                let cell = OnceCell::new();
+                                if let Ok(stat_struct) =
+                                    crate::windows::win32_xstat(pathval.as_os_str(), false)
+                                {
+                                    let stat_obj =
+                                        StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
+                                    let _ = cell.set(stat_obj);
+                                }
+                                cell
+                            };
+                            #[cfg(not(windows))]
+                            let lstat = OnceCell::new();
+
                             Ok(PyIterReturn::Return(
                                 DirEntry {
                                     file_name: entry.file_name(),
-                                    pathval: entry.path(),
+                                    pathval,
                                     file_type: entry.file_type(),
                                     mode: zelf.mode,
-                                    lstat: OnceCell::new(),
+                                    lstat,
                                     stat: OnceCell::new(),
                                     ino: AtomicCell::new(ino),
                                 }
@@ -778,6 +839,9 @@ pub(super) mod _os {
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
         pub st_reparse_tag: u32,
+        #[pyarg(any, default)]
+        #[pystruct_sequence(skip)]
+        pub st_file_attributes: u32,
     }
 
     impl StatResultData {
@@ -812,6 +876,11 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             let st_reparse_tag = 0;
 
+            #[cfg(windows)]
+            let st_file_attributes = stat.st_file_attributes;
+            #[cfg(not(windows))]
+            let st_file_attributes = 0;
+
             Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
                 st_ino: vm.ctx.new_pyref(stat.st_ino),
@@ -830,6 +899,7 @@ pub(super) mod _os {
                 st_mtime_ns: to_ns(mtime),
                 st_ctime_ns: to_ns(ctime),
                 st_reparse_tag,
+                st_file_attributes,
             }
         }
     }
@@ -942,11 +1012,11 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn lstat(
-        file: OsPathOrFd<'_>,
+        file: OsPath,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        stat(file, dir_fd, FollowSymlinks(false), vm)
+        stat(file.into(), dir_fd, FollowSymlinks(false), vm)
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
@@ -1201,9 +1271,15 @@ pub(super) mod _os {
 
             let [] = dir_fd.0;
 
+            if !_follow_symlinks.0 {
+                return Err(vm.new_not_implemented_error(
+                    "utime: follow_symlinks unavailable on this platform",
+                ));
+            }
+
             let ft = |d: Duration| {
-                let intervals =
-                    ((d.as_secs() as i64 + 11644473600) * 10_000_000) + (d.as_nanos() as i64 / 100);
+                let intervals = ((d.as_secs() as i64 + 11644473600) * 10_000_000)
+                    + (d.subsec_nanos() as i64 / 100);
                 FILETIME {
                     dwLowDateTime: intervals as DWORD,
                     dwHighDateTime: (intervals >> 32) as DWORD,
@@ -1216,15 +1292,19 @@ pub(super) mod _os {
             let f = OpenOptions::new()
                 .write(true)
                 .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
-                .open(path)
-                .map_err(|err| err.into_pyexception(vm))?;
+                .open(&path)
+                .map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
                 FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
             };
 
             if ret == 0 {
-                Err(io::Error::last_os_error().into_pyexception(vm))
+                Err(IOErrorBuilder::with_filename(
+                    &io::Error::last_os_error(),
+                    path,
+                    vm,
+                ))
             } else {
                 Ok(())
             }
@@ -1421,29 +1501,32 @@ pub(super) mod _os {
         Ok((loadavg[0], loadavg[1], loadavg[2]))
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(unix)]
     #[pyfunction]
     fn waitstatus_to_exitcode(status: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let status = u32::try_from(status)
             .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {status}")))?;
 
-        cfg_if::cfg_if! {
-            if #[cfg(not(windows))] {
-                let status = status as libc::c_int;
-                if libc::WIFEXITED(status) {
-                    return Ok(libc::WEXITSTATUS(status));
-                }
-
-                if libc::WIFSIGNALED(status) {
-                    return Ok(-libc::WTERMSIG(status));
-                }
-
-                Err(vm.new_value_error(format!("Invalid wait status: {status}")))
-            } else {
-                i32::try_from(status.rotate_right(8))
-                    .map_err(|_| vm.new_value_error(format!("invalid wait status: {status}")))
-            }
+        let status = status as libc::c_int;
+        if libc::WIFEXITED(status) {
+            return Ok(libc::WEXITSTATUS(status));
         }
+
+        if libc::WIFSIGNALED(status) {
+            return Ok(-libc::WTERMSIG(status));
+        }
+
+        Err(vm.new_value_error(format!("Invalid wait status: {status}")))
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn waitstatus_to_exitcode(status: u64, vm: &VirtualMachine) -> PyResult<u32> {
+        let exitcode = status >> 8;
+        // ExitProcess() accepts an UINT type:
+        // reject exit code which doesn't fit in an UINT
+        u32::try_from(exitcode)
+            .map_err(|_| vm.new_value_error(format!("invalid exit code: {exitcode}")))
     }
 
     #[pyfunction]

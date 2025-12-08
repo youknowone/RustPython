@@ -17,7 +17,7 @@ pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use either::Either;
-pub use fspath::FsPath;
+pub use fspath::{FsPath, FsPathErrorFormat};
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
