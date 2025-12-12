@@ -2423,7 +2423,8 @@ mod _socket {
         timeout_error_msg(vm, "timed out".to_owned())
     }
     pub(crate) fn timeout_error_msg(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-        vm.new_exception_msg(timeout(vm), msg)
+        vm.new_os_subtype_error(timeout(vm), vec![vm.ctx.none(), vm.ctx.new_str(msg).into()])
+            .upcast()
     }
 
     fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {

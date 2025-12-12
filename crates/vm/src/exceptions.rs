@@ -1234,22 +1234,27 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyBaseException, ctx = "system_exit", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PySystemExit(PyBaseException);
 
     #[pyexception(name, base = PyBaseException, ctx = "generator_exit", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyGeneratorExit(PyBaseException);
 
     #[pyexception(name, base = PyBaseException, ctx = "keyboard_interrupt", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyKeyboardInterrupt(PyBaseException);
 
     #[pyexception(name, base = PyBaseException, ctx = "exception_type", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyException(PyBaseException);
 
     #[pyexception(name, base = PyException, ctx = "stop_iteration")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyStopIteration(PyException);
 
     #[pyexception]
@@ -1268,29 +1273,36 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyException, ctx = "stop_async_iteration", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyStopAsyncIteration(PyException);
 
     #[pyexception(name, base = PyException, ctx = "arithmetic_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyArithmeticError(PyException);
 
     #[pyexception(name, base = PyArithmeticError, ctx = "floating_point_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyFloatingPointError(PyArithmeticError);
     #[pyexception(name, base = PyArithmeticError, ctx = "overflow_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyOverflowError(PyArithmeticError);
 
     #[pyexception(name, base = PyArithmeticError, ctx = "zero_division_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyZeroDivisionError(PyArithmeticError);
 
     #[pyexception(name, base = PyException, ctx = "assertion_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyAssertionError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "attribute_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyAttributeError(PyException);
 
     #[pyexception]
@@ -1318,14 +1330,17 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyException, ctx = "buffer_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyBufferError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "eof_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyEOFError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "import_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyImportError(PyException);
 
     #[pyexception]
@@ -1371,18 +1386,22 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyModuleNotFoundError(PyImportError);
 
     #[pyexception(name, base = PyException, ctx = "lookup_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyLookupError(PyException);
 
     #[pyexception(name, base = PyLookupError, ctx = "index_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyIndexError(PyLookupError);
 
     #[pyexception(name, base = PyLookupError, ctx = "key_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyKeyError(PyLookupError);
 
     #[pyexception]
@@ -1403,14 +1422,17 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyException, ctx = "memory_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyMemoryError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "name_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyNameError(PyException);
 
     #[pyexception(name, base = PyNameError, ctx = "unbound_local_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUnboundLocalError(PyNameError);
 
     #[pyexception(name, base = PyException, ctx = "os_error")]
@@ -1463,13 +1485,36 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
-            let base_exception = PyBaseException::new(args.args.to_vec(), vm);
+            let len = args.args.len();
+            // CPython only sets errno/strerror when args len is 2-5
+            let (myerrno, strerror) = if (2..=5).contains(&len) {
+                (Some(args.args[0].clone()), Some(args.args[1].clone()))
+            } else {
+                (None, None)
+            };
+            let filename = if (3..=5).contains(&len) {
+                Some(args.args[2].clone())
+            } else {
+                None
+            };
+            let filename2 = if len == 5 {
+                args.args.get(4).cloned()
+            } else {
+                None
+            };
+            // Truncate args for base exception when 3-5 args
+            let base_args = if (3..=5).contains(&len) {
+                args.args[..2].to_vec()
+            } else {
+                args.args.to_vec()
+            };
+            let base_exception = PyBaseException::new(base_args, vm);
             Ok(Self {
                 base: PyException(base_exception),
-                myerrno: None.into(),
-                strerror: None.into(),
-                filename: None.into(),
-                filename2: None.into(),
+                myerrno: myerrno.into(),
+                strerror: strerror.into(),
+                filename: filename.into(),
+                filename2: filename2.into(),
                 #[cfg(windows)]
                 winerror: None.into(),
             })
@@ -1527,18 +1572,18 @@ pub(super) mod types {
                 }
                 #[cfg(windows)]
                 if 4 <= len {
-                    let winerror = &new_args.args.get(3).cloned();
-                    let arg = if let Some(winerror_int) = winerror
-                        .downcast_ref::<crate::builtins::PyInt>()
+                    let winerror = new_args.args.get(3).cloned();
+                    let arg = winerror
+                        .as_ref()
+                        .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
                         .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
-                    {
-                        let errno = crate::common::os::winerror_to_errno(winerror_int);
-                        arg = vm.new_pyobj(errno);
-                    } else {
-                        winerror
-                    };
+                        .map(|winerror_int| {
+                            let errno = crate::common::os::winerror_to_errno(winerror_int);
+                            vm.new_pyobj(errno)
+                        })
+                        .or(winerror);
 
-                    let _ = exc.winerror.swap(arg);
+                    let _ = unsafe { exc.winerror.swap(arg) };
                 }
                 if len == 5 {
                     let _ = unsafe { exc.filename2.swap(new_args.args.get(4).cloned()) };
@@ -1766,28 +1811,33 @@ pub(super) mod types {
     pub struct PyProcessLookupError(PyOSError);
 
     #[pyexception(name, base = PyOSError, ctx = "timeout_error", impl)]
-    #[repr(transparent)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyTimeoutError(PyOSError);
 
     #[pyexception(name, base = PyException, ctx = "reference_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyReferenceError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "runtime_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyRuntimeError(PyException);
 
     #[pyexception(name, base = PyRuntimeError, ctx = "not_implemented_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyNotImplementedError(PyRuntimeError);
 
     #[pyexception(name, base = PyRuntimeError, ctx = "recursion_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyRecursionError(PyRuntimeError);
 
     #[pyexception(name, base = PyException, ctx = "syntax_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PySyntaxError(PyException);
 
     #[pyexception]
@@ -1882,6 +1932,7 @@ pub(super) mod types {
         ctx = "incomplete_input_error"
     )]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyIncompleteInputError(PySyntaxError);
 
     #[pyexception]
@@ -1900,30 +1951,37 @@ pub(super) mod types {
 
     #[pyexception(name, base = PySyntaxError, ctx = "indentation_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyIndentationError(PySyntaxError);
 
     #[pyexception(name, base = PyIndentationError, ctx = "tab_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyTabError(PyIndentationError);
 
     #[pyexception(name, base = PyException, ctx = "system_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PySystemError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "type_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyTypeError(PyException);
 
     #[pyexception(name, base = PyException, ctx = "value_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyValueError(PyException);
 
     #[pyexception(name, base = PyValueError, ctx = "unicode_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUnicodeError(PyValueError);
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_decode_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUnicodeDecodeError(PyUnicodeError);
 
     #[pyexception]
@@ -1975,6 +2033,7 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_encode_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUnicodeEncodeError(PyUnicodeError);
 
     #[pyexception]
@@ -2026,6 +2085,7 @@ pub(super) mod types {
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_translate_error")]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUnicodeTranslateError(PyUnicodeError);
 
     #[pyexception]
@@ -2074,54 +2134,67 @@ pub(super) mod types {
     #[cfg(feature = "jit")]
     #[pyexception(name, base = PyException, ctx = "jit_error", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyJitError(PyException);
 
     // Warnings
     #[pyexception(name, base = PyException, ctx = "warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyWarning(PyException);
 
     #[pyexception(name, base = PyWarning, ctx = "deprecation_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyDeprecationWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "pending_deprecation_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyPendingDeprecationWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "runtime_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyRuntimeWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "syntax_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PySyntaxWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "user_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUserWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "future_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyFutureWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "import_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyImportWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "unicode_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyUnicodeWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "bytes_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyBytesWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "resource_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyResourceWarning(PyWarning);
 
     #[pyexception(name, base = PyWarning, ctx = "encoding_warning", impl)]
     #[derive(Debug)]
+    #[repr(transparent)]
     pub struct PyEncodingWarning(PyWarning);
 }

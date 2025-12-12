@@ -222,7 +222,10 @@ pub(super) fn create_ssl_cert_verification_error(
     let msg =
         format!("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: {verify_message}",);
 
-    let exc = vm.new_exception_msg(PySSLCertVerificationError::class(&vm.ctx).to_owned(), msg);
+    let exc = vm.new_os_subtype_error(
+        PySSLCertVerificationError::class(&vm.ctx).to_owned(),
+        vec![vm.new_pyobj(0), vm.new_pyobj(msg)],
+    );
 
     // Set verify_code and verify_message attributes
     // Ignore errors as they're extremely rare (e.g., out of memory)
@@ -248,7 +251,7 @@ pub(super) fn create_ssl_cert_verification_error(
         vm,
     )?;
 
-    Ok(exc)
+    Ok(exc.upcast())
 }
 
 /// Unified TLS connection type (client or server)
@@ -481,7 +484,7 @@ impl SslError {
         let msg = message.into();
         // SSLError args should be (errno, message) format
         // FIXME: Use 1 as generic SSL error code
-        let exc = vm.new_exception(
+        let exc = vm.new_os_subtype_error(
             PySSLError::class(&vm.ctx).to_owned(),
             vec![vm.new_pyobj(1i32), vm.new_pyobj(msg)],
         );
@@ -497,7 +500,7 @@ impl SslError {
             exc.as_object()
                 .set_attr("reason", vm.ctx.new_str(reason).as_object().to_owned(), vm);
 
-        exc
+        exc.upcast()
     }
 
     /// Create SSLError with library and reason from ssl_data codes
