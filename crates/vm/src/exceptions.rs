@@ -1573,17 +1573,20 @@ pub(super) mod types {
                 #[cfg(windows)]
                 if 4 <= len {
                     let winerror = new_args.args.get(3).cloned();
-                    let arg = winerror
+                    // Store original winerror
+                    let _ = unsafe { exc.winerror.swap(winerror.clone()) };
+
+                    // Convert winerror to errno and update myerrno + args[0]
+                    if let Some(errno) = winerror
                         .as_ref()
                         .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
                         .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
-                        .map(|winerror_int| {
-                            let errno = crate::common::os::winerror_to_errno(winerror_int);
-                            vm.new_pyobj(errno)
-                        })
-                        .or(winerror);
-
-                    let _ = unsafe { exc.winerror.swap(arg) };
+                        .map(crate::common::os::winerror_to_errno)
+                    {
+                        let errno_obj = vm.new_pyobj(errno);
+                        let _ = unsafe { exc.myerrno.swap(Some(errno_obj.clone())) };
+                        new_args.args[0] = errno_obj;
+                    }
                 }
                 if len == 5 {
                     let _ = unsafe { exc.filename2.swap(new_args.args.get(4).cloned()) };
