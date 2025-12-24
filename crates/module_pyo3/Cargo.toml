@@ -11,7 +11,7 @@ license.workspace = true
 [dependencies]
 rustpython-vm = { workspace = true }
 rustpython-derive = { workspace = true }
-pyo3 = { version = "0.26", features = ["auto-initialize"] }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 crossbeam-utils = { workspace = true }
 
 [lints]
