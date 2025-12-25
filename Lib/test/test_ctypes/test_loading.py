@@ -1,4 +1,4 @@
-import _ctypes
+import pyo3; _ctypes = pyo3.import_module('_ctypes')
 import ctypes
 import os
 import shutil

@@ -1,4 +1,4 @@
-import _ctypes
+import pyo3; _ctypes = pyo3.import_module('_ctypes')
 import sys
 import unittest
 from test import support

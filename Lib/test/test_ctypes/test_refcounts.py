@@ -118,7 +118,7 @@ class ModuleIsolationTest(unittest.TestCase):
             "import ctypes;"
             "import sys;"
             "del sys.modules['_ctypes'];"
-            "import _ctypes;"
+            "import pyo3; _ctypes = pyo3.import_module('_ctypes');"
             "exit()"
         )
         script_helper.assert_python_ok("-c", script)
