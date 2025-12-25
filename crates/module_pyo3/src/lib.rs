@@ -135,7 +135,7 @@ mod _pyo3 {
     impl Constructor for Pyo3Wraps {
         type Args = PyObjectRef;
 
-        fn py_new(cls: PyTypeRef, func: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(_cls: &Py<PyType>, func: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             // Get function name
             let func_name = func
                 .get_attr("__name__", vm)?
@@ -158,9 +158,7 @@ mod _pyo3 {
             // Find the first line that starts with 'def ' or 'async def '
             let source = strip_decorators(&source_full);
 
-            Self { source, func_name }
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Ok(Self { source, func_name })
         }
     }
 
@@ -422,7 +420,8 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     #[pyattr]
     #[pyclass(name = "pyo3_type", base = PyType, module = "_pyo3")]
     #[derive(Debug)]
-    struct Pyo3Type {}
+    #[repr(transparent)]
+    struct Pyo3Type(PyType);
 
     /// Custom __new__ slot for Pyo3Type metaclass.
     /// Called when creating a new class with Pyo3Type as the metaclass (e.g., `class Foo(_SimpleCData)`).
@@ -476,23 +475,6 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
     #[pyclass(flags(BASETYPE))]
     impl Pyo3Type {
-        /// Called when the type is called (e.g., to create an instance).
-        /// If the type has __pyo3_obj__, delegate to CPython.
-        #[pymethod]
-        fn __call__(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            // Check if this type has a CPython object reference
-            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
-                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
-            {
-                // Delegate to CPython
-                return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
-            }
-
-            // No __pyo3_obj__ - use default type.__call__ behavior
-            let type_type = vm.ctx.types.type_type;
-            vm.call_method(type_type.as_object(), "__call__", (zelf, args.args))
-        }
-
         /// Get attribute from type - delegates to CPython for __pyo3_obj__ types.
         #[pymethod]
         fn __getattribute__(zelf: PyTypeRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -595,6 +577,38 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Default to generic object getattro
         obj.generic_getattr(name, vm)
+    }
+
+    /// Custom __call__ slot for Pyo3Type metaclass.
+    /// Called when a class (instance of Pyo3Type) is called to create an instance.
+    fn pyo3_type_call(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Get the type
+        let zelf_type = zelf
+            .downcast_ref::<PyType>()
+            .ok_or_else(|| vm.new_type_error("expected type"))?;
+
+        // Check if this type has a CPython object reference
+        if let Some(pyo3_obj) = zelf_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+            && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+        {
+            // Delegate to CPython
+            return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
+        }
+
+        // Check if there's a cached CPython subtype
+        if let Some(subtype) = zelf_type.get_attr(vm.ctx.intern_str(PYO3_SUBTYPE_ATTR))
+            && let Some(pyo3_ref) = subtype.downcast_ref::<Pyo3Ref>()
+        {
+            return pyo3_call_impl(&pyo3_ref.py_obj, args, vm);
+        }
+
+        // No __pyo3_obj__ - use default type.__call__ behavior
+        let type_type = vm.ctx.types.type_type;
+        if let Some(call) = type_type.slots.call.load() {
+            return call(zelf, args, vm);
+        }
+
+        Err(vm.new_type_error(format!("'{}' object is not callable", zelf.class().name())))
     }
 
     /// Custom __new__ slot for Pyo3Type instances.
@@ -868,6 +882,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             .as_number
             .multiply
             .store(Some(pyo3_type_multiply));
+        pyo3_type_metaclass.slots.call.store(Some(pyo3_type_call));
 
         // Create slots with HEAPTYPE, BASETYPE flags and custom new/getattro slots
         let mut slots = PyTypeSlots::default();
@@ -1126,7 +1141,9 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         // We need to handle callables specially because pickle can't serialize
         // user-defined functions properly (they fail on unpickle with
         // "Can't get attribute 'func_name' on <module '__main__' ...>")
-        if obj.is_callable() {
+        // Note: We exclude types/classes since they should be pickled normally,
+        // only wrap actual function/method/lambda callables
+        if obj.is_callable() && obj.downcast_ref::<PyType>().is_none() {
             return create_rustpython_callback_wrapper(obj, vm);
         }
 
