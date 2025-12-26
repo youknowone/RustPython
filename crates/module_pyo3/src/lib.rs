@@ -1340,7 +1340,12 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Check if it supports buffer protocol - create shared memoryview for zero-copy
         // This enables ctypes.from_buffer() and similar APIs to share memory
-        if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj) {
+        // Note: Exclude bytes/bytearray - they should be passed as-is via pickle
+        //       because ctypes expects bytes, not memoryview (e.g., c_char(b'x'))
+        if !obj.class().is(vm.ctx.types.bytes_type)
+            && !obj.class().is(vm.ctx.types.bytearray_type)
+            && let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj)
+        {
             return create_shared_buffer_view(obj, buffer, vm);
         }
 
