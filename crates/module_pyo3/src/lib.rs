@@ -619,6 +619,59 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         Err(vm.new_type_error(format!("'{}' object is not callable", zelf.class().name())))
     }
 
+    /// Custom setattro slot for Pyo3Type.
+    /// Delegates to CPython if the type has __pyo3_obj__.
+    fn pyo3_type_setattro(
+        obj: &PyObject,
+        name: &Py<PyStr>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let name_str = name.as_str();
+
+        // Internal attributes (__pyo3_obj__, __pyo3_subtype__) are handled by RustPython
+        if name_str == PYO3_OBJ_ATTR || name_str == PYO3_SUBTYPE_ATTR {
+            let type_type = vm.ctx.types.type_type;
+            if let Some(setattro) = type_type.slots.setattro.load() {
+                return setattro(obj, name, value, vm);
+            }
+            return Err(vm.new_attribute_error("cannot set attribute".to_owned()));
+        }
+
+        // If __pyo3_obj__ exists, delegate to CPython
+        if let Some(py_type) = obj.downcast_ref::<PyType>()
+            && let Some(pyo3_obj) = py_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+            && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+        {
+            return pyo3::Python::attach(|py| -> Result<(), pyo3::PyErr> {
+                let cpython_obj = pyo3_ref.py_obj.bind(py);
+                match value {
+                    PySetterValue::Assign(val) => {
+                        let pyo3_val = to_pyo3_object(&val, vm).map_err(|e| {
+                            pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                                "Failed to convert value: {:?}",
+                                e
+                            ))
+                        })?;
+                        cpython_obj.setattr(name_str, pyo3_val.to_pyo3(py)?)?;
+                    }
+                    PySetterValue::Delete => {
+                        cpython_obj.delattr(name_str)?;
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|e| pyo3_err_to_rustpython(e, vm));
+        }
+
+        // Default: use type's setattro
+        let type_type = vm.ctx.types.type_type;
+        if let Some(setattro) = type_type.slots.setattro.load() {
+            return setattro(obj, name, value, vm);
+        }
+        Err(vm.new_attribute_error(format!("cannot set '{}' attribute", name_str)))
+    }
+
     /// Custom __new__ slot for Pyo3Type instances.
     /// Delegates to CPython if the type or its bases have __pyo3_obj__.
     fn pyo3_type_new(subtype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -891,12 +944,17 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             .multiply
             .store(Some(pyo3_type_multiply));
         pyo3_type_metaclass.slots.call.store(Some(pyo3_type_call));
+        pyo3_type_metaclass
+            .slots
+            .setattro
+            .store(Some(pyo3_type_setattro));
 
-        // Create slots with HEAPTYPE, BASETYPE flags and custom new/getattro slots
+        // Create slots with HEAPTYPE, BASETYPE flags and custom new/getattro/setattro slots
         let mut slots = PyTypeSlots::default();
         slots.flags = PyTypeFlags::HEAPTYPE | PyTypeFlags::BASETYPE;
         slots.new = AtomicCell::new(Some(pyo3_type_new));
         slots.getattro = AtomicCell::new(Some(pyo3_type_getattro));
+        slots.setattro = AtomicCell::new(Some(pyo3_type_setattro));
 
         // Create a new type with Pyo3Type as metaclass
         let new_type = PyType::new_heap(
