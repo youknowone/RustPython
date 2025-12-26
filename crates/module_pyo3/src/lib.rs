@@ -97,6 +97,12 @@ mod _pyo3 {
         std::sync::Mutex<std::collections::HashMap<isize, pyo3::Py<pyo3::PyAny>>>,
     > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+    /// Cache for Pyo3Type wrappers. Maps CPython type pointer → RustPython type.
+    /// Ensures type identity: same CPython type always returns same RustPython wrapper.
+    static TYPE_CACHE: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<isize, PyTypeRef>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
     /// Convert pyo3::PyErr to RustPython exception with proper type mapping.
     /// This preserves the original exception type from CPython instead of wrapping
     /// everything as RuntimeError.
@@ -915,6 +921,12 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         use rustpython_vm::class::PyClassImpl;
         use rustpython_vm::types::{PyTypeFlags, PyTypeSlots};
 
+        // Check cache first - ensures type identity
+        let ptr = obj.as_ptr() as isize;
+        if let Some(cached) = TYPE_CACHE.lock().unwrap().get(&ptr) {
+            return Ok(cached.clone());
+        }
+
         // Get the name of the CPython type
         let name: String = obj
             .getattr("__name__")
@@ -969,6 +981,9 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Store the CPython object reference
         new_type.set_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR), pyo3_ref_obj);
+
+        // Cache the type for identity preservation
+        TYPE_CACHE.lock().unwrap().insert(ptr, new_type.clone());
 
         Ok(new_type)
     }
