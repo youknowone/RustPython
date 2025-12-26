@@ -873,19 +873,10 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let bases_tuple = pyo3::types::PyTuple::new(py, &cpython_bases)?;
 
             // Create namespace dict in CPython
-            // Note: We skip callable items (methods) because the RustPython-defined methods
-            // expect RustPython objects as `self`, but when called from CPython, `self` is a
-            // CPython object. This causes issues like super() not working.
-            // Instead, we let CPython inherit methods from base classes.
+            // Callables are wrapped with _MethodDescriptor for proper method binding
             let class_dict = pyo3::types::PyDict::new(py);
             for (key, value) in &namespace_items {
-                // Skip callables - they won't work correctly because RustPython methods
-                // expect RustPython `self`, not CPython objects
-                if value.is_callable() && value.downcast_ref::<PyType>().is_none() {
-                    continue;
-                }
-
-                // Convert non-callable values to CPython
+                // Convert value to CPython (callables become descriptor-wrapped closures)
                 if let Ok(pyo3_val) = to_pyo3_object(value, vm)
                     && let Ok(py_val) = pyo3_val.to_pyo3(py)
                 {
