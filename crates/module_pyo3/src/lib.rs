@@ -75,19 +75,27 @@ mod _pyo3 {
     use pyo3::types::PyDictMethods;
     use pyo3::types::PyTupleMethods;
     use rustpython_vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+        VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef,
             PyType, PyTypeRef,
         },
         function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
-        protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+        protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
             AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Iterable,
             PyComparisonOp, Representable, SetAttr,
         },
     };
     use std::sync::Arc;
+
+    /// Global storage for buffer guards, keyed by memoryview pointer.
+    /// Keeps capsules (which hold BufferGuards) alive while CPython uses the shared memory.
+    /// Note: This is a simplified implementation that leaks memory.
+    static BUFFER_GUARDS: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<isize, pyo3::Py<pyo3::PyAny>>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
     /// Convert pyo3::PyErr to RustPython exception with proper type mapping.
     /// This preserves the original exception type from CPython instead of wrapping
@@ -1007,12 +1015,26 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         pyo3_to_rustpython(pyo3_obj, vm)
     }
 
+    /// Keeps RustPython buffer alive while CPython uses it via shared memory.
+    struct BufferGuard {
+        /// The RustPython object that owns the buffer
+        _owner: PyObjectRef,
+        /// The buffer reference (prevents buffer release)
+        _buffer: PyBuffer,
+    }
+
     /// Represents an object to be passed into CPython.
-    /// Either already a CPython object (Native/OwnedNative) or pickled RustPython object (Pickled).
+    /// Either already a CPython object (Native/OwnedNative), pickled RustPython object (Pickled),
+    /// or a shared buffer view (SharedBuffer).
     enum ToPyo3Ref<'a> {
         Native(&'a pyo3::Py<pyo3::PyAny>),
         OwnedNative(pyo3::Py<pyo3::PyAny>),
         Pickled(PyRef<RustPyBytes>),
+        /// Shared buffer with CPython memoryview pointing to RustPython memory
+        SharedBuffer {
+            memoryview: pyo3::Py<pyo3::PyAny>,
+            _guard: Arc<BufferGuard>,
+        },
     }
 
     impl ToPyo3Ref<'_> {
@@ -1024,8 +1046,114 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 ToPyo3Ref::Native(obj) => Ok(obj.bind(py).clone()),
                 ToPyo3Ref::OwnedNative(obj) => Ok(obj.bind(py).clone()),
                 ToPyo3Ref::Pickled(bytes) => unpickle_in_cpython(py, bytes.as_bytes()),
+                ToPyo3Ref::SharedBuffer { memoryview, .. } => Ok(memoryview.bind(py).clone()),
             }
         }
+    }
+
+    /// Create a CPython memoryview that shares memory with a RustPython buffer.
+    /// This enables zero-copy buffer passing for ctypes.from_buffer() and similar APIs.
+    fn create_shared_buffer_view(
+        obj: &PyObject,
+        buffer: PyBuffer,
+        vm: &VirtualMachine,
+    ) -> PyResult<ToPyo3Ref<'static>> {
+        // Only support contiguous buffers
+        if !buffer.desc.is_contiguous() {
+            // Fall back to pickle for non-contiguous buffers
+            let pickled = rustpython_pickle_dumps(obj.to_owned(), vm)?;
+            return Ok(ToPyo3Ref::Pickled(pickled));
+        }
+
+        // Get buffer info
+        let readonly = buffer.desc.readonly;
+        let len = buffer.desc.len;
+
+        // Create guard to keep RustPython object and buffer alive
+        let guard = Arc::new(BufferGuard {
+            _owner: obj.to_owned(),
+            _buffer: buffer,
+        });
+
+        // Get the raw pointer from the buffer (must be done after creating guard)
+        let ptr = {
+            let bytes = guard
+                ._buffer
+                .as_contiguous()
+                .ok_or_else(|| vm.new_type_error("Buffer is not contiguous".to_owned()))?;
+            bytes.as_ptr()
+        };
+
+        // Clone Arc for the capsule destructor
+        let guard_for_capsule = Arc::clone(&guard);
+
+        // Create CPython memoryview with a wrapper to hold lifetime guard
+        let memoryview = pyo3::Python::attach(|py| -> Result<pyo3::Py<pyo3::PyAny>, PyErr> {
+            use pyo3::ffi;
+            use std::ffi::c_void;
+
+            // Determine flags based on readonly
+            let flags = if readonly {
+                ffi::PyBUF_READ
+            } else {
+                ffi::PyBUF_WRITE
+            };
+
+            // Create memoryview from memory pointer
+            let memoryview_ptr =
+                unsafe { ffi::PyMemoryView_FromMemory(ptr as *mut i8, len as isize, flags) };
+
+            if memoryview_ptr.is_null() {
+                return Err(PyErr::fetch(py));
+            }
+
+            // Create capsule to prevent deallocation of RustPython buffer
+            // The destructor drops the Arc<BufferGuard> when capsule is garbage collected
+            let guard_box = Box::new(guard_for_capsule);
+
+            extern "C" fn destructor(capsule: *mut ffi::PyObject) {
+                unsafe {
+                    let ptr = ffi::PyCapsule_GetPointer(capsule, std::ptr::null());
+                    if !ptr.is_null() {
+                        // Drop the Arc<BufferGuard>
+                        drop(Box::from_raw(ptr as *mut Arc<BufferGuard>));
+                    }
+                }
+            }
+
+            let capsule_ptr = unsafe {
+                ffi::PyCapsule_New(
+                    Box::into_raw(guard_box) as *mut c_void,
+                    std::ptr::null(),
+                    Some(destructor),
+                )
+            };
+
+            if capsule_ptr.is_null() {
+                unsafe { ffi::Py_DECREF(memoryview_ptr) };
+                return Err(PyErr::fetch(py));
+            }
+
+            // Store the capsule (which holds the guard) in BUFFER_GUARDS to keep it alive.
+            // This ensures the RustPython buffer remains valid while CPython uses the memoryview.
+            // Note: This is a simplified implementation that leaks memory - guards are never released.
+            // Full buffer export tracking would require implementing buffer protocol on a custom type.
+            let capsule_py: pyo3::Py<pyo3::PyAny> =
+                unsafe { pyo3::Py::from_owned_ptr(py, capsule_ptr) };
+            let memoryview_id = memoryview_ptr as isize;
+            BUFFER_GUARDS
+                .lock()
+                .unwrap()
+                .insert(memoryview_id, capsule_py);
+
+            Ok(unsafe { pyo3::Py::from_owned_ptr(py, memoryview_ptr) })
+        })
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
+
+        Ok(ToPyo3Ref::SharedBuffer {
+            memoryview,
+            _guard: guard,
+        })
     }
 
     /// Convert a RustPython object to ToPyo3Ref for passing into CPython
@@ -1137,6 +1265,12 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             return Ok(ToPyo3Ref::OwnedNative(cpython_list));
         }
 
+        // Check if it supports buffer protocol - create shared memoryview for zero-copy
+        // This enables ctypes.from_buffer() and similar APIs to share memory
+        if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj) {
+            return create_shared_buffer_view(obj, buffer, vm);
+        }
+
         // Check if it's a callable (function, method, lambda, etc.)
         // We need to handle callables specially because pickle can't serialize
         // user-defined functions properly (they fail on unpickle with
@@ -1169,31 +1303,75 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                   -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {
                 // Access the current RustPython VM via thread-local storage
                 // The VM should be set when RustPython code is executing
-                let result = rustpython_vm::vm::thread::with_current_vm(|vm| {
-                    // Convert CPython args to RustPython
-                    let rp_args: Vec<PyObjectRef> = args
-                        .iter()
-                        .map(|arg| {
-                            let pyo3_ref = create_pyo3_object(args.py(), &arg);
-                            pyo3_to_rustpython(pyo3_ref, vm)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
+                // Callback exceptions are "unraisable" - they go through sys.unraisablehook
+                let result: Option<pyo3::Py<pyo3::PyAny>> =
+                    rustpython_vm::vm::thread::with_current_vm(|vm| {
+                        // Helper to handle exceptions as unraisable
+                        let handle_exception =
+                            |e: rustpython_vm::builtins::PyBaseExceptionRef,
+                             callable: &PyObjectRef,
+                             vm: &VirtualMachine| {
+                                // Format the message like CPython
+                                let callable_repr = callable
+                                    .repr(vm)
+                                    .map(|s| s.as_str().to_owned())
+                                    .unwrap_or_else(|_| "<unknown>".to_owned());
+                                let msg = format!(
+                                    "Exception ignored on calling ctypes callback function {}",
+                                    callable_repr
+                                );
+                                vm.run_unraisable(e, Some(msg), vm.ctx.none());
+                            };
 
-                    // Call the RustPython callable
-                    let call_result = callable_clone.call(rp_args, vm)?;
+                        // Convert CPython args to RustPython
+                        let rp_args: Vec<PyObjectRef> = match args
+                            .iter()
+                            .map(|arg| {
+                                let pyo3_ref = create_pyo3_object(args.py(), &arg);
+                                pyo3_to_rustpython(pyo3_ref, vm)
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                        {
+                            Ok(args) => args,
+                            Err(e) => {
+                                handle_exception(e, &callable_clone, vm);
+                                return None;
+                            }
+                        };
 
-                    // Convert RustPython result back to CPython
-                    let pyo3_result = to_pyo3_object(&call_result, vm)?;
-                    pyo3::Python::attach(|py| pyo3_result.to_pyo3(py).map(|bound| bound.unbind()))
-                        .map_err(|e| pyo3_err_to_rustpython(e, vm))
-                });
+                        // Call the RustPython callable
+                        let call_result = match callable_clone.call(rp_args, vm) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                handle_exception(e, &callable_clone, vm);
+                                return None;
+                            }
+                        };
 
-                result.map_err(|e| {
-                    pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                        "RustPython callback error: {:?}",
-                        e
-                    ))
-                })
+                        // Convert RustPython result back to CPython
+                        let pyo3_result = match to_pyo3_object(&call_result, vm) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                handle_exception(e, &callable_clone, vm);
+                                return None;
+                            }
+                        };
+
+                        match pyo3::Python::attach(|py| {
+                            pyo3_result.to_pyo3(py).map(|bound| bound.unbind())
+                        }) {
+                            Ok(r) => Some(r),
+                            Err(e) => {
+                                // CPython error - convert and handle as unraisable
+                                let rp_err = pyo3_err_to_rustpython(e, vm);
+                                handle_exception(rp_err, &callable_clone, vm);
+                                None
+                            }
+                        }
+                    });
+
+                // Return None as default value when exception occurred
+                Ok(result.unwrap_or_else(|| pyo3::Python::attach(|py| py.None().into())))
             };
 
             // Create the CPython function from the closure
