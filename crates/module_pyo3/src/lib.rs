@@ -84,8 +84,8 @@ mod _pyo3 {
         function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
-            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Iterable,
-            PyComparisonOp, Representable, SetAttr,
+            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr,
+            GetDescriptor, Iterable, PyComparisonOp, Representable, SetAttr,
         },
     };
     use std::sync::Arc;
@@ -102,6 +102,173 @@ mod _pyo3 {
     static TYPE_CACHE: std::sync::LazyLock<
         std::sync::Mutex<std::collections::HashMap<isize, PyTypeRef>>,
     > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+    /// Identifier for CPython builtin types that should map to RustPython native types.
+    #[derive(Clone, Copy, Debug)]
+    enum BuiltinTypeId {
+        Type,
+        Object,
+        Int,
+        Float,
+        Complex,
+        Bool,
+        Str,
+        Bytes,
+        ByteArray,
+        List,
+        Tuple,
+        Set,
+        FrozenSet,
+        Dict,
+        Slice,
+        MemoryView,
+        NoneType,
+        NotImplementedType,
+        EllipsisType,
+        Range,
+        Property,
+        StaticMethod,
+        ClassMethod,
+        Super,
+        Filter,
+        Map,
+        Zip,
+        Enumerate,
+        BaseException,
+        Exception,
+    }
+
+    /// Cache for CPython builtin type pointers → BuiltinTypeId.
+    /// Built lazily on first access, maps CPython type pointers to identifiers.
+    static BUILTIN_TYPE_MAP: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<isize, BuiltinTypeId>>,
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+    /// Initialize the builtin type map with CPython type pointers.
+    /// Called once per Python interpreter to build the mapping.
+    fn init_builtin_type_map(py: pyo3::Python<'_>) {
+        use pyo3::types::{
+            PyBool, PyByteArray, PyBytes, PyComplex, PyDict, PyFloat, PyFrozenSet, PyInt, PyList,
+            PyMemoryView, PySet, PySlice, PyString, PyTuple, PyType,
+        };
+
+        let mut map = BUILTIN_TYPE_MAP.lock().unwrap();
+        if !map.is_empty() {
+            return; // Already initialized
+        }
+
+        // Helper macro to insert type mapping
+        macro_rules! insert_type {
+            ($py_type:ty, $id:expr) => {
+                map.insert(py.get_type::<$py_type>().as_ptr() as isize, $id);
+            };
+        }
+
+        // Core types
+        insert_type!(PyType, BuiltinTypeId::Type);
+        insert_type!(pyo3::types::PyAny, BuiltinTypeId::Object);
+
+        // Numeric types
+        insert_type!(PyInt, BuiltinTypeId::Int);
+        insert_type!(PyFloat, BuiltinTypeId::Float);
+        insert_type!(PyComplex, BuiltinTypeId::Complex);
+        insert_type!(PyBool, BuiltinTypeId::Bool);
+
+        // Sequence types
+        insert_type!(PyString, BuiltinTypeId::Str);
+        insert_type!(PyBytes, BuiltinTypeId::Bytes);
+        insert_type!(PyByteArray, BuiltinTypeId::ByteArray);
+        insert_type!(PyList, BuiltinTypeId::List);
+        insert_type!(PyTuple, BuiltinTypeId::Tuple);
+
+        // Set types
+        insert_type!(PySet, BuiltinTypeId::Set);
+        insert_type!(PyFrozenSet, BuiltinTypeId::FrozenSet);
+
+        // Mapping types
+        insert_type!(PyDict, BuiltinTypeId::Dict);
+
+        // Other types
+        insert_type!(PySlice, BuiltinTypeId::Slice);
+        insert_type!(PyMemoryView, BuiltinTypeId::MemoryView);
+
+        // Singleton types
+        map.insert(
+            py.None().bind(py).get_type().as_ptr() as isize,
+            BuiltinTypeId::NoneType,
+        );
+        map.insert(
+            py.NotImplemented().bind(py).get_type().as_ptr() as isize,
+            BuiltinTypeId::NotImplementedType,
+        );
+
+        // Ellipsis type
+        if let Ok(ellipsis) = py.eval(pyo3::ffi::c_str!("..."), None, None) {
+            map.insert(
+                ellipsis.get_type().as_ptr() as isize,
+                BuiltinTypeId::EllipsisType,
+            );
+        }
+
+        // Get additional builtins from the builtins module
+        if let Ok(builtins) = py.import("builtins") {
+            macro_rules! insert_builtin {
+                ($name:literal, $id:expr) => {
+                    if let Ok(typ) = builtins.getattr($name) {
+                        map.insert(typ.as_ptr() as isize, $id);
+                    }
+                };
+            }
+
+            insert_builtin!("range", BuiltinTypeId::Range);
+            insert_builtin!("property", BuiltinTypeId::Property);
+            insert_builtin!("staticmethod", BuiltinTypeId::StaticMethod);
+            insert_builtin!("classmethod", BuiltinTypeId::ClassMethod);
+            insert_builtin!("super", BuiltinTypeId::Super);
+            insert_builtin!("filter", BuiltinTypeId::Filter);
+            insert_builtin!("map", BuiltinTypeId::Map);
+            insert_builtin!("zip", BuiltinTypeId::Zip);
+            insert_builtin!("enumerate", BuiltinTypeId::Enumerate);
+            insert_builtin!("BaseException", BuiltinTypeId::BaseException);
+            insert_builtin!("Exception", BuiltinTypeId::Exception);
+        }
+    }
+
+    /// Resolve a BuiltinTypeId to the corresponding RustPython native type.
+    fn resolve_builtin_type_id(id: BuiltinTypeId, vm: &VirtualMachine) -> PyTypeRef {
+        match id {
+            BuiltinTypeId::Type => vm.ctx.types.type_type.to_owned(),
+            BuiltinTypeId::Object => vm.ctx.types.object_type.to_owned(),
+            BuiltinTypeId::Int => vm.ctx.types.int_type.to_owned(),
+            BuiltinTypeId::Float => vm.ctx.types.float_type.to_owned(),
+            BuiltinTypeId::Complex => vm.ctx.types.complex_type.to_owned(),
+            BuiltinTypeId::Bool => vm.ctx.types.bool_type.to_owned(),
+            BuiltinTypeId::Str => vm.ctx.types.str_type.to_owned(),
+            BuiltinTypeId::Bytes => vm.ctx.types.bytes_type.to_owned(),
+            BuiltinTypeId::ByteArray => vm.ctx.types.bytearray_type.to_owned(),
+            BuiltinTypeId::List => vm.ctx.types.list_type.to_owned(),
+            BuiltinTypeId::Tuple => vm.ctx.types.tuple_type.to_owned(),
+            BuiltinTypeId::Set => vm.ctx.types.set_type.to_owned(),
+            BuiltinTypeId::FrozenSet => vm.ctx.types.frozenset_type.to_owned(),
+            BuiltinTypeId::Dict => vm.ctx.types.dict_type.to_owned(),
+            BuiltinTypeId::Slice => vm.ctx.types.slice_type.to_owned(),
+            BuiltinTypeId::MemoryView => vm.ctx.types.memoryview_type.to_owned(),
+            BuiltinTypeId::NoneType => vm.ctx.types.none_type.to_owned(),
+            BuiltinTypeId::NotImplementedType => vm.ctx.types.not_implemented_type.to_owned(),
+            BuiltinTypeId::EllipsisType => vm.ctx.types.ellipsis_type.to_owned(),
+            BuiltinTypeId::Range => vm.ctx.types.range_type.to_owned(),
+            BuiltinTypeId::Property => vm.ctx.types.property_type.to_owned(),
+            BuiltinTypeId::StaticMethod => vm.ctx.types.staticmethod_type.to_owned(),
+            BuiltinTypeId::ClassMethod => vm.ctx.types.classmethod_type.to_owned(),
+            BuiltinTypeId::Super => vm.ctx.types.super_type.to_owned(),
+            BuiltinTypeId::Filter => vm.ctx.types.filter_type.to_owned(),
+            BuiltinTypeId::Map => vm.ctx.types.map_type.to_owned(),
+            BuiltinTypeId::Zip => vm.ctx.types.zip_type.to_owned(),
+            BuiltinTypeId::Enumerate => vm.ctx.types.enumerate_type.to_owned(),
+            BuiltinTypeId::BaseException => vm.ctx.exceptions.base_exception_type.to_owned(),
+            BuiltinTypeId::Exception => vm.ctx.exceptions.exception_type.to_owned(),
+        }
+    }
 
     /// Convert pyo3::PyErr to RustPython exception with proper type mapping.
     /// This preserves the original exception type from CPython instead of wrapping
@@ -332,7 +499,7 @@ __pickled_result__ = __pickle.dumps(__result__, protocol=4)
             let result = result.ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("No result returned")
             })?;
-            let result_bytes: &pyo3::Bound<'_, Pyo3Bytes> = result.downcast()?;
+            let result_bytes: &pyo3::Bound<'_, Pyo3Bytes> = result.cast()?;
             Ok(result_bytes.as_bytes().to_vec())
         })
         .map_err(|e| pyo3_err_to_rustpython(e, vm))
@@ -400,7 +567,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let result = result.ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("No __result__ defined in code")
             })?;
-            let result_bytes: &pyo3::Bound<'_, Pyo3Bytes> = result.downcast()?;
+            let result_bytes: &pyo3::Bound<'_, Pyo3Bytes> = result.cast()?;
             Ok(result_bytes.as_bytes().to_vec())
         })
         .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
@@ -415,7 +582,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
     ) -> Result<Vec<u8>, PyErr> {
         let pickle = py.import("pickle")?;
         let pickled = pickle.call_method1("dumps", (obj, 4i32))?;
-        let bytes: &pyo3::Bound<'_, Pyo3Bytes> = pickled.downcast()?;
+        let bytes: &pyo3::Bound<'_, Pyo3Bytes> = pickled.cast()?;
         Ok(bytes.as_bytes().to_vec())
     }
 
@@ -573,6 +740,23 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 return getattro(obj, name, vm);
             }
             return obj.generic_getattr(name, vm);
+        }
+
+        // Special handling for __flags__ on wrapped CPython types
+        // CPython types have specific tp_flags that need to be returned as integers
+        if name_str == "__flags__"
+            && let Some(py_type) = obj.downcast_ref::<PyType>()
+            && let Some(pyo3_obj) = py_type.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
+            && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+        {
+            let flags = pyo3::Python::attach(|py| -> Result<i64, pyo3::PyErr> {
+                let type_obj = pyo3_ref.py_obj.bind(py);
+                let flags = type_obj.getattr("__flags__")?;
+                flags.extract::<i64>()
+            });
+            if let Ok(flags) = flags {
+                return Ok(vm.ctx.new_int(flags).into());
+            }
         }
 
         // If this is a type with __pyo3_obj__, delegate attribute lookup to CPython
@@ -911,6 +1095,28 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         Ok(vm.ctx.not_implemented())
     }
 
+    /// Map CPython builtin types to RustPython native types.
+    /// Uses pointer-based lookup for reliable type identity.
+    /// Returns Some(native_type) if the CPython type should be mapped to a native type,
+    /// None if it should be wrapped as a Pyo3Type.
+    fn map_cpython_builtin_to_native(
+        py: pyo3::Python<'_>,
+        obj: &pyo3::Bound<'_, pyo3::PyAny>,
+        vm: &VirtualMachine,
+    ) -> Option<PyTypeRef> {
+        // Initialize the builtin type map if not already done
+        init_builtin_type_map(py);
+
+        // Look up by CPython type pointer
+        let ptr = obj.as_ptr() as isize;
+        let map = BUILTIN_TYPE_MAP.lock().unwrap();
+        if let Some(&id) = map.get(&ptr) {
+            return Some(resolve_builtin_type_id(id, vm));
+        }
+
+        None
+    }
+
     /// Create a wrapper for a CPython type.
     /// Returns a RustPython type (instance of Pyo3Type) that wraps the CPython type.
     fn create_pyo3_type(
@@ -919,6 +1125,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         vm: &VirtualMachine,
     ) -> PyResult<PyTypeRef> {
         use crossbeam_utils::atomic::AtomicCell;
+        use pyo3::types::PyTupleMethods as _;
         use rustpython_vm::class::PyClassImpl;
         use rustpython_vm::types::{PyTypeFlags, PyTypeSlots};
 
@@ -926,6 +1133,12 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         let ptr = obj.as_ptr() as isize;
         if let Some(cached) = TYPE_CACHE.lock().unwrap().get(&ptr) {
             return Ok(cached.clone());
+        }
+
+        // Map CPython builtin types to RustPython native types
+        // This ensures type identity for all builtin types
+        if let Some(native_type) = map_cpython_builtin_to_native(py, obj, vm) {
+            return Ok(native_type);
         }
 
         // Get the name of the CPython type
@@ -969,11 +1182,37 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         slots.getattro = AtomicCell::new(Some(pyo3_type_getattro));
         slots.setattro = AtomicCell::new(Some(pyo3_type_setattro));
 
+        // Get CPython base classes and convert them to RustPython types
+        let bases: Vec<PyTypeRef> = if let Ok(bases_obj) = obj.getattr("__bases__")
+            && let Ok(bases_tuple) = bases_obj.cast::<pyo3::types::PyTuple>()
+        {
+            let mut result = Vec::new();
+            for base in bases_tuple.iter() {
+                // Check if base is a CPython builtin type that maps to native
+                if let Some(native_type) = map_cpython_builtin_to_native(py, &base, vm) {
+                    result.push(native_type);
+                } else if base.is_instance_of::<pyo3::types::PyType>() {
+                    // Recursively convert base type (cache handles cycles)
+                    match create_pyo3_type(py, &base, vm) {
+                        Ok(base_type) => result.push(base_type),
+                        Err(_) => result.push(vm.ctx.types.object_type.to_owned()),
+                    }
+                }
+            }
+            if result.is_empty() {
+                vec![vm.ctx.types.object_type.to_owned()]
+            } else {
+                result
+            }
+        } else {
+            vec![vm.ctx.types.object_type.to_owned()]
+        };
+
         // Create a new type with Pyo3Type as metaclass
         let new_type = PyType::new_heap(
             &name,
-            vec![vm.ctx.types.object_type.to_owned()],
-            Default::default(), // Empty attributes
+            bases,
+            Default::default(), // Empty attributes - will be populated below
             slots,
             pyo3_type_metaclass,
             &vm.ctx,
@@ -982,6 +1221,31 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Store the CPython object reference
         new_type.set_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR), pyo3_ref_obj);
+
+        // Copy CPython type's __dict__ entries to RustPython type's attributes
+        // This allows super() to find methods via get_direct_attr
+        if let Ok(type_dict) = obj.getattr("__dict__")
+            && let Ok(dict_items) = type_dict.call_method0("items")
+            && let Ok(iter) = dict_items.try_iter()
+        {
+            for item in iter {
+                if let Ok(item) = item
+                    && let Ok(tuple) = item.cast::<pyo3::types::PyTuple>()
+                    && tuple.len() == 2
+                    && let (Ok(key), Ok(value)) = (tuple.get_item(0), tuple.get_item(1))
+                    && let Ok(key_str) = key.extract::<String>()
+                {
+                    // Skip internal attributes
+                    if key_str.starts_with("__pyo3") {
+                        continue;
+                    }
+                    // Wrap the CPython value as Pyo3Ref
+                    let pyo3_value = create_pyo3_object(py, &value);
+                    let pyo3_value_obj: PyObjectRef = pyo3_value.into_ref(&vm.ctx).into();
+                    new_type.set_attr(vm.ctx.intern_str(key_str), pyo3_value_obj);
+                }
+            }
+        }
 
         // Cache the type for identity preservation
         TYPE_CACHE.lock().unwrap().insert(ptr, new_type.clone());
@@ -1014,6 +1278,14 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             return Ok(type_ref.into());
         }
 
+        // IMPORTANT: ctypes instances (Structure, Union, Array, etc.) should NOT be unpickled.
+        // Unpickling ctypes instances corrupts their buffer pointers because _ctypes._unpickle
+        // cannot properly restore the memory buffer across the pyo3 boundary.
+        // Keep them as Pyo3Ref so field access goes through CPython.
+        if is_ctypes_instance(&pyo3_obj.py_obj) {
+            return Ok(pyo3_obj.into_ref(&vm.ctx).into());
+        }
+
         // Try unpickling to native RustPython object (for non-type values)
         if let Some(ref bytes) = pyo3_obj.pickled
             && let Ok(unpickled) = rustpython_pickle_loads(bytes, vm)
@@ -1025,6 +1297,34 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Default: return as Pyo3Ref
         Ok(pyo3_obj.into_ref(&vm.ctx).into())
+    }
+
+    /// Check if a CPython object is a ctypes instance (Structure, Union, Array, etc.)
+    /// These should not be unpickled as it corrupts their memory buffers.
+    fn is_ctypes_instance(py_obj: &pyo3::Py<pyo3::PyAny>) -> bool {
+        pyo3::Python::attach(|py| {
+            let obj = py_obj.bind(py);
+
+            // Try to import _ctypes and check if obj is instance of _CData
+            // _CData is the base class for all ctypes data types (Structure, Union, Array, etc.)
+            if let Ok(ctypes_module) = py.import("_ctypes")
+                && let Ok(cdata_class) = ctypes_module.getattr("_CData")
+                && let Ok(is_instance) = obj.is_instance(&cdata_class)
+            {
+                return is_instance;
+            }
+
+            // Fallback: check module name
+            if let Ok(type_obj) = obj.get_type().getattr("__module__")
+                && let Ok(module_name) = type_obj.extract::<String>()
+                && (module_name == "_ctypes" || module_name.starts_with("ctypes"))
+                && !obj.is_instance_of::<pyo3::types::PyType>()
+            {
+                return true;
+            }
+
+            false
+        })
     }
 
     /// Get attribute from a CPython object
@@ -1452,7 +1752,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                     });
 
                 // Return None as default value when exception occurred
-                Ok(result.unwrap_or_else(|| pyo3::Python::attach(|py| py.None().into())))
+                Ok(result.unwrap_or_else(|| pyo3::Python::attach(|py| py.None())))
             };
 
             // Create the CPython function from the closure
@@ -1633,6 +1933,66 @@ _MethodDescriptor
             })
             .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
             Ok(result)
+        }
+    }
+
+    impl GetDescriptor for Pyo3Ref {
+        fn descr_get(
+            zelf: PyObjectRef,
+            obj: Option<PyObjectRef>,
+            cls: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let (zelf_ref, obj) = Self::_unwrap(&zelf, obj, vm)?;
+
+            // obj가 None이면 unbound descriptor로 반환
+            if vm.is_none(&obj) {
+                return Ok(zelf);
+            }
+
+            // CPython 객체의 __get__ 호출
+            pyo3::Python::attach(|py| -> Result<PyObjectRef, pyo3::PyErr> {
+                let pyo3_obj = zelf_ref.py_obj.bind(py);
+
+                // __get__ 메서드가 있는지 확인
+                if let Ok(get_method) = pyo3_obj.getattr("__get__") {
+                    // obj를 CPython 객체로 변환
+                    let pyo3_instance = to_pyo3_object(&obj, vm).map_err(|e| {
+                        pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "Failed to convert obj: {:?}",
+                            e
+                        ))
+                    })?;
+                    let pyo3_instance_bound = pyo3_instance.to_pyo3(py)?;
+
+                    // cls 변환 (있으면)
+                    let pyo3_cls = if let Some(ref c) = cls {
+                        let c_conv = to_pyo3_object(c, vm).map_err(|e| {
+                            pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                                "Failed to convert cls: {:?}",
+                                e
+                            ))
+                        })?;
+                        c_conv.to_pyo3(py)?
+                    } else {
+                        py.None().into_bound(py)
+                    };
+
+                    // __get__(obj, type) 호출
+                    let result = get_method.call1((pyo3_instance_bound, pyo3_cls))?;
+                    let result_ref = create_pyo3_object(py, &result);
+                    pyo3_to_rustpython(result_ref, vm).map_err(|e| {
+                        pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "Failed to convert result: {:?}",
+                            e
+                        ))
+                    })
+                } else {
+                    // __get__이 없으면 그냥 self 반환 (non-descriptor)
+                    Ok(zelf.clone())
+                }
+            })
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))
         }
     }
 
@@ -1857,6 +2217,7 @@ _MethodDescriptor
         SetAttr,
         Callable,
         Representable,
+        GetDescriptor,
         AsNumber,
         Comparable,
         AsSequence,

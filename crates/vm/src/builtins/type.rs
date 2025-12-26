@@ -1073,7 +1073,17 @@ impl Constructor for PyType {
 
         let is_type_type = metatype.is(vm.ctx.types.type_type);
         if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].class().to_owned().into());
+            let obj = &args.args[0];
+            // Check if __class__ attribute differs from internal class (e.g., for pyo3 wrapped objects)
+            // This ensures type(pyo3_ref) returns the CPython type, not the wrapper type
+            if let Ok(Some(class_attr)) =
+                vm.get_attribute_opt(obj.clone(), identifier!(vm, __class__))
+                && let Ok(class_type) = class_attr.downcast::<PyType>()
+                && !class_type.is(obj.class())
+            {
+                return Ok(class_type.into());
+            }
+            return Ok(obj.class().to_owned().into());
         }
 
         if args.args.len() != 3 {
@@ -1640,7 +1650,16 @@ impl Callable for PyType {
         if zelf.is(vm.ctx.types.type_type) {
             let num_args = args.args.len();
             if num_args == 1 && args.kwargs.is_empty() {
-                return Ok(args.args[0].obj_type());
+                let obj = &args.args[0];
+                // Check if __class__ differs from internal type (e.g., for pyo3 wrapped objects)
+                if let Ok(Some(class_attr)) =
+                    vm.get_attribute_opt(obj.clone(), identifier!(vm, __class__))
+                    && let Ok(class_type) = class_attr.downcast::<PyType>()
+                    && !class_type.is(obj.class())
+                {
+                    return Ok(class_type.into());
+                }
+                return Ok(obj.obj_type());
             }
             if num_args != 3 {
                 return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_owned()));
