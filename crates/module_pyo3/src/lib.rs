@@ -824,7 +824,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
         // Collect namespace items that can be passed to CPython
         let namespace_items: Vec<(String, PyObjectRef)> =
-            if let Ok(mapping) = rustpython_vm::protocol::PyMapping::try_protocol(namespace, vm) {
+            if let Ok(mapping) = namespace.try_mapping(vm) {
                 let keys = mapping.keys(vm)?;
                 let mut items = Vec::new();
                 let keys_iter = keys.get_iter(vm)?;
@@ -873,9 +873,19 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let bases_tuple = pyo3::types::PyTuple::new(py, &cpython_bases)?;
 
             // Create namespace dict in CPython
+            // Note: We skip callable items (methods) because the RustPython-defined methods
+            // expect RustPython objects as `self`, but when called from CPython, `self` is a
+            // CPython object. This causes issues like super() not working.
+            // Instead, we let CPython inherit methods from base classes.
             let class_dict = pyo3::types::PyDict::new(py);
             for (key, value) in &namespace_items {
-                // Try to convert value to CPython
+                // Skip callables - they won't work correctly because RustPython methods
+                // expect RustPython `self`, not CPython objects
+                if value.is_callable() && value.downcast_ref::<PyType>().is_none() {
+                    continue;
+                }
+
+                // Convert non-callable values to CPython
                 if let Ok(pyo3_val) = to_pyo3_object(value, vm)
                     && let Ok(py_val) = pyo3_val.to_pyo3(py)
                 {
@@ -1366,6 +1376,8 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
     /// Create a CPython callable wrapper for a RustPython callable.
     /// This allows RustPython functions to be passed as callbacks to CPython code.
+    /// The wrapper implements the descriptor protocol (__get__) so it works correctly
+    /// as a method when stored in a class __dict__.
     fn create_rustpython_callback_wrapper(
         callable: &PyObject,
         vm: &VirtualMachine,
@@ -1454,7 +1466,36 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
 
             // Create the CPython function from the closure
             let py_func = PyCFunction::new_closure(py, None, None, wrapper_fn)?;
-            Ok(py_func.into_any().unbind())
+
+            // Wrap in a descriptor that implements __get__ for proper method binding.
+            // This is necessary because PyCFunction doesn't bind like a Python function
+            // when accessed through a class __dict__.
+            // We create a simple Python class with __call__ and __get__ methods.
+            let wrapper_class_code = r#"
+class _MethodDescriptor:
+    __slots__ = ('_func',)
+    def __init__(self, func):
+        self._func = func
+    def __call__(self, *args, **kwargs):
+        return self._func(*args, **kwargs)
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        import types
+        return types.MethodType(self._func, obj)
+_MethodDescriptor
+"#;
+            let builtins = py.import("builtins")?;
+            let exec_fn = builtins.getattr("exec")?;
+            let globals = pyo3::types::PyDict::new(py);
+            exec_fn.call1((wrapper_class_code, &globals))?;
+            let wrapper_class = globals.get_item("_MethodDescriptor")?.ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    "Failed to create _MethodDescriptor",
+                )
+            })?;
+            let wrapper_instance = wrapper_class.call1((py_func,))?;
+            Ok(wrapper_instance.unbind())
         })
         .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
