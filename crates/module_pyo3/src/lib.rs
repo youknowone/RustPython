@@ -81,11 +81,12 @@ mod _pyo3 {
             PyBaseExceptionRef, PyBytes as RustPyBytes, PyBytesRef, PyDict, PyStr, PyStrRef,
             PyType, PyTypeRef,
         },
+        common::hash::PyHash,
         function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         types::{
-            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr,
-            GetDescriptor, Iterable, PyComparisonOp, Representable, SetAttr,
+            AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr,
+            GetDescriptor, Hashable, Iterable, PyComparisonOp, Representable, SetAttr,
         },
     };
     use std::sync::Arc;
@@ -292,12 +293,23 @@ mod _pyo3 {
                 "IndexError" => vm.new_index_error(err_msg),
                 "NameError" => vm.new_name_error(err_msg, vm.ctx.new_str("")),
                 "StopIteration" => vm.new_stop_iteration(None),
-                "OSError" | "IOError" => vm.new_os_error(err_msg),
+                "OSError" | "IOError" | "FileNotFoundError" | "PermissionError"
+                | "FileExistsError" | "IsADirectoryError" | "NotADirectoryError" => {
+                    vm.new_os_error(err_msg)
+                }
                 "NotImplementedError" => vm.new_not_implemented_error(err_msg),
                 "OverflowError" => vm.new_overflow_error(err_msg),
                 "ZeroDivisionError" => vm.new_zero_division_error(err_msg),
                 "RecursionError" => vm.new_recursion_error(err_msg),
                 "MemoryError" => vm.new_memory_error(err_msg),
+                "BufferError" => vm.new_buffer_error(err_msg),
+                "ImportError" | "ModuleNotFoundError" => {
+                    vm.new_import_error(err_msg, vm.ctx.new_str(""))
+                }
+                "LookupError" => vm.new_lookup_error(err_msg),
+                "EOFError" => vm.new_eof_error(err_msg),
+                "SystemError" => vm.new_system_error(err_msg),
+                // For exceptions without dedicated constructors, fall back to RuntimeError
                 _ => vm.new_runtime_error(err_msg),
             }
         })
@@ -2247,9 +2259,26 @@ _MethodDescriptor
         }
     }
 
+    /// Helper for unary operations on Pyo3Ref
+    fn pyo3_unary_op(
+        py_obj: &pyo3::Py<pyo3::PyAny>,
+        method: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let pyo3_obj = pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+            let obj = py_obj.bind(py);
+            let result = obj.call_method0(method)?;
+            Ok(create_pyo3_object(py, &result))
+        })
+        .to_pyresult(vm)?;
+
+        pyo3_to_rustpython(pyo3_obj, vm)
+    }
+
     impl AsNumber for Pyo3Ref {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                // Binary operations
                 add: Some(|a, b, vm| pyo3_binary_op(a, b, "__add__", vm)),
                 subtract: Some(|a, b, vm| pyo3_binary_op(a, b, "__sub__", vm)),
                 multiply: Some(|a, b, vm| pyo3_binary_op(a, b, "__mul__", vm)),
@@ -2257,6 +2286,75 @@ _MethodDescriptor
                 divmod: Some(|a, b, vm| pyo3_binary_op(a, b, "__divmod__", vm)),
                 floor_divide: Some(|a, b, vm| pyo3_binary_op(a, b, "__floordiv__", vm)),
                 true_divide: Some(|a, b, vm| pyo3_binary_op(a, b, "__truediv__", vm)),
+
+                // Bitwise operations
+                lshift: Some(|a, b, vm| pyo3_binary_op(a, b, "__lshift__", vm)),
+                rshift: Some(|a, b, vm| pyo3_binary_op(a, b, "__rshift__", vm)),
+                and: Some(|a, b, vm| pyo3_binary_op(a, b, "__and__", vm)),
+                xor: Some(|a, b, vm| pyo3_binary_op(a, b, "__xor__", vm)),
+                or: Some(|a, b, vm| pyo3_binary_op(a, b, "__or__", vm)),
+
+                // Unary operations
+                negative: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3_unary_op(&zelf.py_obj, "__neg__", vm)
+                }),
+                positive: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3_unary_op(&zelf.py_obj, "__pos__", vm)
+                }),
+                absolute: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let builtins = py.import("builtins")?;
+                        let abs_fn = builtins.getattr("abs")?;
+                        let result = abs_fn.call1((obj,))?;
+                        Ok(create_pyo3_object(py, &result))
+                    })
+                    .map(|pyo3_obj| pyo3_to_rustpython(pyo3_obj, vm))
+                    .to_pyresult(vm)?
+                }),
+                boolean: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3::Python::attach(|py| -> Result<bool, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let builtins = py.import("builtins")?;
+                        let bool_fn = builtins.getattr("bool")?;
+                        let result = bool_fn.call1((obj,))?;
+                        result.extract()
+                    })
+                    .to_pyresult(vm)
+                }),
+                invert: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3_unary_op(&zelf.py_obj, "__invert__", vm)
+                }),
+                int: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3::Python::attach(|py| -> Result<PyObjectRef, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let builtins = py.import("builtins")?;
+                        let int_fn = builtins.getattr("int")?;
+                        let result = int_fn.call1((obj,))?;
+                        let val: i64 = result.extract()?;
+                        Ok(vm.ctx.new_int(val).into())
+                    })
+                    .to_pyresult(vm)
+                }),
+                float: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3::Python::attach(|py| -> Result<PyObjectRef, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let builtins = py.import("builtins")?;
+                        let float_fn = builtins.getattr("float")?;
+                        let result = float_fn.call1((obj,))?;
+                        let val: f64 = result.extract()?;
+                        Ok(vm.ctx.new_float(val).into())
+                    })
+                    .to_pyresult(vm)
+                }),
+
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
@@ -2329,6 +2427,31 @@ _MethodDescriptor
         .map_err(|e| vm.new_index_error(format!("CPython getitem error: {}", e)))?;
 
         pyo3_to_rustpython(pyo3_obj, vm)
+    }
+
+    /// Helper to set or delete item by index in CPython object
+    fn pyo3_setitem_by_index(
+        py_obj: &pyo3::Py<pyo3::PyAny>,
+        index: isize,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let value_obj = value.as_ref().map(|v| to_pyo3_object(v, vm)).transpose()?;
+
+        pyo3::Python::attach(|py| -> Result<(), pyo3::PyErr> {
+            let obj = py_obj.bind(py);
+            match value_obj {
+                Some(ref val) => {
+                    let val_py = val.to_pyo3(py)?;
+                    obj.set_item(index, &val_py)?;
+                }
+                None => {
+                    obj.del_item(index)?;
+                }
+            }
+            Ok(())
+        })
+        .to_pyresult(vm)
     }
 
     /// Helper to get item by key from CPython object
@@ -2413,7 +2536,10 @@ _MethodDescriptor
                     let zelf = Pyo3Ref::sequence_downcast(seq);
                     pyo3_getitem_by_index(&zelf.py_obj, i, vm)
                 })),
-                ass_item: AtomicCell::new(None),
+                ass_item: AtomicCell::new(Some(|seq, i, value, vm| {
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    pyo3_setitem_by_index(&zelf.py_obj, i, value, vm)
+                })),
                 contains: AtomicCell::new(Some(|seq, target, vm| {
                     let zelf = Pyo3Ref::sequence_downcast(seq);
                     pyo3_contains(&zelf.py_obj, target, vm)
@@ -2473,6 +2599,8 @@ _MethodDescriptor
         Comparable,
         AsSequence,
         AsMapping,
+        AsBuffer,
+        Hashable,
         Iterable,
         IterNext
     ))]
@@ -2500,6 +2628,52 @@ _MethodDescriptor
                 Ok(None) => Ok(PyIterReturn::StopIteration(None)),
                 Err(e) => Err(pyo3_err_to_rustpython(e, vm)),
             }
+        }
+    }
+
+    impl AsBuffer for Pyo3Ref {
+        fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let result = pyo3::Python::attach(|py| -> Result<Vec<u8>, pyo3::PyErr> {
+                let obj = zelf.py_obj.bind(py);
+
+                // Create memoryview and get bytes via CPython
+                // This handles 0-dimensional buffers (like ctypes structures) properly
+                let memoryview = py
+                    .import("builtins")?
+                    .getattr("memoryview")?
+                    .call1((obj,))?;
+                let bytes_obj = memoryview.call_method0("tobytes")?;
+                let bytes = bytes_obj.extract::<Vec<u8>>()?;
+                Ok(bytes)
+            });
+
+            match result {
+                Ok(bytes) => {
+                    // Create a RustPython buffer from the copied bytes
+                    Ok(PyBuffer::from_byte_vector(bytes, vm))
+                }
+                Err(_) => {
+                    // If buffer protocol not supported, return error
+                    Err(vm.new_type_error(format!(
+                        "a bytes-like object is required, not '{}'",
+                        zelf.class().name()
+                    )))
+                }
+            }
+        }
+    }
+
+    impl Hashable for Pyo3Ref {
+        fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+            pyo3::Python::attach(|py| -> Result<PyHash, pyo3::PyErr> {
+                let obj = zelf.py_obj.bind(py);
+                let builtins = py.import("builtins")?;
+                let hash_fn = builtins.getattr("hash")?;
+                let hash_result = hash_fn.call1((obj,))?;
+                let hash_val: i64 = hash_result.extract()?;
+                Ok(hash_val as PyHash)
+            })
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))
         }
     }
 
