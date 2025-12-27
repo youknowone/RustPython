@@ -1575,7 +1575,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let attr = obj.getattr(name)?;
             Ok(create_pyo3_object(py, &attr))
         })
-        .map_err(|e| vm.new_attribute_error(format!("CPython getattr error: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         pyo3_to_rustpython(pyo3_obj, vm)
     }
@@ -2172,7 +2172,7 @@ _MethodDescriptor
                 }
                 Ok(())
             })
-            .map_err(|e| vm.new_attribute_error(format!("CPython setattr error: {}", e)))
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))
         }
     }
 
@@ -2355,6 +2355,62 @@ _MethodDescriptor
                     .to_pyresult(vm)
                 }),
 
+                // Power operation (** and pow())
+                power: Some(|a, b, mod_val, vm| {
+                    let zelf = a.downcast_ref::<Pyo3Ref>().unwrap();
+                    let exp_obj = to_pyo3_object(b, vm)?;
+                    let mod_obj = if vm.is_none(mod_val) {
+                        None
+                    } else {
+                        Some(to_pyo3_object(mod_val, vm)?)
+                    };
+                    pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let exp = exp_obj.to_pyo3(py)?;
+
+                        if let Some(ref m_obj) = mod_obj {
+                            let m = m_obj.to_pyo3(py)?;
+                            let builtins = py.import("builtins")?;
+                            let pow_fn = builtins.getattr("pow")?;
+                            let result = pow_fn.call1((obj, &exp, &m))?;
+                            Ok(create_pyo3_object(py, &result))
+                        } else {
+                            let result = obj.call_method1("__pow__", (&exp,))?;
+                            Ok(create_pyo3_object(py, &result))
+                        }
+                    })
+                    .to_pyresult(vm)
+                    .and_then(|r| pyo3_to_rustpython(r, vm))
+                }),
+
+                // Index operation (__index__)
+                index: Some(|num, vm| {
+                    let zelf = Pyo3Ref::number_downcast(num);
+                    pyo3::Python::attach(|py| -> Result<PyObjectRef, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let result = obj.call_method0("__index__")?;
+                        let val: i64 = result.extract()?;
+                        Ok(vm.ctx.new_int(val).into())
+                    })
+                    .to_pyresult(vm)
+                }),
+
+                // In-place operations
+                inplace_add: Some(|a, b, vm| pyo3_binary_op(a, b, "__iadd__", vm)),
+                inplace_subtract: Some(|a, b, vm| pyo3_binary_op(a, b, "__isub__", vm)),
+                inplace_multiply: Some(|a, b, vm| pyo3_binary_op(a, b, "__imul__", vm)),
+                inplace_remainder: Some(|a, b, vm| pyo3_binary_op(a, b, "__imod__", vm)),
+                inplace_floor_divide: Some(|a, b, vm| pyo3_binary_op(a, b, "__ifloordiv__", vm)),
+                inplace_true_divide: Some(|a, b, vm| pyo3_binary_op(a, b, "__itruediv__", vm)),
+                inplace_lshift: Some(|a, b, vm| pyo3_binary_op(a, b, "__ilshift__", vm)),
+                inplace_rshift: Some(|a, b, vm| pyo3_binary_op(a, b, "__irshift__", vm)),
+                inplace_and: Some(|a, b, vm| pyo3_binary_op(a, b, "__iand__", vm)),
+                inplace_xor: Some(|a, b, vm| pyo3_binary_op(a, b, "__ixor__", vm)),
+                inplace_or: Some(|a, b, vm| pyo3_binary_op(a, b, "__ior__", vm)),
+
+                // In-place power (similar to power but for **=)
+                inplace_power: Some(|a, b, _mod_val, vm| pyo3_binary_op(a, b, "__ipow__", vm)),
+
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
@@ -2424,7 +2480,7 @@ _MethodDescriptor
             let item = obj.get_item(index)?;
             Ok(create_pyo3_object(py, &item))
         })
-        .map_err(|e| vm.new_index_error(format!("CPython getitem error: {}", e)))?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         pyo3_to_rustpython(pyo3_obj, vm)
     }
@@ -2468,13 +2524,7 @@ _MethodDescriptor
             let item = obj.get_item(&key_py)?;
             Ok(create_pyo3_object(py, &item))
         })
-        .map_err(|e| {
-            vm.new_key_error(
-                vm.ctx
-                    .new_str(format!("CPython getitem error: {}", e))
-                    .into(),
-            )
-        })?;
+        .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
         pyo3_to_rustpython(pyo3_obj, vm)
     }
@@ -2530,8 +2580,28 @@ _MethodDescriptor
                     let zelf = Pyo3Ref::sequence_downcast(seq);
                     pyo3_len(&zelf.py_obj, vm)
                 })),
-                concat: AtomicCell::new(None),
-                repeat: AtomicCell::new(None),
+                concat: AtomicCell::new(Some(|seq, other, vm| {
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    let other_obj = to_pyo3_object(other, vm)?;
+                    pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let other_py = other_obj.to_pyo3(py)?;
+                        let result = obj.call_method1("__add__", (&other_py,))?;
+                        Ok(create_pyo3_object(py, &result))
+                    })
+                    .to_pyresult(vm)
+                    .and_then(|r| pyo3_to_rustpython(r, vm))
+                })),
+                repeat: AtomicCell::new(Some(|seq, n, vm| {
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let result = obj.call_method1("__mul__", (n,))?;
+                        Ok(create_pyo3_object(py, &result))
+                    })
+                    .to_pyresult(vm)
+                    .and_then(|r| pyo3_to_rustpython(r, vm))
+                })),
                 item: AtomicCell::new(Some(|seq, i, vm| {
                     let zelf = Pyo3Ref::sequence_downcast(seq);
                     pyo3_getitem_by_index(&zelf.py_obj, i, vm)
@@ -2544,8 +2614,28 @@ _MethodDescriptor
                     let zelf = Pyo3Ref::sequence_downcast(seq);
                     pyo3_contains(&zelf.py_obj, target, vm)
                 })),
-                inplace_concat: AtomicCell::new(None),
-                inplace_repeat: AtomicCell::new(None),
+                inplace_concat: AtomicCell::new(Some(|seq, other, vm| {
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    let other_obj = to_pyo3_object(other, vm)?;
+                    pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let other_py = other_obj.to_pyo3(py)?;
+                        let result = obj.call_method1("__iadd__", (&other_py,))?;
+                        Ok(create_pyo3_object(py, &result))
+                    })
+                    .to_pyresult(vm)
+                    .and_then(|r| pyo3_to_rustpython(r, vm))
+                })),
+                inplace_repeat: AtomicCell::new(Some(|seq, n, vm| {
+                    let zelf = Pyo3Ref::sequence_downcast(seq);
+                    pyo3::Python::attach(|py| -> Result<Pyo3Ref, pyo3::PyErr> {
+                        let obj = zelf.py_obj.bind(py);
+                        let result = obj.call_method1("__imul__", (n,))?;
+                        Ok(create_pyo3_object(py, &result))
+                    })
+                    .to_pyresult(vm)
+                    .and_then(|r| pyo3_to_rustpython(r, vm))
+                })),
             };
             &AS_SEQUENCE
         }
@@ -2580,7 +2670,7 @@ _MethodDescriptor
                 let iter_result = iter_fn.call1((obj,))?;
                 Ok(create_pyo3_object(py, &iter_result))
             })
-            .map_err(|e| vm.new_type_error(format!("CPython iter error: {}", e)))?;
+            .map_err(|e| pyo3_err_to_rustpython(e, vm))?;
 
             // Iterators should stay as Pyo3Ref, don't try to unpickle
             Ok(pyo3_obj.into_ref(&vm.ctx).into())
