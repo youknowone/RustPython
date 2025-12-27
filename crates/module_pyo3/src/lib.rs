@@ -1423,33 +1423,9 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         };
 
         // Determine the correct metaclass for this type.
-        // If the CPython type's metatype is 'type', use Pyo3Type (our metaclass for metatypes).
-        // Otherwise, check if metatype is already cached, and if so, use it.
-        // If not cached, fallback to Pyo3Type to avoid circular dependencies during type creation.
-        let metaclass: PyTypeRef = {
-            let metatype = obj.get_type();
-            let metatype_name: String = metatype
-                .getattr("__name__")
-                .and_then(|n| n.extract())
-                .unwrap_or_else(|_| "unknown".to_string());
-
-            if metatype_name == "type" {
-                // This is a metaclass (like PyCStructType), use Pyo3Type
-                pyo3_type_metaclass.to_owned()
-            } else {
-                // This is a regular class (like Structure), check if metatype is already cached
-                let metatype_ptr = metatype.as_ptr() as isize;
-                if let Some(cached_metatype) = TYPE_CACHE.lock().expect("TYPE_CACHE lock").get(&metatype_ptr) {
-                    cached_metatype.clone()
-                } else {
-                    // Metatype not cached yet - use Pyo3Type as fallback.
-                    // This can happen during bootstrap when metatypes are being created.
-                    // The type will still work correctly, just with Pyo3Type as metaclass.
-                    // TODO: Consider fixing metaclass after metatype is cached.
-                    pyo3_type_metaclass.to_owned()
-                }
-            }
-        };
+        // Always use Pyo3Type as the metaclass - it has the proper __mul__ slot
+        // that delegates to CPython when __pyo3_obj__ is present.
+        let metaclass: PyTypeRef = pyo3_type_metaclass.to_owned();
 
         // Create a new type with the determined metaclass
         let new_type = PyType::new_heap(
@@ -1465,35 +1441,51 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         // Store the CPython object reference
         new_type.set_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR), pyo3_ref_obj);
 
-        // Copy CPython type's __dict__ entries to RustPython type's attributes
-        // This allows super() to find methods via get_direct_attr
-        if let Ok(type_dict) = obj.getattr("__dict__")
-            && let Ok(dict_items) = type_dict.call_method0("items")
-            && let Ok(iter) = dict_items.try_iter()
-        {
-            for item in iter {
-                if let Ok(item) = item
-                    && let Ok(tuple) = item.cast::<pyo3::types::PyTuple>()
-                    && tuple.len() == 2
-                    && let (Ok(key), Ok(value)) = (tuple.get_item(0), tuple.get_item(1))
-                    && let Ok(key_str) = key.extract::<String>()
-                {
-                    // Skip internal attributes
-                    if key_str.starts_with("__pyo3") {
-                        continue;
-                    }
-                    // Wrap the CPython value as Pyo3Ref
-                    let pyo3_value = create_pyo3_object(py, &value);
-                    let pyo3_value_obj: PyObjectRef = pyo3_value.into_ref(&vm.ctx).into();
-                    new_type.set_attr(vm.ctx.intern_str(key_str), pyo3_value_obj);
-                }
-            }
-        }
+        // Copy CPython type's __dict__ entries to RustPython type
+        copy_cpython_dict_to_type(py, obj, &new_type, vm);
 
         // Cache the type for identity preservation
-        TYPE_CACHE.lock().expect("TYPE_CACHE lock").insert(ptr, new_type.clone());
+        TYPE_CACHE
+            .lock()
+            .expect("TYPE_CACHE lock")
+            .insert(ptr, new_type.clone());
 
         Ok(new_type)
+    }
+
+    /// Copy CPython type's __dict__ entries to RustPython type's attributes.
+    fn copy_cpython_dict_to_type(
+        py: pyo3::Python<'_>,
+        cpython_type: &pyo3::Bound<'_, pyo3::PyAny>,
+        rustpython_type: &PyType,
+        vm: &VirtualMachine,
+    ) {
+        let Ok(type_dict) = cpython_type.getattr("__dict__") else {
+            return;
+        };
+        let Ok(dict_items) = type_dict.call_method0("items") else {
+            return;
+        };
+        let Ok(iter) = dict_items.try_iter() else {
+            return;
+        };
+
+        for item in iter {
+            if let Ok(item) = item
+                && let Ok(tuple) = item.cast::<pyo3::types::PyTuple>()
+                && tuple.len() == 2
+                && let (Ok(key), Ok(value)) = (tuple.get_item(0), tuple.get_item(1))
+                && let Ok(key_str) = key.extract::<String>()
+            {
+                // Skip internal attributes
+                if key_str.starts_with("__pyo3") {
+                    continue;
+                }
+                let pyo3_value = create_pyo3_object(py, &value);
+                let pyo3_value_obj: PyObjectRef = pyo3_value.into_ref(&vm.ctx).into();
+                rustpython_type.set_attr(vm.ctx.intern_str(key_str), pyo3_value_obj);
+            }
+        }
     }
 
     /// Check if a CPython object is a type
