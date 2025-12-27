@@ -1404,6 +1404,38 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
         slots.getattro = AtomicCell::new(Some(pyo3_type_getattro));
         slots.setattro = AtomicCell::new(Some(pyo3_type_setattro));
 
+        // Copy Pyo3Ref protocol slots so that slot wrappers can be generated.
+        // This allows hasattr(obj, '__index__') to work correctly.
+        let pyo3ref_type = Pyo3Ref::make_class(&vm.ctx);
+        slots.as_number.copy_from(Pyo3Ref::as_number());
+        slots.as_sequence.copy_from(Pyo3Ref::as_sequence());
+        slots.as_mapping.copy_from(Pyo3Ref::as_mapping());
+        // Copy other slots from Pyo3Ref
+        if let Some(f) = pyo3ref_type.slots.hash.load() {
+            slots.hash.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.repr.load() {
+            slots.repr.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.call.load() {
+            slots.call.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.iter.load() {
+            slots.iter.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.iternext.load() {
+            slots.iternext.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.richcompare.load() {
+            slots.richcompare.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.descr_get.load() {
+            slots.descr_get.store(Some(f));
+        }
+        if let Some(f) = pyo3ref_type.slots.descr_set.load() {
+            slots.descr_set.store(Some(f));
+        }
+
         // Get CPython base classes and convert them to RustPython types
         let bases: Vec<PyTypeRef> = if let Ok(bases_obj) = obj.getattr("__bases__")
             && let Ok(bases_tuple) = bases_obj.cast::<pyo3::types::PyTuple>()
@@ -1458,6 +1490,10 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             .expect("TYPE_CACHE lock")
             .insert(ptr, new_type.clone());
 
+        // Copy slot wrappers from Pyo3Ref type to this dynamically created type.
+        // This ensures hasattr(obj, '__index__') works correctly.
+        copy_slot_wrappers_from_pyo3ref(&new_type, vm);
+
         Ok(new_type)
     }
 
@@ -1489,9 +1525,135 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
                 if key_str.starts_with("__pyo3") {
                     continue;
                 }
+                // Skip dunder methods that have slot wrappers.
+                // We want add_operators to add proper RustPython slot wrappers
+                // instead of CPython method descriptors.
+                if key_str.starts_with("__")
+                    && key_str.ends_with("__")
+                    && matches!(
+                        key_str.as_str(),
+                        "__add__"
+                            | "__radd__"
+                            | "__iadd__"
+                            | "__sub__"
+                            | "__rsub__"
+                            | "__isub__"
+                            | "__mul__"
+                            | "__rmul__"
+                            | "__imul__"
+                            | "__mod__"
+                            | "__rmod__"
+                            | "__imod__"
+                            | "__divmod__"
+                            | "__rdivmod__"
+                            | "__pow__"
+                            | "__rpow__"
+                            | "__ipow__"
+                            | "__lshift__"
+                            | "__rlshift__"
+                            | "__ilshift__"
+                            | "__rshift__"
+                            | "__rrshift__"
+                            | "__irshift__"
+                            | "__and__"
+                            | "__rand__"
+                            | "__iand__"
+                            | "__xor__"
+                            | "__rxor__"
+                            | "__ixor__"
+                            | "__or__"
+                            | "__ror__"
+                            | "__ior__"
+                            | "__floordiv__"
+                            | "__rfloordiv__"
+                            | "__ifloordiv__"
+                            | "__truediv__"
+                            | "__rtruediv__"
+                            | "__itruediv__"
+                            | "__neg__"
+                            | "__pos__"
+                            | "__abs__"
+                            | "__invert__"
+                            | "__bool__"
+                            | "__int__"
+                            | "__float__"
+                            | "__index__"
+                            | "__matmul__"
+                            | "__rmatmul__"
+                            | "__imatmul__"
+                            | "__len__"
+                            | "__getitem__"
+                            | "__setitem__"
+                            | "__delitem__"
+                            | "__contains__"
+                            | "__hash__"
+                            | "__repr__"
+                            | "__str__"
+                            | "__call__"
+                            | "__iter__"
+                            | "__next__"
+                            | "__eq__"
+                            | "__ne__"
+                            | "__lt__"
+                            | "__le__"
+                            | "__gt__"
+                            | "__ge__"
+                            | "__get__"
+                            | "__set__"
+                            | "__delete__"
+                    )
+                {
+                    continue;
+                }
                 let pyo3_value = create_pyo3_object(py, &value);
                 let pyo3_value_obj: PyObjectRef = pyo3_value.into_ref(&vm.ctx).into();
                 rustpython_type.set_attr(vm.ctx.intern_str(key_str), pyo3_value_obj);
+            }
+        }
+    }
+
+    /// Copy slot wrappers from Pyo3Ref type to a dynamically created pyo3 type.
+    /// This makes hasattr(obj, '__index__') work by copying the slot wrapper
+    /// attributes that Pyo3Ref has from add_operators during its initialization.
+    fn copy_slot_wrappers_from_pyo3ref(target_type: &PyType, vm: &VirtualMachine) {
+        // Use make_class to ensure Pyo3Ref type is fully initialized with slot wrappers
+        use rustpython_vm::class::PyClassImpl;
+        let pyo3ref_type = Pyo3Ref::make_class(&vm.ctx);
+
+        // List of slot wrapper names to copy
+        const SLOT_WRAPPER_NAMES: &[&str] = &[
+            "__add__", "__radd__", "__iadd__",
+            "__sub__", "__rsub__", "__isub__",
+            "__mul__", "__rmul__", "__imul__",
+            "__mod__", "__rmod__", "__imod__",
+            "__divmod__", "__rdivmod__",
+            "__pow__", "__rpow__", "__ipow__",
+            "__lshift__", "__rlshift__", "__ilshift__",
+            "__rshift__", "__rrshift__", "__irshift__",
+            "__and__", "__rand__", "__iand__",
+            "__xor__", "__rxor__", "__ixor__",
+            "__or__", "__ror__", "__ior__",
+            "__floordiv__", "__rfloordiv__", "__ifloordiv__",
+            "__truediv__", "__rtruediv__", "__itruediv__",
+            "__neg__", "__pos__", "__abs__", "__invert__",
+            "__bool__", "__int__", "__float__", "__index__",
+            "__matmul__", "__rmatmul__", "__imatmul__",
+            "__len__", "__getitem__", "__setitem__", "__delitem__", "__contains__",
+            "__hash__", "__repr__", "__str__", "__call__",
+            "__iter__", "__next__",
+            "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__",
+            "__get__", "__set__", "__delete__",
+        ];
+
+        for &name in SLOT_WRAPPER_NAMES {
+            let attr_name = vm.ctx.intern_str(name);
+            // Only copy if target doesn't already have the attribute
+            if target_type.attributes.read().contains_key(attr_name) {
+                continue;
+            }
+            // Get the slot wrapper from Pyo3Ref type (using get_attr to check MRO too)
+            if let Some(wrapper) = pyo3ref_type.get_attr(attr_name) {
+                target_type.set_attr(attr_name, wrapper);
             }
         }
     }

@@ -1712,6 +1712,10 @@ pub trait AsNumber: PyPayload {
     #[pyslot]
     fn as_number() -> &'static PyNumberMethods;
 
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        slots.as_number.copy_from(Self::as_number());
+    }
+
     fn clone_exact(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
         // not all AsNumber requires this implementation.
         unimplemented!()
