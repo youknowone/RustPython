@@ -695,7 +695,7 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             .expect("type should have __new__")(metatype, args, vm)
     }
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE), with(AsNumber))]
     impl Pyo3Type {
         /// Get attribute from type - delegates to CPython for __pyo3_obj__ types.
         #[pymethod]
@@ -730,28 +730,24 @@ __pickled_result__ = pickle.dumps(__result__, protocol=4)
             let type_type = vm.ctx.types.type_type;
             vm.call_method(type_type.as_object(), "__getattribute__", (zelf, name))
         }
+    }
 
-        /// Support type * int for array type creation (e.g., CHAR * 10)
-        /// Delegates to CPython's type.__mul__ which creates array types.
-        #[pymethod]
-        fn __mul__(zelf: PyTypeRef, n: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            // Check if this type has a CPython object reference
-            if let Some(pyo3_obj) = zelf.get_attr(vm.ctx.intern_str(PYO3_OBJ_ATTR))
-                && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
-            {
-                // Delegate __mul__ to CPython type
-                return pyo3_binary_op_with_pyo3ref(&pyo3_ref.py_obj, &n, "__mul__", vm);
-            }
-
-            // No __pyo3_obj__ - return NotImplemented
-            Ok(vm.ctx.not_implemented())
-        }
-
-        /// Support int * type (reverse multiplication)
-        #[pymethod]
-        fn __rmul__(zelf: PyTypeRef, n: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            // Same as __mul__ for commutative operation
-            Pyo3Type::__mul__(zelf, n, vm)
+    impl AsNumber for Pyo3Type {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                multiply: Some(|a, b, vm| {
+                    // a is a type with __pyo3_obj__ attribute containing the CPython type
+                    if let Some(type_obj) = a.downcast_ref::<PyType>()
+                        && let Some(pyo3_obj) = type_obj.get_attr(vm.ctx.intern_str("__pyo3_obj__"))
+                        && let Some(pyo3_ref) = pyo3_obj.downcast_ref::<Pyo3Ref>()
+                    {
+                        return pyo3_binary_op_with_pyo3ref(&pyo3_ref.py_obj, b, "__mul__", vm);
+                    }
+                    Ok(vm.ctx.not_implemented())
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 
