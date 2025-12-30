@@ -31,6 +31,8 @@ parking_lot = { workspace = true, optional = true }
 unicode_names2 = { workspace = true }
 radium = { workspace = true }
 
+circ = { path = "../../circ" }
+
 lock_api = "0.4"
 siphasher = "1"
 num-complex.workspace = true
