@@ -752,7 +752,7 @@ class NestedWith(unittest.TestCase):
             self.assertEqual(10, b1)
             self.assertEqual(20, b2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: 'FrameSummary' object has no attribute 'end_lineno'
+    @unittest.expectedFailure # TODO: RUSTPYTHON; colno/end_colno not set correctly
     def testExceptionLocation(self):
         # The location of an exception raised from
         # __init__, __enter__ or __exit__ of a context
