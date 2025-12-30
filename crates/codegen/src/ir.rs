@@ -4,8 +4,9 @@ use crate::{IndexMap, IndexSet, error::InternalError};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, InstrDisplayContext, Instruction,
-        Label, OpArg, PyCodeLocationInfoKind,
+        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
+        InstrDisplayContext, Instruction, Label, OpArg, PyCodeLocationInfoKind,
+        encode_exception_table,
     },
 };
 
@@ -88,6 +89,19 @@ pub struct InstructionInfo {
     pub target: BlockIdx,
     pub location: SourceLocation,
     pub end_location: SourceLocation,
+    pub except_handler: Option<ExceptHandlerInfo>,
+}
+
+/// Exception handler information for an instruction
+#[derive(Debug, Clone)]
+pub struct ExceptHandlerInfo {
+    /// Block to jump to when exception occurs
+    pub handler_block: BlockIdx,
+    /// Stack depth at handler entry
+    pub stack_depth: u32,
+    /// Whether to push lasti before exception
+    pub preserve_lasti: bool,
+>>>>>>> df5b51298 (exceptiontable)
 }
 
 // spell-checker:ignore petgraph
@@ -248,7 +262,7 @@ impl CodeInfo {
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
             linetable,
-            exceptiontable: Box::new([]), // TODO: Generate actual exception table
+            exceptiontable: generate_exception_table(&blocks, &block_to_offset),
         })
     }
 
@@ -563,4 +577,76 @@ fn write_signed_varint(buf: &mut Vec<u8>, val: i32) -> usize {
         (val as u32) << 1
     };
     write_varint(buf, uval)
+}
+
+/// Generate CPython 3.11+ exception table from instruction handler info
+fn generate_exception_table(blocks: &[Block], block_to_offset: &[Label]) -> Box<[u8]> {
+    let mut entries: Vec<ExceptionTableEntry> = Vec::new();
+    let mut current_entry: Option<(ExceptHandlerInfo, u32)> = None; // (handler_info, start_offset)
+    let mut offset = 0u32;
+
+    // Iterate through all instructions in block order
+    for (_, block) in iter_blocks(blocks) {
+        for instr in &block.instructions {
+            let instr_size = instr.arg.instr_size() as u32;
+
+            match (&current_entry, &instr.except_handler) {
+                // No current entry, no handler - nothing to do
+                (None, None) => {}
+
+                // No current entry, handler starts - begin new entry
+                (None, Some(handler)) => {
+                    current_entry = Some((handler.clone(), offset));
+                }
+
+                // Current entry exists, same handler - continue
+                (Some((curr_handler, _)), Some(handler))
+                    if curr_handler.handler_block == handler.handler_block
+                        && curr_handler.stack_depth == handler.stack_depth
+                        && curr_handler.preserve_lasti == handler.preserve_lasti => {}
+
+                // Current entry exists, different handler - finish current, start new
+                (Some((curr_handler, start)), Some(handler)) => {
+                    let target_offset = block_to_offset[curr_handler.handler_block.idx()].0;
+                    entries.push(ExceptionTableEntry::new(
+                        *start,
+                        offset,
+                        target_offset,
+                        curr_handler.stack_depth as u16,
+                        curr_handler.preserve_lasti,
+                    ));
+                    current_entry = Some((handler.clone(), offset));
+                }
+
+                // Current entry exists, no handler - finish current entry
+                (Some((curr_handler, start)), None) => {
+                    let target_offset = block_to_offset[curr_handler.handler_block.idx()].0;
+                    entries.push(ExceptionTableEntry::new(
+                        *start,
+                        offset,
+                        target_offset,
+                        curr_handler.stack_depth as u16,
+                        curr_handler.preserve_lasti,
+                    ));
+                    current_entry = None;
+                }
+            }
+
+            offset += instr_size;
+        }
+    }
+
+    // Finish any remaining entry
+    if let Some((curr_handler, start)) = current_entry {
+        let target_offset = block_to_offset[curr_handler.handler_block.idx()].0;
+        entries.push(ExceptionTableEntry::new(
+            start,
+            offset,
+            target_offset,
+            curr_handler.stack_depth as u16,
+            curr_handler.preserve_lasti,
+        ));
+    }
+
+    encode_exception_table(&entries)
 }

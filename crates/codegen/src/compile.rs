@@ -69,7 +69,10 @@ pub struct FBlockInfo {
     pub fb_type: FBlockType,
     pub fb_block: BlockIdx,
     pub fb_exit: BlockIdx,
-    // fb_datum is not needed in RustPython
+    // For CPython 3.11+ exception table generation
+    pub fb_handler: Option<BlockIdx>, // Exception handler block
+    pub fb_stack_depth: u32,          // Stack depth at block entry
+    pub fb_preserve_lasti: bool,      // Whether to preserve lasti (for SETUP_CLEANUP)
 }
 
 pub(crate) type InternalResult<T> = Result<T, InternalError>;
@@ -881,6 +884,19 @@ impl Compiler {
         fb_block: BlockIdx,
         fb_exit: BlockIdx,
     ) -> CompileResult<()> {
+        self.push_fblock_with_handler(fb_type, fb_block, fb_exit, None, 0, false)
+    }
+
+    /// Push an fblock with exception handler info for CPython 3.11+ exception table generation
+    fn push_fblock_with_handler(
+        &mut self,
+        fb_type: FBlockType,
+        fb_block: BlockIdx,
+        fb_exit: BlockIdx,
+        fb_handler: Option<BlockIdx>,
+        fb_stack_depth: u32,
+        fb_preserve_lasti: bool,
+    ) -> CompileResult<()> {
         let code = self.current_code_info();
         if code.fblock.len() >= MAXBLOCKS {
             return Err(self.error(CodegenErrorType::SyntaxError(
@@ -891,6 +907,9 @@ impl Compiler {
             fb_type,
             fb_block,
             fb_exit,
+            fb_handler,
+            fb_stack_depth,
+            fb_preserve_lasti,
         });
         Ok(())
     }
@@ -902,6 +921,22 @@ impl Compiler {
         // TODO: Add assertion to check expected type matches
         // assert!(matches!(fblock.fb_type, expected_type));
         code.fblock.pop().expect("fblock stack underflow")
+    }
+
+    /// Get the current exception handler from fblock stack (for CPython 3.11+ exception table)
+    fn current_except_handler(&self) -> Option<ir::ExceptHandlerInfo> {
+        let code = self.code_stack.last()?;
+        // Walk fblock stack from top to find the nearest exception handler
+        for fblock in code.fblock.iter().rev() {
+            if let Some(handler) = fblock.fb_handler {
+                return Some(ir::ExceptHandlerInfo {
+                    handler_block: handler,
+                    stack_depth: fblock.fb_stack_depth,
+                    preserve_lasti: fblock.fb_preserve_lasti,
+                });
+            }
+        }
+        None
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
@@ -2054,7 +2089,16 @@ impl Compiler {
         let finally_block = self.new_block();
 
         // Setup a finally block if we have a finally statement.
+        // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
+            self.push_fblock_with_handler(
+                FBlockType::FinallyTry,
+                finally_block,
+                finally_block,
+                Some(finally_block),
+                0,    // stack depth will be handled by the instruction
+                true, // preserve lasti for finally
+            )?;
             emit!(
                 self,
                 Instruction::SetupFinally {
@@ -2066,6 +2110,15 @@ impl Compiler {
         let else_block = self.new_block();
 
         // try:
+        // Push fblock with handler info for exception table generation
+        self.push_fblock_with_handler(
+            FBlockType::TryExcept,
+            handler_block,
+            handler_block,
+            Some(handler_block),
+            0,     // stack depth
+            false, // no lasti for except
+        )?;
         emit!(
             self,
             Instruction::SetupExcept {
@@ -2073,6 +2126,7 @@ impl Compiler {
             }
         );
         self.compile_statements(body)?;
+        self.pop_fblock(FBlockType::TryExcept);
         emit!(self, Instruction::PopBlock);
         emit!(self, Instruction::Jump { target: else_block });
 
@@ -2184,7 +2238,16 @@ impl Compiler {
         let reraise_star_block = self.new_block();
         let reraise_block = self.new_block();
 
+        // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
+            self.push_fblock_with_handler(
+                FBlockType::FinallyTry,
+                finally_block,
+                finally_block,
+                Some(finally_block),
+                0,    // stack depth
+                true, // preserve lasti for finally
+            )?;
             emit!(
                 self,
                 Instruction::SetupFinally {
@@ -2193,6 +2256,15 @@ impl Compiler {
             );
         }
 
+        // Push fblock with handler info for exception table generation
+        self.push_fblock_with_handler(
+            FBlockType::TryExcept,
+            handler_block,
+            handler_block,
+            Some(handler_block),
+            0,     // stack depth
+            false, // no lasti for except
+        )?;
         emit!(
             self,
             Instruction::SetupExcept {
@@ -2200,6 +2272,7 @@ impl Compiler {
             }
         );
         self.compile_statements(body)?;
+        self.pop_fblock(FBlockType::TryExcept);
         emit!(self, Instruction::PopBlock);
         emit!(self, Instruction::Jump { target: else_block });
 
@@ -5656,12 +5729,14 @@ impl Compiler {
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
+        let except_handler = self.current_except_handler();
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
             arg,
             target,
             location,
             end_location,
+            except_handler,
         });
     }
 

@@ -5,7 +5,168 @@ use crate::{
     marshal::MarshalError,
     {OneIndexed, SourceLocation},
 };
-use alloc::{collections::BTreeSet, fmt};
+use alloc::{collections::BTreeSet, fmt, vec::Vec};
+
+/// Exception table entry for zero-cost exception handling (CPython 3.11+).
+/// Format: (start, size, target, depth<<1|lasti)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExceptionTableEntry {
+    /// Start instruction offset (inclusive)
+    pub start: u32,
+    /// End instruction offset (exclusive)
+    pub end: u32,
+    /// Handler target offset
+    pub target: u32,
+    /// Stack depth at handler entry
+    pub depth: u16,
+    /// Whether to push lasti before exception
+    pub push_lasti: bool,
+}
+
+impl ExceptionTableEntry {
+    pub fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
+        Self {
+            start,
+            end,
+            target,
+            depth,
+            push_lasti,
+        }
+    }
+}
+
+/// Encode exception table entries into CPython 3.11+ format.
+/// Uses 6-bit varint encoding with start marker (MSB) and continuation bit.
+pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::Box<[u8]> {
+    let mut data = Vec::new();
+    for entry in entries {
+        let size = entry.end.saturating_sub(entry.start);
+        let depth_lasti = ((entry.depth as u32) << 1) | (entry.push_lasti as u32);
+
+        write_varint_with_start(&mut data, entry.start);
+        write_varint(&mut data, size);
+        write_varint(&mut data, entry.target);
+        write_varint(&mut data, depth_lasti);
+    }
+    data.into_boxed_slice()
+}
+
+/// Find exception handler for given instruction offset.
+pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTableEntry> {
+    let mut pos = 0;
+    while pos < table.len() {
+        let start = read_varint_with_start(table, &mut pos)?;
+        let size = read_varint(table, &mut pos)?;
+        let target = read_varint(table, &mut pos)?;
+        let depth_lasti = read_varint(table, &mut pos)?;
+
+        let end = start + size;
+        let depth = (depth_lasti >> 1) as u16;
+        let push_lasti = (depth_lasti & 1) != 0;
+
+        if offset >= start && offset < end {
+            return Some(ExceptionTableEntry {
+                start,
+                end,
+                target,
+                depth,
+                push_lasti,
+            });
+        }
+    }
+    None
+}
+
+fn write_varint_with_start(data: &mut Vec<u8>, mut val: u32) {
+    // First byte has MSB (0x80) set as start marker
+    // Bit 6 (0x40) is continuation bit
+    // Bits 0-5 contain 6 bits of data
+    let mut bytes = Vec::new();
+    loop {
+        let mut byte = (val & 0x3f) as u8;
+        val >>= 6;
+        if val > 0 {
+            byte |= 0x40; // continuation bit
+        }
+        bytes.push(byte);
+        if val == 0 {
+            break;
+        }
+    }
+    // Set start bit on first byte
+    if let Some(first) = bytes.first_mut() {
+        *first |= 0x80;
+    }
+    data.extend(bytes);
+}
+
+fn write_varint(data: &mut Vec<u8>, mut val: u32) {
+    loop {
+        let mut byte = (val & 0x3f) as u8;
+        val >>= 6;
+        if val > 0 {
+            byte |= 0x40; // continuation bit
+        }
+        data.push(byte);
+        if val == 0 {
+            break;
+        }
+    }
+}
+
+fn read_varint_with_start(data: &[u8], pos: &mut usize) -> Option<u32> {
+    if *pos >= data.len() {
+        return None;
+    }
+    let first = data[*pos];
+    if first & 0x80 == 0 {
+        return None; // Not a start byte
+    }
+    *pos += 1;
+
+    let mut val = (first & 0x3f) as u32;
+    let mut shift = 6;
+    let mut has_continuation = first & 0x40 != 0;
+
+    while has_continuation && *pos < data.len() {
+        let byte = data[*pos];
+        if byte & 0x80 != 0 {
+            break; // Next entry start
+        }
+        *pos += 1;
+        val |= ((byte & 0x3f) as u32) << shift;
+        shift += 6;
+        has_continuation = byte & 0x40 != 0;
+    }
+    Some(val)
+}
+
+fn read_varint(data: &[u8], pos: &mut usize) -> Option<u32> {
+    if *pos >= data.len() {
+        return None;
+    }
+
+    let mut val = 0u32;
+    let mut shift = 0;
+
+    loop {
+        if *pos >= data.len() {
+            return None;
+        }
+        let byte = data[*pos];
+        if byte & 0x80 != 0 && shift > 0 {
+            break; // Next entry start
+        }
+        *pos += 1;
+        val |= ((byte & 0x3f) as u32) << shift;
+        shift += 6;
+        if byte & 0x40 == 0 {
+            break;
+        }
+    }
+    Some(val)
+}
+
 use bitflags::bitflags;
 use core::{hash, marker::PhantomData, mem, num::NonZeroU8, ops::Deref};
 use itertools::Itertools;
@@ -869,11 +1030,24 @@ pub enum Instruction {
     /// Set the current exception to TOS (for except* handlers).
     /// Does not pop the value.
     SetExcInfo,
+    /// Push exception info to stack (CPython 3.11+ PUSH_EXC_INFO).
+    /// Stack: [exc] -> [prev_exc, exc]
+    PushExcInfo,
+    /// Check if exception matches type (CPython 3.11+ CHECK_EXC_MATCH).
+    /// Stack: [exc, type] -> [exc, bool]
+    CheckExcMatch,
+    /// Re-raise exception (CPython 3.11+ RERAISE).
+    /// depth=0: simple reraise, depth=1: restore lasti from stack
+    Reraise {
+        depth: Arg<u32>,
+    },
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 
 // This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::SetExcInfo;
+const LAST_INSTRUCTION: Instruction = Instruction::Reraise {
+    depth: Arg::marker(),
+};
 
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
@@ -1748,6 +1922,9 @@ impl Instruction {
             YieldValue => 0,
             YieldFrom => -1,
             SetExcInfo => 0,
+            PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
+            CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
+            Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
             SetupWith { .. } => (!jump) as i32,
@@ -1967,6 +2144,9 @@ impl Instruction {
             StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
             SetExcInfo => w!(SET_EXC_INFO),
+            PushExcInfo => w!(PUSH_EXC_INFO),
+            CheckExcMatch => w!(CHECK_EXC_MATCH),
+            Reraise { depth } => w!(RERAISE, depth),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
@@ -2035,5 +2215,76 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
             self.source_path.as_ref(),
             self.first_line_number.map_or(-1, |x| x.get() as i32)
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exception_table_encode_decode() {
+        let entries = vec![
+            ExceptionTableEntry::new(0, 10, 20, 2, false),
+            ExceptionTableEntry::new(15, 25, 30, 1, true),
+        ];
+
+        let encoded = encode_exception_table(&entries);
+
+        // Find handler at offset 5 (in range [0, 10))
+        let handler = find_exception_handler(&encoded, 5);
+        assert!(handler.is_some());
+        let handler = handler.unwrap();
+        assert_eq!(handler.start, 0);
+        assert_eq!(handler.end, 10);
+        assert_eq!(handler.target, 20);
+        assert_eq!(handler.depth, 2);
+        assert!(!handler.push_lasti);
+
+        // Find handler at offset 20 (in range [15, 25))
+        let handler = find_exception_handler(&encoded, 20);
+        assert!(handler.is_some());
+        let handler = handler.unwrap();
+        assert_eq!(handler.start, 15);
+        assert_eq!(handler.end, 25);
+        assert_eq!(handler.target, 30);
+        assert_eq!(handler.depth, 1);
+        assert!(handler.push_lasti);
+
+        // No handler at offset 12 (not in any range)
+        let handler = find_exception_handler(&encoded, 12);
+        assert!(handler.is_none());
+
+        // No handler at offset 30 (past all ranges)
+        let handler = find_exception_handler(&encoded, 30);
+        assert!(handler.is_none());
+    }
+
+    #[test]
+    fn test_exception_table_empty() {
+        let entries: Vec<ExceptionTableEntry> = vec![];
+        let encoded = encode_exception_table(&entries);
+        assert!(encoded.is_empty());
+        assert!(find_exception_handler(&encoded, 0).is_none());
+    }
+
+    #[test]
+    fn test_exception_table_single_entry() {
+        let entries = vec![ExceptionTableEntry::new(5, 15, 100, 3, true)];
+        let encoded = encode_exception_table(&entries);
+
+        // Inside range
+        let handler = find_exception_handler(&encoded, 10);
+        assert!(handler.is_some());
+        let handler = handler.unwrap();
+        assert_eq!(handler.target, 100);
+        assert_eq!(handler.depth, 3);
+        assert!(handler.push_lasti);
+
+        // At start boundary (inclusive)
+        assert!(find_exception_handler(&encoded, 5).is_some());
+
+        // At end boundary (exclusive)
+        assert!(find_exception_handler(&encoded, 15).is_none());
     }
 }

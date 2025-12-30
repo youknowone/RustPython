@@ -383,7 +383,8 @@ impl ExecutingFrame<'_> {
                     ) -> FrameResult {
                         // 1. Extract traceback from exception's '__traceback__' attr.
                         // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
-                        // 3. Unwind block stack till appropriate handler is found.
+                        // 3. First, try to find handler in exception table (CPython 3.11+ style)
+                        // 4. If not found, unwind block stack till appropriate handler is found (legacy).
 
                         let (loc, _end_loc) = frame.code.locations[idx];
                         let next = exception.__traceback__();
@@ -398,6 +399,34 @@ impl ExecutingFrame<'_> {
 
                         vm.contextualize_exception(&exception);
 
+                        // Try exception table first (CPython 3.11+ zero-cost exception handling)
+                        if let Some(entry) =
+                            bytecode::find_exception_handler(&frame.code.exceptiontable, idx as u32)
+                        {
+                            // Pop stack to handler's expected depth
+                            while frame.state.stack.len() > entry.depth as usize {
+                                frame.pop_value();
+                            }
+
+                            // Push lasti if handler expects it (for finally blocks)
+                            if entry.push_lasti {
+                                let lasti = vm.ctx.new_int(idx as i32);
+                                frame.push_value(lasti.into());
+                            }
+
+                            // Push the exception onto the stack
+                            frame.push_value(exception.clone().into());
+
+                            // Set as current exception
+                            vm.set_exception(Some(exception));
+
+                            // Jump to handler
+                            frame.jump(bytecode::Label(entry.target));
+
+                            return Ok(None); // Continue execution at handler
+                        }
+
+                        // Fallback to block-based unwinding (legacy support)
                         frame.unwind_blocks(vm, UnwindReason::Raising { exception })
                     }
 
@@ -1411,6 +1440,52 @@ impl ExecutingFrame<'_> {
                     vm.set_exception(Some(exc.to_owned()));
                 }
                 Ok(None)
+            }
+            bytecode::Instruction::PushExcInfo => {
+                // CPython 3.11+ PUSH_EXC_INFO
+                // Stack: [exc] -> [prev_exc, exc]
+                let exc = self.pop_value();
+                let prev_exc = vm
+                    .current_exception()
+                    .map(|e| e.into())
+                    .unwrap_or_else(|| vm.ctx.none());
+
+                // Set exc as the current exception
+                if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
+                    vm.set_exception(Some(exc_ref.to_owned()));
+                }
+
+                self.push_value(prev_exc);
+                self.push_value(exc);
+                Ok(None)
+            }
+            bytecode::Instruction::CheckExcMatch => {
+                // CPython 3.11+ CHECK_EXC_MATCH
+                // Stack: [exc, type] -> [exc, bool]
+                let exc_type = self.pop_value();
+                let exc = self.top_value();
+
+                // Validate that exc_type is valid for exception matching
+                let result = exc.is_instance(&exc_type, vm)?;
+                self.push_value(vm.ctx.new_bool(result).into());
+                Ok(None)
+            }
+            bytecode::Instruction::Reraise { depth } => {
+                // CPython 3.11+ RERAISE
+                // depth=0: simple reraise
+                // depth>0: pop lasti values from stack first
+                let depth_val = depth.get(arg);
+
+                // Pop lasti values if depth > 0
+                for _ in 0..depth_val {
+                    let _ = self.pop_value();
+                }
+
+                // Reraise the current exception
+                let exc = vm
+                    .topmost_exception()
+                    .ok_or_else(|| vm.new_runtime_error("No active exception to re-raise"))?;
+                Err(exc)
             }
             bytecode::Instruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
