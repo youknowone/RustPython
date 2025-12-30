@@ -622,6 +622,30 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         }
     };
 
+    // Generate MaybePopEdges impl
+    // 1. no `pop_edges` at all: generate a dummy impl (HAS_POP_EDGES = false)
+    // 2. `pop_edges`: generate impl that calls PopEdges::pop_edges
+    let maybe_pop_edges_code = {
+        if class_meta.inner()._has_key("pop_edges")? {
+            quote! {
+                impl ::rustpython_vm::object::MaybePopEdges for #ident {
+                    const HAS_POP_EDGES: bool = true;
+
+                    fn try_pop_edges(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
+                        ::rustpython_vm::object::PopEdges::pop_edges(self, out);
+                    }
+                }
+            }
+        } else {
+            // Default: no pop_edges
+            quote! {
+                impl ::rustpython_vm::object::MaybePopEdges for #ident {
+                    // Default: HAS_POP_EDGES = false, try_pop_edges does nothing
+                }
+            }
+        }
+    };
+
     // Generate PyPayload impl based on whether base exists
     #[allow(clippy::collapsible_else_if)]
     let impl_payload = if let Some(base_type) = &base {
@@ -679,6 +703,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         #derive_trace
         #item
         #maybe_trace_code
+        #maybe_pop_edges_code
         #class_def
         #impl_payload
         #empty_impl

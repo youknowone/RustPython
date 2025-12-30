@@ -24,7 +24,7 @@ use crate::{
 use alloc::fmt;
 use std::sync::LazyLock;
 
-#[pyclass(module = false, name = "tuple", traverse)]
+#[pyclass(module = false, name = "tuple", traverse, pop_edges)]
 pub struct PyTuple<R = PyObjectRef> {
     elements: Box<[R]>,
 }
@@ -33,6 +33,16 @@ impl<R> fmt::Debug for PyTuple<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
+    }
+}
+
+// SAFETY: PopEdges extracts all elements from the tuple
+// Note: Only impl for PyTuple<PyObjectRef> (the default)
+unsafe impl crate::object::PopEdges for PyTuple {
+    fn pop_edges(&mut self, out: &mut Vec<PyObjectRef>) {
+        // Take ownership of elements and extend out
+        let elements = std::mem::take(&mut self.elements);
+        out.extend(elements.into_vec());
     }
 }
 

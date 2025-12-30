@@ -29,12 +29,23 @@ use std::sync::LazyLock;
 
 pub type DictContentType = dict_inner::Dict;
 
-#[pyclass(module = false, name = "dict", unhashable = true, traverse)]
+#[pyclass(module = false, name = "dict", unhashable = true, traverse, pop_edges)]
 #[derive(Default)]
 pub struct PyDict {
     entries: DictContentType,
 }
 pub type PyDictRef = PyRef<PyDict>;
+
+// SAFETY: PopEdges extracts all key-value pairs from the dict
+unsafe impl crate::object::PopEdges for PyDict {
+    fn pop_edges(&mut self, out: &mut Vec<PyObjectRef>) {
+        // Pop all entries and collect both keys and values
+        for (key, value) in self.entries.pop_all_entries() {
+            out.push(key);
+            out.push(value);
+        }
+    }
+}
 
 impl fmt::Debug for PyDict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

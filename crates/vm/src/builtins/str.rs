@@ -1931,6 +1931,10 @@ impl MaybeTraverse for PyUtf8Str {
     }
 }
 
+impl crate::object::MaybePopEdges for PyUtf8Str {
+    // Default: HAS_POP_EDGES = false, no pop_edges needed
+}
+
 impl PyPayload for PyUtf8Str {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {

@@ -99,6 +99,12 @@ pub(super) unsafe fn try_trace_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mut T
     payload.try_traverse(tracer_fn)
 }
 
+/// Call `try_pop_edges` on payload to extract child references
+pub(super) unsafe fn try_pop_edges_obj<T: PyPayload>(x: *mut PyObject, out: &mut Vec<PyObjectRef>) {
+    let x = unsafe { &mut *(x as *mut PyInner<T>) };
+    x.payload.try_pop_edges(out);
+}
+
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
@@ -825,15 +831,35 @@ impl PyObject {
     }
 
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
+    ///
+    /// This implements immediate recursive destruction for circular reference resolution:
+    /// 1. Call __del__ if present
+    /// 2. Extract child references via pop_edges()
+    /// 3. Deallocate the object
+    /// 4. Drop child references (may trigger recursive destruction)
     #[inline(never)]
     unsafe fn drop_slow(ptr: NonNull<Self>) {
         if let Err(()) = unsafe { ptr.as_ref().drop_slow_inner() } {
-            // abort drop for whatever reason
+            // abort drop for whatever reason (e.g., resurrection in __del__)
             return;
         }
-        let drop_dealloc = unsafe { ptr.as_ref().0.vtable.drop_dealloc };
+
+        let vtable = unsafe { ptr.as_ref().0.vtable };
+
+        // Extract child references before deallocation to break circular refs
+        let mut edges = Vec::new();
+        if let Some(pop_edges_fn) = vtable.pop_edges {
+            unsafe { pop_edges_fn(ptr.as_ptr(), &mut edges) };
+        }
+
+        // Deallocate the object
+        let drop_dealloc = vtable.drop_dealloc;
         // call drop only when there are no references in scope - stacked borrows stuff
         unsafe { drop_dealloc(ptr.as_ptr()) }
+
+        // Now drop child references - this may trigger recursive destruction
+        // The object is already deallocated, so circular refs are broken
+        drop(edges);
     }
 
     /// # Safety

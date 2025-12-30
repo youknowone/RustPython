@@ -1,10 +1,10 @@
 use alloc::fmt;
 
 use crate::{
-    PyObject,
+    PyObject, PyObjectRef,
     object::{
         Erased, InstanceDict, MaybeTraverse, PyInner, PyObjectPayload, debug_obj, drop_dealloc_obj,
-        try_trace_obj,
+        try_pop_edges_obj, try_trace_obj,
     },
 };
 
@@ -14,6 +14,9 @@ pub(in crate::object) struct PyObjVTable {
     pub(in crate::object) drop_dealloc: unsafe fn(*mut PyObject),
     pub(in crate::object) debug: unsafe fn(&PyObject, &mut fmt::Formatter<'_>) -> fmt::Result,
     pub(in crate::object) trace: Option<unsafe fn(&PyObject, &mut TraverseFn<'_>)>,
+    /// Pop edges for circular reference resolution.
+    /// Called just before deallocation to extract child references.
+    pub(in crate::object) pop_edges: Option<unsafe fn(*mut PyObject, &mut Vec<PyObjectRef>)>,
 }
 
 impl PyObjVTable {
@@ -24,6 +27,13 @@ impl PyObjVTable {
             trace: const {
                 if T::IS_TRACE {
                     Some(try_trace_obj::<T>)
+                } else {
+                    None
+                }
+            },
+            pop_edges: const {
+                if T::HAS_POP_EDGES {
+                    Some(try_pop_edges_obj::<T>)
                 } else {
                     None
                 }

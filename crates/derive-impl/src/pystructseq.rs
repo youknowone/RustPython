@@ -614,6 +614,11 @@ pub(crate) fn impl_pystruct_sequence(
             }
         }
 
+        // MaybePopEdges - default (no pop_edges for struct sequences)
+        impl ::rustpython_vm::object::MaybePopEdges for #pytype_ident {
+            // Default: HAS_POP_EDGES = false
+        }
+
         // PySubclass for proper inheritance
         impl ::rustpython_vm::class::PySubclass for #pytype_ident {
             type Base = ::rustpython_vm::builtins::PyTuple;
