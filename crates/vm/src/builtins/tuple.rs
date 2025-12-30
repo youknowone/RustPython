@@ -3,6 +3,7 @@ use crate::common::{
     hash::{PyHash, PyUHash},
     lock::PyMutex,
 };
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
@@ -24,7 +25,7 @@ use crate::{
 use alloc::fmt;
 use std::sync::LazyLock;
 
-#[pyclass(module = false, name = "tuple", traverse, pop_edges)]
+#[pyclass(module = false, name = "tuple", traverse = "manual", pop_edges)]
 pub struct PyTuple<R = PyObjectRef> {
     elements: Box<[R]>,
 }
@@ -36,9 +37,13 @@ impl<R> fmt::Debug for PyTuple<R> {
     }
 }
 
-// SAFETY: PopEdges extracts all elements from the tuple
+// SAFETY: Traverse properly visits all owned PyObjectRefs
 // Note: Only impl for PyTuple<PyObjectRef> (the default)
-unsafe impl crate::object::PopEdges for PyTuple {
+unsafe impl Traverse for PyTuple {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.elements.traverse(traverse_fn);
+    }
+
     fn pop_edges(&mut self, out: &mut Vec<PyObjectRef>) {
         // Take ownership of elements and extend out
         let elements = std::mem::take(&mut self.elements);

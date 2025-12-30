@@ -3,7 +3,7 @@ use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
-use crate::object::PopEdges;
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     class::PyClassImpl,
@@ -24,7 +24,13 @@ use crate::{
 use alloc::fmt;
 use core::ops::DerefMut;
 
-#[pyclass(module = false, name = "list", unhashable = true, traverse, pop_edges)]
+#[pyclass(
+    module = false,
+    name = "list",
+    unhashable = true,
+    traverse = "manual",
+    pop_edges
+)]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -51,8 +57,12 @@ impl FromIterator<PyObjectRef> for PyList {
     }
 }
 
-// SAFETY: PopEdges extracts all owned PyObjectRefs from the list
-unsafe impl PopEdges for PyList {
+// SAFETY: Traverse properly visits all owned PyObjectRefs
+unsafe impl Traverse for PyList {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.elements.traverse(traverse_fn);
+    }
+
     fn pop_edges(&mut self, out: &mut Vec<PyObjectRef>) {
         // Drain all elements from the list, transferring ownership to `out`
         out.extend(self.elements.get_mut().drain(..));

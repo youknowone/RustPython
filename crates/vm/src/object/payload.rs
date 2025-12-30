@@ -1,4 +1,4 @@
-use crate::object::{MaybePopEdges, MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
+use crate::object::{MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
 use crate::{
     PyObject, PyRefExact,
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
@@ -25,9 +25,7 @@ pub(crate) fn cold_downcast_type_error(
     vm.new_downcast_type_error(class, obj)
 }
 
-pub trait PyPayload:
-    MaybeTraverse + MaybePopEdges + PyThreadingConstraint + Sized + 'static
-{
+pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn payload_type_id() -> core::any::TypeId {
         core::any::TypeId::of::<Self>()
@@ -140,13 +138,7 @@ pub trait PyPayload:
 }
 
 pub trait PyObjectPayload:
-    PyPayload
-    + core::any::Any
-    + core::fmt::Debug
-    + MaybeTraverse
-    + MaybePopEdges
-    + PyThreadingConstraint
-    + 'static
+    PyPayload + core::any::Any + core::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
 {
 }
 
