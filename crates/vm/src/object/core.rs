@@ -846,6 +846,13 @@ impl PyObject {
 
         let vtable = unsafe { ptr.as_ref().0.vtable };
 
+        // Untrack object from GC before deallocation
+        if vtable.trace.is_some() {
+            unsafe {
+                crate::gc_state::gc_state().untrack_object(ptr);
+            }
+        }
+
         // Extract child references before deallocation to break circular refs
         let mut edges = Vec::new();
         if let Some(pop_edges_fn) = vtable.pop_edges {
@@ -878,6 +885,69 @@ impl PyObject {
 
     pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
         *self.0.slots[offset].write() = value;
+    }
+
+    /// Check if this object is tracked by the garbage collector.
+    /// Returns true if the object has IS_TRACE = true (has a trace function)
+    /// or has an instance dict (user-defined class instances).
+    pub fn is_gc_tracked(&self) -> bool {
+        // Objects with trace function are tracked
+        if self.0.vtable.trace.is_some() {
+            return true;
+        }
+        // Objects with instance dict are also tracked (user-defined class instances)
+        self.0.dict.is_some()
+    }
+
+    /// Get the referents (objects directly referenced) of this object.
+    /// Uses the vtable trace function to collect references.
+    pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
+        let mut result = Vec::new();
+        if let Some(trace_fn) = self.0.vtable.trace {
+            unsafe {
+                trace_fn(self, &mut |child: &PyObject| {
+                    result.push(child.to_owned());
+                });
+            }
+        }
+        result
+    }
+
+    /// Get raw pointers to referents without incrementing reference counts.
+    /// This is used during GC to avoid reference count manipulation.
+    ///
+    /// # Safety
+    /// The returned pointers are only valid as long as the object is alive
+    /// and its contents haven't been modified.
+    pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<PyObject>> {
+        let mut result = Vec::new();
+        if let Some(trace_fn) = self.0.vtable.trace {
+            unsafe {
+                trace_fn(self, &mut |child: &PyObject| {
+                    result.push(NonNull::from(child));
+                });
+            }
+        }
+        result
+    }
+
+    /// Pop edges from this object for cycle breaking.
+    /// Returns extracted child references that were removed from this object.
+    /// This is used during garbage collection to break circular references.
+    ///
+    /// # Safety
+    /// This is unsafe because it modifies the object's internal state.
+    pub unsafe fn gc_pop_edges(&self) -> Vec<PyObjectRef> {
+        let mut result = Vec::new();
+        if let Some(pop_edges_fn) = self.0.vtable.pop_edges {
+            unsafe { pop_edges_fn(self as *const _ as *mut PyObject, &mut result) };
+        }
+        result
+    }
+
+    /// Check if this object has pop_edges capability
+    pub fn gc_has_pop_edges(&self) -> bool {
+        self.0.vtable.pop_edges.is_some()
     }
 }
 
@@ -1096,9 +1166,16 @@ impl<T: PyPayload + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
-        Self {
-            ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
+        let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+
+        // Track object if IS_TRACE is true
+        if T::IS_TRACE {
+            unsafe {
+                crate::gc_state::gc_state().track_object(ptr.cast());
+            }
         }
+
+        Self { ptr }
     }
 }
 
