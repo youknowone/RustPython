@@ -3327,7 +3327,7 @@ impl Compiler {
             // Push fblock for exception table - handler goes to exc_handler_block
             // Stack at this point: [..., __exit__, enter_res]
             // After store/pop: [..., __exit__]
-            // We need depth=1 to keep __exit__ on stack when exception occurs
+            // Dynamic depth for nested with statements: keep all __exit__ on stack
             self.push_fblock_with_handler(
                 if is_async {
                     FBlockType::AsyncWith
@@ -3337,8 +3337,8 @@ impl Compiler {
                 normal_exit_block,
                 after_block,
                 Some(exc_handler_block),
-                1,     // stack depth: keep __exit__ on stack
-                false, // don't push lasti
+                self.with_stack_depth() + 1, // dynamic depth for nested with statements
+                true,                        // push lasti for CPython SETUP_CLEANUP compatibility
             )?;
 
             match &item.optional_vars {
@@ -5840,6 +5840,23 @@ impl Compiler {
 
     fn current_code_info(&mut self) -> &mut ir::CodeInfo {
         self.code_stack.last_mut().expect("no code on stack")
+    }
+
+    /// Calculate the current with statement nesting depth.
+    /// Each nested with statement adds one __exit__ on the stack.
+    fn with_stack_depth(&self) -> u32 {
+        let code = match self.code_stack.last() {
+            Some(c) => c,
+            None => return 0,
+        };
+        let mut depth = 0u32;
+        for fblock in &code.fblock {
+            match fblock.fb_type {
+                FBlockType::With | FBlockType::AsyncWith => depth += 1,
+                _ => {}
+            }
+        }
+        depth
     }
 
     fn current_block(&mut self) -> &mut ir::Block {

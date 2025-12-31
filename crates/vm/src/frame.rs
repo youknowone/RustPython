@@ -1516,14 +1516,15 @@ impl ExecutingFrame<'_> {
                 self.unpack_sequence(size.get(arg), vm)
             }
             bytecode::Instruction::WithCleanupFinish => {
-                // CPython 3.11+: Stack is [..., __exit__, prev_exc, exc, exit_res]
+                // CPython 3.11+: Stack is [..., __exit__, lasti, prev_exc, exc, exit_res]
                 let suppress_exception = self.pop_value().try_to_bool(vm)?;
 
                 if suppress_exception {
                     // Exception was suppressed by __exit__
-                    // Pop exc, prev_exc, __exit__ from stack
+                    // Pop exc, prev_exc, lasti, __exit__ from stack
                     self.pop_value(); // exc
                     let prev_exc = self.pop_value(); // prev_exc
+                    self.pop_value(); // lasti
                     self.pop_value(); // __exit__
                     // Restore prev_exc as current exception (may be None)
                     let prev_exc = prev_exc.downcast_ref::<PyBaseException>().cloned();
@@ -1531,29 +1532,30 @@ impl ExecutingFrame<'_> {
                     Ok(None)
                 } else {
                     // Exception not suppressed - re-raise it
-                    // Pop exc, prev_exc, __exit__ first
+                    // Pop exc, prev_exc, lasti, __exit__ first
                     let exc = self.pop_value();
                     let prev_exc = self.pop_value();
+                    self.pop_value(); // lasti
                     self.pop_value(); // __exit__
                     // Restore prev_exc as current (for proper exception chaining)
                     let prev_exc = prev_exc.downcast_ref::<PyBaseException>().cloned();
                     vm.set_exception(prev_exc);
                     // Re-raise the exception
                     if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
-                        Err(exc_ref.clone())
+                        Err(exc_ref.to_owned())
                     } else {
                         Ok(None)
                     }
                 }
             }
             bytecode::Instruction::WithCleanupStart => {
-                // CPython 3.11+: After PUSH_EXC_INFO, stack is [..., __exit__, prev_exc, exc]
+                // CPython 3.11+: After PUSH_EXC_INFO, stack is [..., __exit__, lasti, prev_exc, exc]
                 // Get exception from vm.current_exception() (set by PUSH_EXC_INFO)
                 let exc = vm.current_exception();
 
-                // __exit__ is at TOS-2 (below prev_exc and exc)
+                // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
                 let stack_len = self.state.stack.len();
-                let exit = self.state.stack[stack_len - 3].clone();
+                let exit = self.state.stack[stack_len - 4].clone();
 
                 let args = if let Some(ref exc) = exc {
                     vm.split_exception(exc.clone())
@@ -1691,7 +1693,9 @@ impl ExecutingFrame<'_> {
         match reason {
             UnwindReason::Raising { exception } => {
                 // Look up handler in exception table
-                let offset = self.lasti();
+                // lasti points to NEXT instruction (already incremented in run loop)
+                // The exception occurred at the previous instruction
+                let offset = self.lasti() - 1;
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
@@ -1700,13 +1704,19 @@ impl ExecutingFrame<'_> {
                         self.pop_value();
                     }
 
-                    // 2. Push exception onto stack
+                    // 2. If push_lasti=true (SETUP_CLEANUP), push lasti before exception
+                    // CPython ceval.c:911-921: pushes lasti as PyLong
+                    if entry.push_lasti {
+                        self.push_value(vm.ctx.new_int(offset as i32).into());
+                    }
+
+                    // 3. Push exception onto stack
                     // CPython 3.11+: always push exception, PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc]
                     // Note: Do NOT call vm.set_exception here! PUSH_EXC_INFO will do it.
                     // PUSH_EXC_INFO needs to get prev_exc from vm.current_exception() BEFORE setting the new one.
                     self.push_value(exception.into());
 
-                    // 3. Jump to handler
+                    // 4. Jump to handler
                     self.jump(bytecode::Label(entry.target));
 
                     Ok(None)

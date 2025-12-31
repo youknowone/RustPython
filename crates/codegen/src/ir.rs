@@ -371,6 +371,20 @@ impl CodeInfo {
                     }
                     stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
                 }
+                // Process exception handler blocks
+                // When exception occurs, stack is unwound to handler.stack_depth and exception is pushed (+1)
+                if let Some(ref handler) = ins.except_handler {
+                    let handler_depth = handler.stack_depth + 1 + (handler.preserve_lasti as u32); // +1 for exception, +1 for lasti if preserve_lasti
+                    if handler_depth > maxdepth {
+                        maxdepth = handler_depth;
+                    }
+                    stackdepth_push(
+                        &mut stack,
+                        &mut start_depths,
+                        handler.handler_block,
+                        handler_depth,
+                    );
+                }
                 depth = new_depth;
                 if instr.unconditional_branch() {
                     continue 'process_blocks;
