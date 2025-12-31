@@ -27,31 +27,7 @@ use itertools::Itertools;
 use rustpython_common::{boxvec::BoxVec, lock::PyMutex, wtf8::Wtf8Buf};
 use rustpython_compiler_core::SourceLocation;
 
-#[derive(Clone, Debug)]
-struct Block {
-    /// The type of block.
-    typ: BlockType,
-    /// The level of the value stack when the block was entered.
-    level: usize,
-}
-
-#[derive(Clone, Debug)]
-enum BlockType {
-    /// TryExcept block (still needed for frozen stdlib legacy bytecode)
-    TryExcept { handler: bytecode::Label },
-
-    /// Finally block (still used by with/async with)
-    Finally { handler: bytecode::Label },
-
-    /// Active finally sequence
-    FinallyHandler {
-        reason: Option<UnwindReason>,
-        prev_exc: Option<PyBaseExceptionRef>,
-    },
-    ExceptHandler {
-        prev_exc: Option<PyBaseExceptionRef>,
-    },
-}
+// Block and BlockType removed - exception table handles all exception/cleanup
 
 pub type FrameRef = PyRef<Frame>;
 
@@ -80,8 +56,7 @@ struct FrameState {
     // We need 1 stack per frame
     /// The main data frame of the stack machine
     stack: BoxVec<PyObjectRef>,
-    /// Block frames, for controlling loops and exceptions
-    blocks: Vec<Block>,
+    // Block stack removed - exception table handles all exception/cleanup
     /// index of last instruction ran
     #[cfg(feature = "threading")]
     lasti: u32,
@@ -148,7 +123,6 @@ impl Frame {
 
         let state = FrameState {
             stack: BoxVec::new(code.max_stackdepth as usize),
-            blocks: Vec::new(),
             #[cfg(feature = "threading")]
             lasti: 0,
         };
@@ -818,42 +792,28 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::EndAsyncFor => {
-                let exc = self.pop_value();
-                let except_block = self.pop_block(); // pushed by TryExcept unwind
-                debug_assert_eq!(except_block.level, self.state.stack.len());
-                let _async_iterator = self.pop_value(); // __anext__ provider in the loop
+                // Exception table handles the exception, exception is in VM not stack
+                // Stack: [async_iterator] (preserved because depth=1)
+                let _async_iterator = self.pop_value();
+
+                // Get exception from VM
+                let exc = vm
+                    .current_exception()
+                    .expect("EndAsyncFor should have exception");
+
                 if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
-                    vm.take_exception().expect("Should have exception in stack");
+                    // StopAsyncIteration - normal end of async for loop
+                    vm.set_exception(None);
                     Ok(None)
                 } else {
-                    Err(exc.downcast().unwrap())
+                    // Other exception - re-raise
+                    Err(exc)
                 }
             }
-            bytecode::Instruction::EndFinally => {
-                // Pop the finally handler from the stack, and recall
-                // what was the reason we were in this finally clause.
-                let block = self.pop_block();
-
-                if let BlockType::FinallyHandler { reason, prev_exc } = block.typ {
-                    vm.set_exception(prev_exc);
-                    if let Some(reason) = reason {
-                        self.unwind_blocks(vm, reason)
-                    } else {
-                        Ok(None)
-                    }
-                } else {
-                    self.fatal(
-                        "Block type must be finally handler when reaching EndFinally instruction!",
-                    );
-                }
-            }
-            bytecode::Instruction::EnterFinally => {
-                self.push_block(BlockType::FinallyHandler {
-                    reason: None,
-                    prev_exc: vm.current_exception(),
-                });
-                Ok(None)
-            }
+            // EndFinally is now a pseudo-instruction - exception table handles this
+            bytecode::Instruction::EndFinally => Ok(None),
+            // EnterFinally is now a pseudo-instruction - exception table handles this
+            bytecode::Instruction::EnterFinally => Ok(None),
             bytecode::Instruction::ExtendedArg => {
                 *extend_arg = true;
                 Ok(None)
@@ -1345,18 +1305,17 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::Nop => Ok(None),
-            bytecode::Instruction::PopBlock => {
-                self.pop_block();
-                Ok(None)
-            }
+            // PopBlock is now a pseudo-instruction - exception table handles this
+            bytecode::Instruction::PopBlock => Ok(None),
             bytecode::Instruction::PopException => {
-                let block = self.pop_block();
-                if let BlockType::ExceptHandler { prev_exc } = block.typ {
-                    vm.set_exception(prev_exc);
-                    Ok(None)
-                } else {
-                    self.fatal("block type must be ExceptHandler here.")
+                // Pop prev_exc from value stack and restore it
+                let prev_exc = self.pop_value();
+                if vm.is_none(&prev_exc) {
+                    vm.set_exception(None);
+                } else if let Ok(exc) = prev_exc.downcast::<PyBaseException>() {
+                    vm.set_exception(Some(exc));
                 }
+                Ok(None)
             }
             bytecode::Instruction::PopJumpIfFalse { target } => {
                 self.pop_jump_if(vm, target.get(arg), false)
@@ -1464,33 +1423,18 @@ impl ExecutingFrame<'_> {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
-            bytecode::Instruction::SetupAsyncWith { end } => {
-                let enter_res = self.pop_value();
-                self.push_block(BlockType::Finally {
-                    handler: end.get(arg),
-                });
-                self.push_value(enter_res);
+            bytecode::Instruction::SetupAsyncWith { end: _ } => {
+                // enter_res is already on stack from BeforeAsyncWith + GetAwaitable + YieldFrom
+                // No block stack push - exception table handles cleanup
                 Ok(None)
             }
-            // SetupExcept pushes block for legacy bytecode (frozen stdlib)
-            // New bytecode uses exception table instead
-            bytecode::Instruction::SetupExcept { handler } => {
-                self.push_block(BlockType::TryExcept {
-                    handler: handler.get(arg),
-                });
-                Ok(None)
-            }
-            // SetupFinally pushes block for legacy bytecode (frozen stdlib)
-            // New bytecode uses exception table instead
-            bytecode::Instruction::SetupFinally { handler } => {
-                self.push_block(BlockType::Finally {
-                    handler: handler.get(arg),
-                });
-                Ok(None)
-            }
+            // SetupExcept is now a pseudo-instruction - exception table handles this
+            bytecode::Instruction::SetupExcept { handler: _ } => Ok(None),
+            // SetupFinally is now a pseudo-instruction - exception table handles this
+            bytecode::Instruction::SetupFinally { handler: _ } => Ok(None),
             // Note: SetupLoop is now a pseudo-instruction
             bytecode::Instruction::SetupLoop => Ok(None),
-            bytecode::Instruction::SetupWith { end } => {
+            bytecode::Instruction::SetupWith { end: _ } => {
                 let context_manager = self.pop_value();
                 let error_string = || -> String {
                     format!(
@@ -1511,9 +1455,7 @@ impl ExecutingFrame<'_> {
                         })
                     })?;
                 self.push_value(exit);
-                self.push_block(BlockType::Finally {
-                    handler: end.get(arg),
-                });
+                // No block stack push - exception table handles cleanup
                 self.push_value(enter_res);
                 Ok(None)
             }
@@ -1574,44 +1516,53 @@ impl ExecutingFrame<'_> {
                 self.unpack_sequence(size.get(arg), vm)
             }
             bytecode::Instruction::WithCleanupFinish => {
-                let block = self.pop_block();
-                let (reason, prev_exc) = match block.typ {
-                    BlockType::FinallyHandler { reason, prev_exc } => (reason, prev_exc),
-                    _ => self.fatal("WithCleanupFinish expects a FinallyHandler block on stack"),
-                };
-
-                vm.set_exception(prev_exc);
-
+                // CPython 3.11+: Stack is [..., __exit__, prev_exc, exc, exit_res]
                 let suppress_exception = self.pop_value().try_to_bool(vm)?;
 
                 if suppress_exception {
+                    // Exception was suppressed by __exit__
+                    // Pop exc, prev_exc, __exit__ from stack
+                    self.pop_value(); // exc
+                    let prev_exc = self.pop_value(); // prev_exc
+                    self.pop_value(); // __exit__
+                    // Restore prev_exc as current exception (may be None)
+                    let prev_exc = prev_exc.downcast_ref::<PyBaseException>().cloned();
+                    vm.set_exception(prev_exc);
                     Ok(None)
-                } else if let Some(reason) = reason {
-                    self.unwind_blocks(vm, reason)
                 } else {
-                    Ok(None)
+                    // Exception not suppressed - re-raise it
+                    // Pop exc, prev_exc, __exit__ first
+                    let exc = self.pop_value();
+                    let prev_exc = self.pop_value();
+                    self.pop_value(); // __exit__
+                    // Restore prev_exc as current (for proper exception chaining)
+                    let prev_exc = prev_exc.downcast_ref::<PyBaseException>().cloned();
+                    vm.set_exception(prev_exc);
+                    // Re-raise the exception
+                    if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
+                        Err(exc_ref.clone())
+                    } else {
+                        Ok(None)
+                    }
                 }
             }
             bytecode::Instruction::WithCleanupStart => {
-                let block = self.current_block().unwrap();
-                let reason = match block.typ {
-                    BlockType::FinallyHandler { reason, .. } => reason,
-                    _ => self.fatal("WithCleanupStart expects a FinallyHandler block on stack"),
-                };
-                let exc = match reason {
-                    Some(UnwindReason::Raising { exception }) => Some(exception),
-                    _ => None,
-                };
+                // CPython 3.11+: After PUSH_EXC_INFO, stack is [..., __exit__, prev_exc, exc]
+                // Get exception from vm.current_exception() (set by PUSH_EXC_INFO)
+                let exc = vm.current_exception();
 
-                let exit = self.top_value();
+                // __exit__ is at TOS-2 (below prev_exc and exc)
+                let stack_len = self.state.stack.len();
+                let exit = self.state.stack[stack_len - 3].clone();
 
-                let args = if let Some(exc) = exc {
-                    vm.split_exception(exc)
+                let args = if let Some(ref exc) = exc {
+                    vm.split_exception(exc.clone())
                 } else {
                     (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };
                 let exit_res = exit.call(args, vm)?;
-                self.replace_top(exit_res);
+                // Push result on top of stack
+                self.push_value(exit_res);
 
                 Ok(None)
             }
@@ -1736,39 +1687,32 @@ impl ExecutingFrame<'_> {
     /// Legacy bytecode uses TryExcept/Finally blocks, new bytecode uses exception table.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
-        // First unwind all existing blocks on the block stack:
-        while let Some(block) = self.current_block() {
-            // eprintln!("unwinding block: {:.60?} {:.60?}", block.typ, reason);
-            match block.typ {
-                BlockType::TryExcept { handler } => {
-                    // Legacy bytecode (frozen stdlib) - handle TryExcept blocks
-                    self.pop_block();
-                    if let UnwindReason::Raising { exception } = reason {
-                        let prev_exc = vm.current_exception();
-                        self.push_block(BlockType::ExceptHandler { prev_exc });
-                        vm.set_exception(Some(exception.clone()));
-                        self.push_value(exception.into());
-                        self.jump(handler);
-                        return Ok(None);
+        // CPython 3.11+ style: use exception table for exception handling
+        match reason {
+            UnwindReason::Raising { exception } => {
+                // Look up handler in exception table
+                let offset = self.lasti();
+                if let Some(entry) =
+                    bytecode::find_exception_handler(&self.code.exceptiontable, offset)
+                {
+                    // 1. Pop stack to entry.depth
+                    while self.state.stack.len() > entry.depth as usize {
+                        self.pop_value();
                     }
-                }
-                BlockType::Finally { handler } => {
-                    self.pop_block();
-                    let prev_exc = vm.current_exception();
-                    if let UnwindReason::Raising { exception } = &reason {
-                        vm.set_exception(Some(exception.clone()));
-                    }
-                    self.push_block(BlockType::FinallyHandler {
-                        reason: Some(reason),
-                        prev_exc,
-                    });
-                    self.jump(handler);
-                    return Ok(None);
-                }
-                BlockType::FinallyHandler { prev_exc, .. }
-                | BlockType::ExceptHandler { prev_exc } => {
-                    self.pop_block();
-                    vm.set_exception(prev_exc);
+
+                    // 2. Push exception onto stack
+                    // CPython 3.11+: always push exception, PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc]
+                    // Note: Do NOT call vm.set_exception here! PUSH_EXC_INFO will do it.
+                    // PUSH_EXC_INFO needs to get prev_exc from vm.current_exception() BEFORE setting the new one.
+                    self.push_value(exception.into());
+
+                    // 3. Jump to handler
+                    self.jump(bytecode::Label(entry.target));
+
+                    Ok(None)
+                } else {
+                    // No handler found, propagate exception
+                    Err(exception)
                 }
             }
         }
@@ -2401,40 +2345,7 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn push_block(&mut self, typ: BlockType) {
-        // eprintln!("block pushed: {:.60?} {}", typ, self.state.stack.len());
-        self.state.blocks.push(Block {
-            typ,
-            level: self.state.stack.len(),
-        });
-    }
-
-    #[track_caller]
-    fn pop_block(&mut self) -> Block {
-        let block = self.state.blocks.pop().expect("No more blocks to pop!");
-        // eprintln!(
-        //     "block popped: {:.60?}  {} -> {} ",
-        //     block.typ,
-        //     self.state.stack.len(),
-        //     block.level
-        // );
-        #[cfg(debug_assertions)]
-        if self.state.stack.len() < block.level {
-            dbg!(&self);
-            panic!(
-                "stack size reversion: current size({}) < truncates target({}).",
-                self.state.stack.len(),
-                block.level
-            );
-        }
-        self.state.stack.truncate(block.level);
-        block
-    }
-
-    #[inline]
-    fn current_block(&self) -> Option<Block> {
-        self.state.blocks.last().cloned()
-    }
+    // Block stack functions removed - exception table handles all exception/cleanup
 
     #[inline]
     #[track_caller] // not a real track_caller but push_value is not very useful
@@ -2638,17 +2549,12 @@ impl fmt::Debug for Frame {
             }
             s
         });
-        let block_str = state.blocks.iter().fold(String::new(), |mut s, elem| {
-            core::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
-            s
-        });
         // TODO: fix this up
         let locals = self.locals.clone();
         write!(
             f,
-            "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{:?}\n}}",
+            "Frame Object {{ \n Stack:{}\n Locals:{:?}\n}}",
             stack_str,
-            block_str,
             locals.into_object()
         )
     }

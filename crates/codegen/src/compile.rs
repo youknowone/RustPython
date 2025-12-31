@@ -2101,12 +2101,7 @@ impl Compiler {
         // Setup a finally block if we have a finally statement.
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
-            emit!(
-                self,
-                Instruction::SetupFinally {
-                    handler: finally_block,
-                }
-            );
+            // No SetupFinally emit - exception table handles this
             self.push_fblock_with_handler(
                 FBlockType::FinallyTry,
                 finally_block,
@@ -2121,12 +2116,7 @@ impl Compiler {
 
         // try:
         // Push fblock with handler info for exception table generation
-        emit!(
-            self,
-            Instruction::SetupExcept {
-                handler: handler_block,
-            }
-        );
+        // No SetupExcept emit - exception table handles this
         self.push_fblock_with_handler(
             FBlockType::TryExcept,
             handler_block,
@@ -2137,12 +2127,14 @@ impl Compiler {
         )?;
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(self, Instruction::PopBlock);
+        // No PopBlock emit - exception table handles this
         emit!(self, Instruction::Jump { target: else_block });
 
         // except handlers:
         self.switch_to_block(handler_block);
-        // Exception is on top of stack now
+        // Exception is on top of stack now, pushed by unwind_blocks
+        // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopException
+        emit!(self, Instruction::PushExcInfo);
         for handler in handlers {
             let ExceptHandler::ExceptHandler(ExceptHandlerExceptHandler {
                 type_, name, body, ..
@@ -2184,12 +2176,8 @@ impl Compiler {
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
             }
 
-            // Pop the Finally block before jumping to finally_block
-            // Only if we have a finally statement (which means a Finally block was pushed)
-            if !finalbody.is_empty() {
-                emit!(self, Instruction::PopBlock);
-                emit!(self, Instruction::EnterFinally);
-            }
+            // Jump to finally block
+            // No PopBlock/EnterFinally emit - exception table handles this
             emit!(
                 self,
                 Instruction::Jump {
@@ -2217,16 +2205,15 @@ impl Compiler {
 
         // Pop the FinallyTry fblock before jumping to finally
         if !finalbody.is_empty() {
-            emit!(self, Instruction::PopBlock);
+            // No PopBlock/EnterFinally emit - exception table handles this
             self.pop_fblock(FBlockType::FinallyTry);
-            emit!(self, Instruction::EnterFinally);
         }
 
         // finally:
         self.switch_to_block(finally_block);
         if !finalbody.is_empty() {
             self.compile_statements(finalbody)?;
-            emit!(self, Instruction::EndFinally);
+            // No EndFinally emit - exception table handles this
         }
 
         Ok(())
@@ -2250,12 +2237,7 @@ impl Compiler {
 
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
-            emit!(
-                self,
-                Instruction::SetupFinally {
-                    handler: finally_block,
-                }
-            );
+            // No SetupFinally emit - exception table handles this
             self.push_fblock_with_handler(
                 FBlockType::FinallyTry,
                 finally_block,
@@ -2267,12 +2249,7 @@ impl Compiler {
         }
 
         // Push fblock with handler info for exception table generation
-        emit!(
-            self,
-            Instruction::SetupExcept {
-                handler: handler_block,
-            }
-        );
+        // No SetupExcept emit - exception table handles this
         self.push_fblock_with_handler(
             FBlockType::TryExcept,
             handler_block,
@@ -2283,7 +2260,7 @@ impl Compiler {
         )?;
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(self, Instruction::PopBlock);
+        // No PopBlock emit - exception table handles this
         emit!(self, Instruction::Jump { target: else_block });
 
         // Exception handler entry
@@ -2360,18 +2337,17 @@ impl Compiler {
             // Stack: [orig, list, new_rest, match]
 
             // Setup exception handler to catch 'raise' in handler body
-            emit!(
-                self,
-                Instruction::SetupExcept {
-                    handler: handler_except_block,
-                }
-            );
+            // No SetupExcept emit - exception table handles this
 
             // Push fblock to disallow break/continue/return in except* handler
-            self.push_fblock(
+            // Also registers handler for exception table
+            self.push_fblock_with_handler(
                 FBlockType::ExceptionGroupHandler,
                 handler_done_block,
                 end_block,
+                Some(handler_except_block),
+                0,     // stack depth
+                false, // no lasti
             )?;
 
             // Execute handler body
@@ -2379,7 +2355,7 @@ impl Compiler {
 
             // Handler body completed normally (didn't raise)
             self.pop_fblock(FBlockType::ExceptionGroupHandler);
-            emit!(self, Instruction::PopBlock);
+            // No PopBlock emit - exception table handles this
 
             // Cleanup name binding
             if let Some(alias) = name {
@@ -2484,9 +2460,8 @@ impl Compiler {
         emit!(self, Instruction::PopException);
 
         if !finalbody.is_empty() {
-            emit!(self, Instruction::PopBlock);
+            // No PopBlock/EnterFinally emit - exception table handles this
             self.pop_fblock(FBlockType::FinallyTry);
-            emit!(self, Instruction::EnterFinally);
         }
 
         emit!(self, Instruction::Jump { target: end_block });
@@ -2506,8 +2481,8 @@ impl Compiler {
         self.compile_statements(orelse)?;
 
         if !finalbody.is_empty() {
-            emit!(self, Instruction::PopBlock);
-            emit!(self, Instruction::EnterFinally);
+            // No PopBlock/EnterFinally emit - exception table handles this
+            self.pop_fblock(FBlockType::FinallyTry);
         }
 
         emit!(self, Instruction::Jump { target: end_block });
@@ -2516,7 +2491,7 @@ impl Compiler {
         if !finalbody.is_empty() {
             self.switch_to_block(finally_block);
             self.compile_statements(finalbody)?;
-            emit!(self, Instruction::EndFinally);
+            // No EndFinally emit - exception table handles this
         }
 
         Ok(())
@@ -3316,8 +3291,10 @@ impl Compiler {
             return Err(self.error(CodegenErrorType::EmptyWithItems));
         };
 
-        let final_block = {
-            let final_block = self.new_block();
+        let (exc_handler_block, after_block) = {
+            let exc_handler_block = self.new_block();
+            let normal_exit_block = self.new_block();
+            let after_block = self.new_block();
             self.compile_expression(&item.context_expr)?;
 
             self.set_source_range(with_range);
@@ -3332,10 +3309,37 @@ impl Compiler {
                         arg: bytecode::ResumeType::AfterAwait as u32
                     }
                 );
-                emit!(self, Instruction::SetupAsyncWith { end: final_block });
+                emit!(
+                    self,
+                    Instruction::SetupAsyncWith {
+                        end: exc_handler_block
+                    }
+                );
             } else {
-                emit!(self, Instruction::SetupWith { end: final_block });
+                emit!(
+                    self,
+                    Instruction::SetupWith {
+                        end: exc_handler_block
+                    }
+                );
             }
+
+            // Push fblock for exception table - handler goes to exc_handler_block
+            // Stack at this point: [..., __exit__, enter_res]
+            // After store/pop: [..., __exit__]
+            // We need depth=1 to keep __exit__ on stack when exception occurs
+            self.push_fblock_with_handler(
+                if is_async {
+                    FBlockType::AsyncWith
+                } else {
+                    FBlockType::With
+                },
+                normal_exit_block,
+                after_block,
+                Some(exc_handler_block),
+                1,     // stack depth: keep __exit__ on stack
+                false, // don't push lasti
+            )?;
 
             match &item.optional_vars {
                 Some(var) => {
@@ -3346,7 +3350,7 @@ impl Compiler {
                     emit!(self, Instruction::PopTop);
                 }
             }
-            final_block
+            (exc_handler_block, after_block)
         };
 
         if items.is_empty() {
@@ -3359,14 +3363,50 @@ impl Compiler {
             self.compile_with(items, body, is_async)?;
         }
 
-        // sort of "stack up" the layers of with blocks:
-        // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
+        // Pop fblock before cleanup
+        self.pop_fblock(if is_async {
+            FBlockType::AsyncWith
+        } else {
+            FBlockType::With
+        });
+
+        // ===== Normal exit path =====
+        // Stack: [..., __exit__]
+        // Push None args first, then use Push/Call pattern
+        // CPython uses: LOAD_CONST (None, None, None); CALL
         self.set_source_range(with_range);
-        emit!(self, Instruction::PopBlock);
+        // __exit__ is at TOS, push None args below it
+        self.emit_load_const(ConstantData::None);
+        self.emit_load_const(ConstantData::None);
+        self.emit_load_const(ConstantData::None);
+        // Stack: [..., __exit__, None, None, None]
+        // We need to call __exit__(None, None, None)
+        // Use CallFunctionPositional with __exit__ already on stack
+        emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
+        if is_async {
+            emit!(self, Instruction::GetAwaitable);
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::YieldFrom);
+            emit!(
+                self,
+                Instruction::Resume {
+                    arg: bytecode::ResumeType::AfterAwait as u32
+                }
+            );
+        }
+        emit!(self, Instruction::PopTop); // Pop __exit__ result
+        emit!(
+            self,
+            Instruction::Jump {
+                target: after_block
+            }
+        );
 
-        emit!(self, Instruction::EnterFinally);
-
-        self.switch_to_block(final_block);
+        // ===== Exception handler path =====
+        // Stack after unwind: [..., __exit__, exc]
+        self.switch_to_block(exc_handler_block);
+        // CPython 3.11+: PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] and sets current exception
+        emit!(self, Instruction::PushExcInfo);
         emit!(self, Instruction::WithCleanupStart);
 
         if is_async {
@@ -3382,6 +3422,9 @@ impl Compiler {
         }
 
         emit!(self, Instruction::WithCleanupFinish);
+
+        // ===== After block =====
+        self.switch_to_block(after_block);
 
         Ok(())
     }
@@ -3409,12 +3452,14 @@ impl Compiler {
 
             // Push fblock for async for loop with exception handler info
             // Note: SetupExcept is no longer emitted (exception table handles StopAsyncIteration)
+            // Stack at this point: [async_iterator]
+            // We need depth=1 to keep async_iterator on stack when exception occurs
             self.push_fblock_with_handler(
                 FBlockType::ForLoop,
                 for_block,
                 after_block,
                 Some(else_block), // Handler for StopAsyncIteration
-                0,                // stack depth
+                1,                // stack depth: keep async_iterator
                 false,            // no lasti needed
             )?;
 
@@ -5619,12 +5664,16 @@ impl Compiler {
             loop_labels.push((loop_block, after_block));
             self.switch_to_block(loop_block);
             if generator.is_async {
-                emit!(
-                    self,
-                    Instruction::SetupExcept {
-                        handler: after_block,
-                    }
-                );
+                // No SetupExcept emit - exception table handles StopAsyncIteration
+                // Push fblock for exception table generation
+                self.push_fblock_with_handler(
+                    FBlockType::AsyncComprehensionGenerator,
+                    loop_block,
+                    after_block,
+                    Some(after_block),
+                    0,     // stack depth
+                    false, // no lasti
+                )?;
                 emit!(self, Instruction::GetANext);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
@@ -5635,7 +5684,8 @@ impl Compiler {
                     }
                 );
                 self.compile_store(&generator.target)?;
-                emit!(self, Instruction::PopBlock);
+                // No PopBlock emit - exception table handles this
+                self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
             } else {
                 emit!(
                     self,

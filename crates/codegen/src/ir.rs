@@ -101,7 +101,6 @@ pub struct ExceptHandlerInfo {
     pub stack_depth: u32,
     /// Whether to push lasti before exception
     pub preserve_lasti: bool,
->>>>>>> df5b51298 (exceptiontable)
 }
 
 // spell-checker:ignore petgraph
