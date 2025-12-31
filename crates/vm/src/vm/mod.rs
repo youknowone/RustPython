@@ -17,8 +17,8 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
-        PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
+        PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
+        PyStrRef, PyTypeRef, code::PyCode, pystr::AsPyStr, tuple::PyTuple,
     },
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -963,6 +963,24 @@ impl VirtualMachine {
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
         run_module_as_main.call((module,), self)?;
         Ok(())
+    }
+
+    /// Clear module references during shutdown.
+    /// This breaks references from modules to objects, allowing cyclic garbage
+    /// to be collected in the subsequent GC pass.
+    pub fn finalize_modules(&self) {
+        // Get sys.modules dict
+        if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self) {
+            if let Some(modules_dict) = modules.downcast_ref::<PyDict>() {
+                // Replace all module values with None
+                let keys: Vec<_> = modules_dict.into_iter().collect();
+                for key in keys {
+                    let _ = modules_dict.set_item(key.as_ref(), self.ctx.none(), self);
+                }
+                // Clear the dict
+                modules_dict.clear();
+            }
+        }
     }
 
     pub fn fs_encoding(&self) -> &'static PyStrInterned {

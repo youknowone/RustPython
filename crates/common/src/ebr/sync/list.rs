@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 
 use crate::ebr::{RawAtomic, RawShared};
 
-use super::super::{unprotected, Guard};
+use super::super::{Guard, unprotected};
 
 /// An entry in a linked list.
 ///

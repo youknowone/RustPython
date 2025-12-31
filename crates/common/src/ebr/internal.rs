@@ -37,8 +37,8 @@
 
 use super::RawShared;
 use core::cell::{Cell, UnsafeCell};
-use core::mem::{forget, replace, ManuallyDrop};
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::mem::{ManuallyDrop, forget, replace};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::{fmt, ptr};
 
 use crossbeam_utils::CachePadded;
@@ -47,7 +47,7 @@ use memoffset::offset_of;
 use super::collector::{Collector, LocalHandle};
 use super::deferred::Deferred;
 use super::epoch::{AtomicEpoch, Epoch};
-use super::guard::{unprotected, Guard};
+use super::guard::{Guard, unprotected};
 use super::sync::list::{Entry, IsElement, IterError, List};
 use super::sync::queue::Queue;
 

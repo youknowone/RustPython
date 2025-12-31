@@ -10,11 +10,11 @@ pub use macros::*;
 
 pub mod atomic;
 pub mod borrow;
-pub mod ebr;
 pub mod boxvec;
 pub mod cformat;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
+pub mod ebr;
 pub mod encodings;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fileutils;

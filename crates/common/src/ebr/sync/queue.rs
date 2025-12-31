@@ -15,7 +15,7 @@ use crossbeam_utils::{Backoff, CachePadded};
 
 use crate::ebr::{RawAtomic, RawShared};
 
-use super::super::{unprotected, Guard};
+use super::super::{Guard, unprotected};
 
 // The representation here is a singly-linked list, with a sentinel node at the front. In general
 // the `tail` pointer may lag behind the actual tail. Non-sentinel nodes are either all `Data` or

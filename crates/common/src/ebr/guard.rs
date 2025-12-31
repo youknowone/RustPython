@@ -3,9 +3,9 @@ use core::mem;
 
 use scopeguard::defer;
 
+use super::RawShared;
 use super::deferred::Deferred;
 use super::internal::Local;
-use super::RawShared;
 
 /// A RAII-style guard that keeps the current thread in an EBR critical section.
 pub struct Guard {

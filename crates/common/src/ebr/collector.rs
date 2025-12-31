@@ -3,9 +3,9 @@ use core::fmt;
 use core::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use super::Epoch;
 use super::guard::Guard;
 use super::internal::{Global, Local};
-use super::Epoch;
 
 /// A garbage collector based on *epoch-based reclamation* (EBR).
 pub struct Collector {
@@ -107,7 +107,7 @@ mod tests {
 
     use crossbeam_utils::thread;
 
-    use crate::ebr::{collector::Collector, RawShared};
+    use crate::ebr::{RawShared, collector::Collector};
 
     const NUM_THREADS: usize = 8;
 

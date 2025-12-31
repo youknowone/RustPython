@@ -130,8 +130,15 @@ impl Interpreter {
 
             atexit::_run_exitfuncs(vm);
 
-            // Run GC to finalize objects before shutdown
-            // This ensures __del__ methods are called for objects with cycles
+            // First GC pass - collect cycles before module cleanup
+            crate::gc_state::gc_state().collect_force(2);
+
+            // Clear modules to break references to objects in module namespaces.
+            // This allows cyclic garbage created in modules to be collected.
+            vm.finalize_modules();
+
+            // Second GC pass - now cyclic garbage in modules can be collected
+            // and __del__ methods will be called
             crate::gc_state::gc_state().collect_force(2);
 
             vm.state.finalizing.store(true, Ordering::Release);

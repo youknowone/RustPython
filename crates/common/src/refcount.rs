@@ -7,7 +7,7 @@ use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 // Re-export EBR types
-pub use crate::ebr::{cs, global_epoch, Guard, HIGH_TAG_WIDTH};
+pub use crate::ebr::{Guard, HIGH_TAG_WIDTH, cs, global_epoch};
 
 // ============================================================================
 // Constants from circ::utils - now defined locally
