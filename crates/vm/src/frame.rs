@@ -1516,7 +1516,8 @@ impl ExecutingFrame<'_> {
                 self.unpack_sequence(size.get(arg), vm)
             }
             bytecode::Instruction::WithCleanupFinish => {
-                // CPython 3.11+: Stack is [..., __exit__, lasti, prev_exc, exc, exit_res]
+                // CPython: Stack is [..., __exit__, lasti, prev_exc, exc, exit_res]
+                // Both SETUP_WITH and SETUP_CLEANUP set preserve_lasti=true (flowgraph.c:682-684)
                 let suppress_exception = self.pop_value().try_to_bool(vm)?;
 
                 if suppress_exception {
@@ -1549,7 +1550,8 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::Instruction::WithCleanupStart => {
-                // CPython 3.11+: After PUSH_EXC_INFO, stack is [..., __exit__, lasti, prev_exc, exc]
+                // CPython: After PUSH_EXC_INFO, stack is [..., __exit__, lasti, prev_exc, exc]
+                // Both SETUP_WITH and SETUP_CLEANUP set preserve_lasti=true (flowgraph.c:682-684)
                 // Get exception from vm.current_exception() (set by PUSH_EXC_INFO)
                 let exc = vm.current_exception();
 

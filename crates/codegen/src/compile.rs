@@ -3328,6 +3328,8 @@ impl Compiler {
             // Stack at this point: [..., __exit__, enter_res]
             // After store/pop: [..., __exit__]
             // Dynamic depth for nested with statements: keep all __exit__ on stack
+            // CPython SETUP_WITH: preserve_lasti=true (flowgraph.c:682-684)
+            // Both SETUP_WITH and SETUP_CLEANUP set b_preserve_lasti = 1
             self.push_fblock_with_handler(
                 if is_async {
                     FBlockType::AsyncWith
@@ -3338,7 +3340,7 @@ impl Compiler {
                 after_block,
                 Some(exc_handler_block),
                 self.with_stack_depth() + 1, // dynamic depth for nested with statements
-                true,                        // push lasti for CPython SETUP_CLEANUP compatibility
+                true,                        // SETUP_WITH: preserve_lasti=true
             )?;
 
             match &item.optional_vars {
@@ -3404,7 +3406,30 @@ impl Compiler {
 
         // ===== Exception handler path =====
         // Stack after unwind: [..., __exit__, exc]
+        // CPython structure:
+        //   SETUP_CLEANUP cleanup  (push nested handler with preserve_lasti=true)
+        //   PUSH_EXC_INFO
+        //   WITH_EXCEPT_START
+        //   ... (TO_BOOL, POP_JUMP_IF_TRUE, RERAISE, etc.)
+        // cleanup:
+        //   COPY 3; POP_EXCEPT; RERAISE 1
         self.switch_to_block(exc_handler_block);
+
+        // Create cleanup block for nested exception handler (SETUP_CLEANUP)
+        let cleanup_block = self.new_block();
+
+        // Push nested fblock - CPython SETUP_CLEANUP: preserve_lasti=true, stack effect +2 on jump
+        // Stack at exception handler entry: [..., __exit__, exc]
+        // The handler will protect: __exit__ (depth 1) + exc (pushed by exception)
+        self.push_fblock_with_handler(
+            FBlockType::ExceptionHandler,
+            exc_handler_block,
+            after_block,
+            Some(cleanup_block),
+            self.with_stack_depth() + 1, // __exit__ is on stack
+            true,                        // SETUP_CLEANUP: preserve_lasti=true
+        )?;
+
         // CPython 3.11+: PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] and sets current exception
         emit!(self, Instruction::PushExcInfo);
         emit!(self, Instruction::WithCleanupStart);
@@ -3422,6 +3447,17 @@ impl Compiler {
         }
 
         emit!(self, Instruction::WithCleanupFinish);
+
+        // Pop the nested fblock
+        self.pop_fblock(FBlockType::ExceptionHandler);
+
+        // ===== Cleanup block (POP_EXCEPT_AND_RERAISE) =====
+        // Stack: [exc_info, lasti, exc]
+        // CPython: COPY 3; POP_EXCEPT; RERAISE 1
+        self.switch_to_block(cleanup_block);
+        emit!(self, Instruction::CopyItem { index: 3 });
+        emit!(self, Instruction::PopException);
+        emit!(self, Instruction::Reraise { depth: 1 });
 
         // ===== After block =====
         self.switch_to_block(after_block);
