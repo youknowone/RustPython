@@ -55,14 +55,20 @@ mod gc {
         }
 
         // Invoke callbacks with "start" phase
-        invoke_callbacks(vm, "start", generation_num as usize);
+        invoke_callbacks(vm, "start", generation_num as usize, 0, 0);
 
         // Manual gc.collect() should run even if GC is disabled
-        let (collected, _uncollectable) =
+        let (collected, uncollectable) =
             gc_state::gc_state().collect_force(generation_num as usize);
 
         // Invoke callbacks with "stop" phase
-        invoke_callbacks(vm, "stop", generation_num as usize);
+        invoke_callbacks(
+            vm,
+            "stop",
+            generation_num as usize,
+            collected,
+            uncollectable,
+        );
 
         Ok(collected as i32)
     }
@@ -215,20 +221,25 @@ mod gc {
     /// gc.garbage - list of uncollectable objects
     #[pyattr]
     fn garbage(vm: &VirtualMachine) -> PyListRef {
-        let items = gc_state::gc_state().garbage.lock().clone();
-        vm.ctx.new_list(items)
+        vm.ctx.gc_garbage.clone()
     }
 
     /// gc.callbacks - list of callbacks to be invoked
     #[pyattr]
     fn callbacks(vm: &VirtualMachine) -> PyListRef {
-        let items = gc_state::gc_state().callbacks.lock().clone();
-        vm.ctx.new_list(items)
+        vm.ctx.gc_callbacks.clone()
     }
 
     /// Helper function to invoke GC callbacks
-    fn invoke_callbacks(vm: &VirtualMachine, phase: &str, generation: usize) {
-        let callbacks = gc_state::gc_state().callbacks.lock().clone();
+    fn invoke_callbacks(
+        vm: &VirtualMachine,
+        phase: &str,
+        generation: usize,
+        collected: usize,
+        uncollectable: usize,
+    ) {
+        let callbacks_list = &vm.ctx.gc_callbacks;
+        let callbacks: Vec<PyObjectRef> = callbacks_list.borrow_vec().to_vec();
         if callbacks.is_empty() {
             return;
         }
@@ -236,11 +247,11 @@ mod gc {
         let phase_str: PyObjectRef = vm.ctx.new_str(phase).into();
         let info = vm.ctx.new_dict();
         let _ = info.set_item("generation", vm.ctx.new_int(generation).into(), vm);
-        let _ = info.set_item("collected", vm.ctx.new_int(0).into(), vm);
-        let _ = info.set_item("uncollectable", vm.ctx.new_int(0).into(), vm);
+        let _ = info.set_item("collected", vm.ctx.new_int(collected).into(), vm);
+        let _ = info.set_item("uncollectable", vm.ctx.new_int(uncollectable).into(), vm);
 
         for callback in callbacks {
-            let _ = callback.call((phase_str.clone(), info.clone()), vm);
+            let _ = vm.invoke(&callback, (phase_str.clone(), info.clone()));
         }
     }
 }
