@@ -5,7 +5,7 @@ mod gc {
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::PyListRef,
-        function::{FromArgs, FuncArgs, OptionalArg},
+        function::{FuncArgs, OptionalArg},
         gc_state,
     };
 
@@ -263,7 +263,7 @@ mod gc {
         let _ = info.set_item("uncollectable", vm.ctx.new_int(uncollectable).into(), vm);
 
         for callback in callbacks {
-            let _ = vm.invoke(&callback, (phase_str.clone(), info.clone()));
+            let _ = callback.call((phase_str.clone(), info.clone()), vm);
         }
     }
 }

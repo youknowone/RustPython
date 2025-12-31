@@ -1,23 +1,154 @@
-//! Reference counting implementation based on circ's EBR (Epoch-Based Reclamation).
+//! Reference counting implementation based on EBR (Epoch-Based Reclamation).
 //!
-//! This module provides a RefCount type that is compatible with circ's memory reclamation
+//! This module provides a RefCount type that is compatible with EBR's memory reclamation
 //! system while maintaining the original API for backward compatibility.
 
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-// Re-export circ types for use in vm
-pub use circ::utils::{
-    COUNT, DESTRUCTED, Deferable, EPOCH, EPOCH_MASK_HEIGHT, EPOCH_WIDTH, Modular, RcInner, STRONG,
-    STRONG_WIDTH, State, WEAK, WEAK_COUNT, WEAK_WIDTH, WEAKED,
-};
-pub use circ::{Guard, cs, global_epoch};
+// Re-export EBR types
+pub use crate::ebr::{cs, global_epoch, Guard, HIGH_TAG_WIDTH};
+
+// ============================================================================
+// Constants from circ::utils - now defined locally
+// ============================================================================
+
+pub const EPOCH_WIDTH: u32 = HIGH_TAG_WIDTH;
+pub const EPOCH_MASK_HEIGHT: u32 = u64::BITS - EPOCH_WIDTH;
+pub const EPOCH: u64 = ((1 << EPOCH_WIDTH) - 1) << EPOCH_MASK_HEIGHT;
+pub const DESTRUCTED: u64 = 1 << (EPOCH_MASK_HEIGHT - 1);
+pub const WEAKED: u64 = 1 << (EPOCH_MASK_HEIGHT - 2);
+pub const TOTAL_COUNT_WIDTH: u32 = u64::BITS - EPOCH_WIDTH - 2;
+pub const WEAK_WIDTH: u32 = TOTAL_COUNT_WIDTH / 2;
+pub const STRONG_WIDTH: u32 = TOTAL_COUNT_WIDTH - WEAK_WIDTH;
+pub const STRONG: u64 = (1 << STRONG_WIDTH) - 1;
+pub const WEAK: u64 = ((1 << WEAK_WIDTH) - 1) << STRONG_WIDTH;
+pub const COUNT: u64 = 1;
+pub const WEAK_COUNT: u64 = 1 << STRONG_WIDTH;
 
 /// LEAKED bit for interned objects (never deallocated)
 /// Position: just after WEAKED bit
 pub const LEAKED: u64 = 1 << (EPOCH_MASK_HEIGHT - 3);
 
-/// Extended State with LEAKED support
+/// State wraps reference count + flags in a single 64-bit word
+#[derive(Clone, Copy)]
+pub struct State {
+    inner: u64,
+}
+
+impl State {
+    #[inline]
+    pub fn from_raw(inner: u64) -> Self {
+        Self { inner }
+    }
+
+    #[inline]
+    pub fn as_raw(self) -> u64 {
+        self.inner
+    }
+
+    #[inline]
+    pub fn strong(self) -> u32 {
+        ((self.inner & STRONG) / COUNT) as u32
+    }
+
+    #[inline]
+    pub fn weak(self) -> u32 {
+        ((self.inner & WEAK) / WEAK_COUNT) as u32
+    }
+
+    #[inline]
+    pub fn destructed(self) -> bool {
+        (self.inner & DESTRUCTED) != 0
+    }
+
+    #[inline]
+    pub fn weaked(self) -> bool {
+        (self.inner & WEAKED) != 0
+    }
+
+    #[inline]
+    pub fn leaked(self) -> bool {
+        (self.inner & LEAKED) != 0
+    }
+
+    #[inline]
+    pub fn epoch(self) -> u32 {
+        ((self.inner & EPOCH) >> EPOCH_MASK_HEIGHT) as u32
+    }
+
+    #[inline]
+    pub fn with_epoch(self, epoch: usize) -> Self {
+        Self::from_raw((self.inner & !EPOCH) | (((epoch as u64) << EPOCH_MASK_HEIGHT) & EPOCH))
+    }
+
+    #[inline]
+    pub fn add_strong(self, val: u32) -> Self {
+        Self::from_raw(self.inner + (val as u64) * COUNT)
+    }
+
+    #[inline]
+    pub fn sub_strong(self, val: u32) -> Self {
+        debug_assert!(self.strong() >= val);
+        Self::from_raw(self.inner - (val as u64) * COUNT)
+    }
+
+    #[inline]
+    pub fn add_weak(self, val: u32) -> Self {
+        Self::from_raw(self.inner + (val as u64) * WEAK_COUNT)
+    }
+
+    #[inline]
+    pub fn with_destructed(self, dest: bool) -> Self {
+        Self::from_raw((self.inner & !DESTRUCTED) | if dest { DESTRUCTED } else { 0 })
+    }
+
+    #[inline]
+    pub fn with_weaked(self, weaked: bool) -> Self {
+        Self::from_raw((self.inner & !WEAKED) | if weaked { WEAKED } else { 0 })
+    }
+
+    #[inline]
+    pub fn with_leaked(self, leaked: bool) -> Self {
+        Self::from_raw((self.inner & !LEAKED) | if leaked { LEAKED } else { 0 })
+    }
+}
+
+/// Modular arithmetic for epoch comparisons
+pub struct Modular<const WIDTH: u32> {
+    max: isize,
+}
+
+impl<const WIDTH: u32> Modular<WIDTH> {
+    /// Creates a modular space where `max` is the maximum.
+    pub fn new(max: isize) -> Self {
+        Self { max }
+    }
+
+    // Sends a number to a modular space.
+    pub fn trans(&self, val: isize) -> isize {
+        debug_assert!(val <= self.max);
+        (val - (self.max + 1)) % (1 << WIDTH)
+    }
+
+    // Receives a number from a modular space.
+    pub fn inver(&self, val: isize) -> isize {
+        (val + (self.max + 1)) % (1 << WIDTH)
+    }
+
+    pub fn max(&self, nums: &[isize]) -> isize {
+        self.inver(nums.iter().fold(isize::MIN, |acc, val| {
+            acc.max(self.trans(val % (1 << WIDTH)))
+        }))
+    }
+
+    // Checks if `a` is less than or equal to `b` in the modular space.
+    pub fn le(&self, a: isize, b: isize) -> bool {
+        self.trans(a) <= self.trans(b)
+    }
+}
+
+/// PyState extends State with LEAKED support for RustPython
 #[derive(Clone, Copy)]
 pub struct PyState {
     inner: u64,
@@ -101,7 +232,7 @@ impl PyState {
     }
 }
 
-/// Reference count using circ's state layout with LEAKED support.
+/// Reference count using state layout with LEAKED support.
 ///
 /// State layout (64 bits):
 /// [4 bits: epoch] [1 bit: destructed] [1 bit: weaked] [1 bit: leaked] [28 bits: weak_count] [29 bits: strong_count]

@@ -10,6 +10,7 @@ pub use macros::*;
 
 pub mod atomic;
 pub mod borrow;
+pub mod ebr;
 pub mod boxvec;
 pub mod cformat;
 #[cfg(any(unix, windows, target_os = "wasi"))]
