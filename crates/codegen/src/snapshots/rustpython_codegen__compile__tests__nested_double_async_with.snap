@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 6342
+assertion_line: 6346
 expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with egg():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 LOAD_NAME_ANY        (0, StopIteration)
@@ -11,7 +11,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
               5 CALL_FUNCTION_POSITIONAL(1)
               6 BUILD_TUPLE          (2)
               7 GET_ITER
-        >>    8 FOR_ITER             (72)
+        >>    8 FOR_ITER             (70)
               9 STORE_LOCAL          (2, stop_exc)
 
   2          10 LOAD_NAME_ANY        (3, self)
@@ -21,7 +21,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              14 CALL_FUNCTION_POSITIONAL(1)
              15 LOAD_CONST           (("type"))
              16 CALL_METHOD_KEYWORD  (1)
-             17 SETUP_WITH           (69)
+             17 SETUP_WITH           (67)
              18 POP_TOP
 
   3          19 SETUP_EXCEPT         (41)
@@ -48,11 +48,11 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              37 RESUME               (3)
              38 WITH_CLEANUP_FINISH
              39 POP_BLOCK
-             40 JUMP                 (59)
+             40 JUMP                 (57)
         >>   41 COPY                 (1)
 
   6          42 LOAD_NAME_ANY        (7, Exception)
-             43 JUMP_IF_NOT_EXC_MATCH(58)
+             43 JUMP_IF_NOT_EXC_MATCH(56)
              44 STORE_LOCAL          (8, ex)
 
   7          45 LOAD_NAME_ANY        (3, self)
@@ -65,23 +65,21 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              52 LOAD_CONST           (None)
              53 STORE_LOCAL          (8, ex)
              54 DELETE_LOCAL         (8, ex)
-             55 POP_BLOCK
-             56 ENTER_FINALLY
-             57 JUMP                 (67)
-        >>   58 RAISE                (Reraise)
+             55 JUMP                 (65)
+        >>   56 RAISE                (Reraise)
 
-  9     >>   59 LOAD_NAME_ANY        (3, self)
-             60 LOAD_METHOD          (10, fail)
-             61 LOAD_NAME_ANY        (2, stop_exc)
-             62 FORMAT_SIMPLE
-             63 LOAD_CONST           (" was suppressed")
-             64 BUILD_STRING         (2)
-             65 CALL_METHOD_POSITIONAL(1)
-             66 POP_TOP
+  9     >>   57 LOAD_NAME_ANY        (3, self)
+             58 LOAD_METHOD          (10, fail)
+             59 LOAD_NAME_ANY        (2, stop_exc)
+             60 FORMAT_SIMPLE
+             61 LOAD_CONST           (" was suppressed")
+             62 BUILD_STRING         (2)
+             63 CALL_METHOD_POSITIONAL(1)
+             64 POP_TOP
 
-  2     >>   67 POP_BLOCK
-             68 ENTER_FINALLY
-        >>   69 WITH_CLEANUP_START
-             70 WITH_CLEANUP_FINISH
-             71 JUMP                 (8)
-        >>   72 RETURN_CONST         (None)
+  2     >>   65 POP_BLOCK
+             66 ENTER_FINALLY
+        >>   67 WITH_CLEANUP_START
+             68 WITH_CLEANUP_FINISH
+             69 JUMP                 (8)
+        >>   70 RETURN_CONST         (None)

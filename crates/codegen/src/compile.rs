@@ -1636,8 +1636,14 @@ impl Compiler {
                     let mut result = Ok(None);
                     for i in (0..code.fblock.len()).rev() {
                         match code.fblock[i].fb_type {
-                            FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Ok(Some(code.fblock[i].fb_exit));
+                            FBlockType::WhileLoop => {
+                                // While loop: no cleanup needed
+                                result = Ok(Some((code.fblock[i].fb_exit, false)));
+                                break;
+                            }
+                            FBlockType::ForLoop => {
+                                // For loop: need to pop iterator from stack
+                                result = Ok(Some((code.fblock[i].fb_exit, true)));
                                 break;
                             }
                             FBlockType::ExceptionGroupHandler => {
@@ -1651,7 +1657,11 @@ impl Compiler {
                 };
 
                 match found_loop {
-                    Ok(Some(exit_block)) => {
+                    Ok(Some((exit_block, pop_iterator))) => {
+                        // For for-loops, we need to pop the iterator before breaking
+                        if pop_iterator {
+                            emit!(self, Instruction::PopTop);
+                        }
                         emit!(self, Instruction::Break { target: exit_block });
                     }
                     Ok(None) => {
@@ -3389,8 +3399,6 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        // Note: SetupLoop is no longer emitted (break/continue use direct jumps)
-
         // The thing iterated:
         self.compile_expression(iter)?;
 
@@ -3449,7 +3457,6 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::EndAsyncFor);
         }
-        // Note: PopBlock is no longer emitted (exception table handles this)
         self.compile_statements(orelse)?;
 
         self.switch_to_block(after_block);
