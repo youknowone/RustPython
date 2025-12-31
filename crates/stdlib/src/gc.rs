@@ -57,7 +57,9 @@ mod gc {
         // Invoke callbacks with "start" phase
         invoke_callbacks(vm, "start", generation_num as usize);
 
-        let (collected, _uncollectable) = gc_state::gc_state().collect(generation_num as usize);
+        // Manual gc.collect() should run even if GC is disabled
+        let (collected, _uncollectable) =
+            gc_state::gc_state().collect_force(generation_num as usize);
 
         // Invoke callbacks with "stop" phase
         invoke_callbacks(vm, "stop", generation_num as usize);

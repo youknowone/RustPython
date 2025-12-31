@@ -3,6 +3,7 @@
 //! This module provides a RefCount type that is compatible with circ's memory reclamation
 //! system while maintaining the original API for backward compatibility.
 
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 // Re-export circ types for use in vm
@@ -237,4 +238,80 @@ impl RefCount {
             }
         }
     }
+}
+
+// ============================================================================
+// Deferred Drop Infrastructure
+// ============================================================================
+//
+// This mechanism allows untrack_object() calls to be deferred until after
+// the GC collection phase completes, preventing deadlocks that occur when
+// pop_edges() triggers object destruction while holding the tracked_objects lock.
+
+thread_local! {
+    /// Flag indicating if we're inside a deferred drop context.
+    /// When true, drop operations should defer untrack calls.
+    static IN_DEFERRED_CONTEXT: Cell<bool> = const { Cell::new(false) };
+
+    /// Queue of deferred untrack operations.
+    /// No Send bound needed - this is thread-local and only accessed from the same thread.
+    static DEFERRED_QUEUE: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Execute a function within a deferred drop context.
+/// Any calls to `try_defer_drop` within this context will be queued
+/// and executed when the context exits.
+#[inline]
+pub fn with_deferred_drops<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    IN_DEFERRED_CONTEXT.with(|in_ctx| {
+        let was_in_context = in_ctx.get();
+        in_ctx.set(true);
+        let result = f();
+        in_ctx.set(was_in_context);
+
+        // Only flush if we're the outermost context
+        if !was_in_context {
+            flush_deferred_drops();
+        }
+
+        result
+    })
+}
+
+/// Try to defer a drop-related operation.
+/// If inside a deferred context, the operation is queued.
+/// Otherwise, it executes immediately.
+///
+/// Note: No `Send` bound - this is thread-local and runs on the same thread.
+#[inline]
+pub fn try_defer_drop<F>(f: F)
+where
+    F: FnOnce() + 'static,
+{
+    let should_defer = IN_DEFERRED_CONTEXT.with(|in_ctx| in_ctx.get());
+
+    if should_defer {
+        DEFERRED_QUEUE.with(|q| {
+            q.borrow_mut().push(Box::new(f));
+        });
+    } else {
+        f();
+    }
+}
+
+/// Flush all deferred drop operations.
+/// This is automatically called when exiting a deferred context.
+#[inline]
+pub fn flush_deferred_drops() {
+    DEFERRED_QUEUE.with(|q| {
+        // Take all queued operations
+        let ops: Vec<_> = q.borrow_mut().drain(..).collect();
+        // Execute them outside the borrow
+        for op in ops {
+            op();
+        }
+    });
 }

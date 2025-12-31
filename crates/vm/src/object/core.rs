@@ -845,12 +845,20 @@ impl PyObject {
         }
 
         let vtable = unsafe { ptr.as_ref().0.vtable };
+        let has_dict = unsafe { ptr.as_ref().0.dict.is_some() };
 
-        // Untrack object from GC before deallocation
-        if vtable.trace.is_some() {
-            unsafe {
-                crate::gc_state::gc_state().untrack_object(ptr);
-            }
+        // Untrack object from GC.
+        // Use try_defer_drop to avoid deadlock when called during GC collection.
+        // During GC.collect(), untrack is deferred until after the collection phase.
+        // Must match the condition in PyRef::new_ref: IS_TRACE || has_dict
+        if vtable.trace.is_some() || has_dict {
+            rustpython_common::refcount::try_defer_drop(move || {
+                // SAFETY: untrack_object only removes the pointer address from a HashSet.
+                // It does NOT dereference the pointer, so it's safe even after deallocation.
+                unsafe {
+                    crate::gc_state::gc_state().untrack_object(ptr);
+                }
+            });
         }
 
         // Extract child references before deallocation to break circular refs
@@ -900,16 +908,13 @@ impl PyObject {
     }
 
     /// Get the referents (objects directly referenced) of this object.
-    /// Uses the vtable trace function to collect references.
+    /// Uses the full traverse including dict and slots.
     pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
-        if let Some(trace_fn) = self.0.vtable.trace {
-            unsafe {
-                trace_fn(self, &mut |child: &PyObject| {
-                    result.push(child.to_owned());
-                });
-            }
-        }
+        // Traverse the entire object including dict and slots
+        self.0.traverse(&mut |child: &PyObject| {
+            result.push(child.to_owned());
+        });
         result
     }
 
@@ -920,6 +925,18 @@ impl PyObject {
     /// The returned pointers are only valid as long as the object is alive
     /// and its contents haven't been modified.
     pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<PyObject>> {
+        let mut result = Vec::new();
+        // Traverse the entire object including dict and slots
+        self.0.traverse(&mut |child: &PyObject| {
+            result.push(NonNull::from(child));
+        });
+        result
+    }
+
+    /// This is an internal method for type-specific payload traversal only.
+    /// Most code should use gc_get_referent_ptrs instead.
+    #[allow(dead_code)]
+    pub unsafe fn gc_get_referent_ptrs_payload_only(&self) -> Vec<NonNull<PyObject>> {
         let mut result = Vec::new();
         if let Some(trace_fn) = self.0.vtable.trace {
             unsafe {
@@ -936,13 +953,30 @@ impl PyObject {
     /// This is used during garbage collection to break circular references.
     ///
     /// # Safety
-    /// This is unsafe because it modifies the object's internal state.
-    pub unsafe fn gc_pop_edges(&self) -> Vec<PyObjectRef> {
+    /// - ptr must be a valid pointer to a PyObject
+    /// - The caller must have exclusive access (no other references exist)
+    /// - This is only safe during GC when the object is unreachable
+    pub unsafe fn gc_pop_edges_raw(ptr: *mut PyObject) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
-        if let Some(pop_edges_fn) = self.0.vtable.pop_edges {
-            unsafe { pop_edges_fn(self as *const _ as *mut PyObject, &mut result) };
+        let obj = unsafe { &*ptr };
+        if let Some(pop_edges_fn) = obj.0.vtable.pop_edges {
+            unsafe { pop_edges_fn(ptr, &mut result) };
         }
         result
+    }
+
+    /// Pop edges from this object for cycle breaking.
+    /// This version takes &self but should only be called during GC
+    /// when exclusive access is guaranteed.
+    ///
+    /// # Safety
+    /// - The caller must guarantee exclusive access (no other references exist)
+    /// - This is only safe during GC when the object is unreachable
+    pub unsafe fn gc_pop_edges(&self) -> Vec<PyObjectRef> {
+        // SAFETY: During GC collection, this object is unreachable (gc_refs == 0),
+        // meaning no other code has a reference to it. The only references are
+        // internal cycle references which we're about to break.
+        unsafe { Self::gc_pop_edges_raw(self as *const _ as *mut PyObject) }
     }
 
     /// Check if this object has pop_edges capability
@@ -1165,11 +1199,13 @@ impl<T: PyPayload> PyRef<T> {
 impl<T: PyPayload + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
+        let has_dict = dict.is_some();
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
         let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
 
-        // Track object if IS_TRACE is true
-        if T::IS_TRACE {
+        // Track object if IS_TRACE is true OR has instance dict
+        // (user-defined class instances have dict but may not have IS_TRACE)
+        if T::IS_TRACE || has_dict {
             unsafe {
                 crate::gc_state::gc_state().track_object(ptr.cast());
             }

@@ -64,8 +64,12 @@ unsafe impl Traverse for PyList {
     }
 
     fn pop_edges(&mut self, out: &mut Vec<PyObjectRef>) {
-        // Drain all elements from the list, transferring ownership to `out`
-        out.extend(self.elements.get_mut().drain(..));
+        // During GC, we use interior mutability to access elements.
+        // This is safe because during GC collection, the object is unreachable
+        // and no other code should be accessing it.
+        if let Some(mut guard) = self.elements.try_write() {
+            out.extend(guard.drain(..));
+        }
     }
 }
 
