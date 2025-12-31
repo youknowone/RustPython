@@ -1528,7 +1528,9 @@ impl ExecutingFrame<'_> {
                     self.pop_value(); // lasti
                     self.pop_value(); // __exit__
                     // Restore prev_exc as current exception (may be None)
-                    let prev_exc = prev_exc.downcast_ref::<PyBaseException>().cloned();
+                    let prev_exc = prev_exc
+                        .downcast_ref::<PyBaseException>()
+                        .map(|e| e.to_owned());
                     vm.set_exception(prev_exc);
                     Ok(None)
                 } else {
@@ -1539,7 +1541,9 @@ impl ExecutingFrame<'_> {
                     self.pop_value(); // lasti
                     self.pop_value(); // __exit__
                     // Restore prev_exc as current (for proper exception chaining)
-                    let prev_exc = prev_exc.downcast_ref::<PyBaseException>().cloned();
+                    let prev_exc = prev_exc
+                        .downcast_ref::<PyBaseException>()
+                        .map(|e| e.to_owned());
                     vm.set_exception(prev_exc);
                     // Re-raise the exception
                     if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {

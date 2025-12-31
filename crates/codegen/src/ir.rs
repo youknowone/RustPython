@@ -318,12 +318,33 @@ impl CodeInfo {
         start_depths[0] = 0;
         stack.push(BlockIdx(0));
         const DEBUG: bool = false;
-        'process_blocks: while let Some(block) = stack.pop() {
-            let mut depth = start_depths[block.idx()];
-            if DEBUG {
-                eprintln!("===BLOCK {}===", block.0);
+        let mut iterations = 0u32;
+        const MAX_ITERATIONS: u32 = 100;
+        'process_blocks: while let Some(block_idx) = stack.pop() {
+            iterations += 1;
+            if iterations > MAX_ITERATIONS {
+                eprintln!("ERROR: max_stackdepth infinite loop detected!");
+                eprintln!("  function: {}", self.metadata.name);
+                eprintln!("  iterations: {}", iterations);
+                eprintln!("  blocks.len(): {}", self.blocks.len());
+                eprintln!("  stack.len(): {}", stack.len());
+                eprintln!("  current block: {}", block_idx.0);
+                eprintln!("  start_depths: {:?}", start_depths);
+                for (i, b) in self.blocks.iter().enumerate() {
+                    eprintln!("  Block {}: {} instructions, next={:?}", i, b.instructions.len(), b.next);
+                    for ins in &b.instructions {
+                        if let Some(ref h) = ins.except_handler {
+                            eprintln!("    {:?} -> handler block {} depth {} lasti {}", ins.instr, h.handler_block.0, h.stack_depth, h.preserve_lasti);
+                        }
+                    }
+                }
+                panic!("max_stackdepth infinite loop");
             }
-            let block = &self.blocks[block];
+            let mut depth = start_depths[block_idx.idx()];
+            if DEBUG {
+                eprintln!("===BLOCK {}===", block_idx.0);
+            }
+            let block = &self.blocks[block_idx];
             for ins in &block.instructions {
                 let instr = &ins.instr;
                 let effect = instr.stack_effect(ins.arg, false);

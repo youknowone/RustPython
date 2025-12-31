@@ -3448,16 +3448,29 @@ impl Compiler {
 
         emit!(self, Instruction::WithCleanupFinish);
 
+        // Jump to after_block after successful exception handling
+        // (CPython: JUMP_NO_INTERRUPT exit after suppress path)
+        emit!(
+            self,
+            Instruction::Jump {
+                target: after_block
+            }
+        );
+
         // Pop the nested fblock
         self.pop_fblock(FBlockType::ExceptionHandler);
 
         // ===== Cleanup block (POP_EXCEPT_AND_RERAISE) =====
         // Stack: [exc_info, lasti, exc]
         // CPython: COPY 3; POP_EXCEPT; RERAISE 1
+        // NOTE: Clear fblock temporarily to avoid circular handler reference
+        // (cleanup block should not have exception handler, RERAISE handles unwinding)
         self.switch_to_block(cleanup_block);
+        let saved_fblock = std::mem::take(&mut self.current_code_info().fblock);
         emit!(self, Instruction::CopyItem { index: 3 });
         emit!(self, Instruction::PopException);
         emit!(self, Instruction::Reraise { depth: 1 });
+        self.current_code_info().fblock = saved_fblock;
 
         // ===== After block =====
         self.switch_to_block(after_block);

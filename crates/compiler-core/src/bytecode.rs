@@ -1833,6 +1833,7 @@ impl Instruction {
                 | ReturnValue
                 | ReturnConst { .. }
                 | Raise { .. }
+                | Reraise { .. }
         )
     }
 
