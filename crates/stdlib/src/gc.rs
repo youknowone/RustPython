@@ -58,8 +58,20 @@ mod gc {
         invoke_callbacks(vm, "start", generation_num as usize, 0, 0);
 
         // Manual gc.collect() should run even if GC is disabled
-        let (collected, uncollectable) =
-            gc_state::gc_state().collect_force(generation_num as usize);
+        let gc = gc_state::gc_state();
+        let (collected, uncollectable) = gc.collect_force(generation_num as usize);
+
+        // Move objects from gc_state.garbage to vm.ctx.gc_garbage (for DEBUG_SAVEALL)
+        {
+            let mut state_garbage = gc.garbage.lock();
+            if !state_garbage.is_empty() {
+                let py_garbage = &vm.ctx.gc_garbage;
+                let mut garbage_vec = py_garbage.borrow_vec_mut();
+                for obj in state_garbage.drain(..) {
+                    garbage_vec.push(obj);
+                }
+            }
+        }
 
         // Invoke callbacks with "stop" phase
         invoke_callbacks(
@@ -194,10 +206,10 @@ mod gc {
 
     /// Return True if the object has been finalized by the garbage collector.
     #[pyfunction]
-    fn is_finalized(_obj: PyObjectRef) -> bool {
-        // For now, always return false
-        // Full implementation would check the FINALIZED flag in gc_prev
-        false
+    fn is_finalized(obj: PyObjectRef) -> bool {
+        use core::ptr::NonNull;
+        let ptr = NonNull::from(obj.as_ref());
+        gc_state::gc_state().is_finalized(ptr)
     }
 
     /// Freeze all objects tracked by gc.

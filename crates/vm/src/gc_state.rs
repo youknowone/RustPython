@@ -113,6 +113,9 @@ pub struct GcState {
     alloc_count: AtomicUsize,
     /// Registry of all tracked objects (for cycle detection)
     tracked_objects: RwLock<HashSet<GcObjectPtr>>,
+    /// Objects that have been finalized (__del__ already called)
+    /// Prevents calling __del__ multiple times on resurrected objects
+    finalized_objects: RwLock<HashSet<GcObjectPtr>>,
 }
 
 impl Default for GcState {
@@ -142,6 +145,7 @@ impl GcState {
             collecting: Mutex::new(()),
             alloc_count: AtomicUsize::new(0),
             tracked_objects: RwLock::new(HashSet::new()),
+            finalized_objects: RwLock::new(HashSet::new()),
         }
     }
 
@@ -256,6 +260,29 @@ impl GcState {
         if let Ok(mut tracked) = self.tracked_objects.write() {
             tracked.remove(&gc_ptr);
         }
+
+        // Remove from finalized set
+        if let Ok(mut finalized) = self.finalized_objects.write() {
+            finalized.remove(&gc_ptr);
+        }
+    }
+
+    /// Check if an object has been finalized
+    pub fn is_finalized(&self, obj: NonNull<PyObject>) -> bool {
+        let gc_ptr = GcObjectPtr(obj);
+        if let Ok(finalized) = self.finalized_objects.read() {
+            finalized.contains(&gc_ptr)
+        } else {
+            false
+        }
+    }
+
+    /// Mark an object as finalized
+    pub fn mark_finalized(&self, obj: NonNull<PyObject>) {
+        let gc_ptr = GcObjectPtr(obj);
+        if let Ok(mut finalized) = self.finalized_objects.write() {
+            finalized.insert(gc_ptr);
+        }
     }
 
     /// Get tracked objects (for gc.get_objects)
@@ -302,6 +329,25 @@ impl GcState {
             }
             _ => Vec::new(),
         }
+    }
+
+    /// Check if automatic GC should run and run it if needed.
+    /// Called after object allocation.
+    /// Returns true if GC was run, false otherwise.
+    pub fn maybe_collect(&self) -> bool {
+        if !self.is_enabled() {
+            return false;
+        }
+
+        // Check gen0 threshold
+        let count0 = self.generations[0].count.load(Ordering::SeqCst) as u32;
+        let threshold0 = self.generations[0].threshold();
+        if threshold0 > 0 && count0 >= threshold0 {
+            self.collect(0);
+            return true;
+        }
+
+        false
     }
 
     /// Perform garbage collection on the given generation
@@ -352,6 +398,8 @@ impl GcState {
         }
 
         if collecting.is_empty() {
+            // Reset gen0 count even if nothing to collect
+            self.generations[0].count.store(0, Ordering::SeqCst);
             self.generations[generation].update_stats(0, 0);
             return (0, 0);
         }
@@ -443,18 +491,22 @@ impl GcState {
         if unreachable.is_empty() {
             // No cycles found - promote survivors to next generation
             self.promote_survivors(generation, &collecting);
+            // Reset gen0 count
+            self.generations[0].count.store(0, Ordering::SeqCst);
             self.generations[generation].update_stats(0, 0);
             return (0, 0);
         }
 
         // ================================================================
-        // Step 6: Break cycles using pop_edges (with deferred drops)
+        // Step 6: Finalize unreachable objects and handle resurrection
         // ================================================================
+
+        // 6a: Get references to all unreachable objects
         let unreachable_refs: Vec<crate::PyObjectRef> = unreachable
             .iter()
             .filter_map(|ptr| {
                 let obj = unsafe { ptr.0.as_ref() };
-                if obj.gc_has_pop_edges() && obj.strong_count() > 0 {
+                if obj.strong_count() > 0 {
                     Some(obj.to_owned())
                 } else {
                     None
@@ -462,29 +514,142 @@ impl GcState {
             })
             .collect();
 
-        let collected = unreachable_refs.len();
-
-        if debug & DEBUG_STATS != 0 {
-            eprintln!("gc: breaking cycles for {} objects", collected);
+        if unreachable_refs.is_empty() {
+            self.promote_survivors(generation, &reachable);
+            // Reset gen0 count
+            self.generations[0].count.store(0, Ordering::SeqCst);
+            self.generations[generation].update_stats(0, 0);
+            return (0, 0);
         }
 
-        if !unreachable_refs.is_empty() {
-            rustpython_common::refcount::with_deferred_drops(|| {
-                let mut all_edges: Vec<Vec<crate::PyObjectRef>> =
-                    Vec::with_capacity(unreachable_refs.len());
+        // 6b: Record initial strong counts (for resurrection detection)
+        // Each object has +1 from unreachable_refs, so initial count includes that
+        let initial_counts: std::collections::HashMap<GcObjectPtr, usize> = unreachable_refs
+            .iter()
+            .map(|obj| {
+                let ptr = GcObjectPtr(core::ptr::NonNull::from(obj.as_ref()));
+                (ptr, obj.strong_count())
+            })
+            .collect();
 
-                for obj_ref in unreachable_refs.into_iter() {
-                    let edges = unsafe { obj_ref.gc_pop_edges() };
-                    all_edges.push(edges);
+        // 6c: Clear weakrefs BEFORE calling __del__
+        // CPython order: weakref clear → weakref callbacks → __del__ → tp_clear
+        // This ensures that:
+        // 1. Weakref callbacks can see the object's state (attrs, dict, etc.)
+        // 2. __del__ sees weakrefs as invalidated (wr() returns None)
+        for obj_ref in &unreachable_refs {
+            obj_ref.gc_clear_weakrefs();
+        }
+
+        // 6d: Call __del__ on all unreachable objects
+        // This allows resurrection to work correctly
+        // Skip objects that have already been finalized (prevents multiple __del__ calls)
+        for obj_ref in &unreachable_refs {
+            let ptr = GcObjectPtr(core::ptr::NonNull::from(obj_ref.as_ref()));
+            let already_finalized = if let Ok(finalized) = self.finalized_objects.read() {
+                finalized.contains(&ptr)
+            } else {
+                false
+            };
+
+            if !already_finalized {
+                // Mark as finalized BEFORE calling __del__
+                // This ensures is_finalized() returns True inside __del__
+                if let Ok(mut finalized) = self.finalized_objects.write() {
+                    finalized.insert(ptr);
                 }
+                obj_ref.try_call_finalizer();
+            }
+        }
 
-                // Drop all edges at once to break cycles
-                drop(all_edges);
+        // 6d: Detect resurrection - strong_count increased means object was resurrected
+        // Step 1: Find directly resurrected objects (strong_count increased)
+        let mut resurrected_set: HashSet<GcObjectPtr> = HashSet::new();
+        let unreachable_set: HashSet<GcObjectPtr> = unreachable.iter().copied().collect();
+
+        for obj in &unreachable_refs {
+            let ptr = GcObjectPtr(core::ptr::NonNull::from(obj.as_ref()));
+            let initial = initial_counts.get(&ptr).copied().unwrap_or(1);
+            if obj.strong_count() > initial {
+                resurrected_set.insert(ptr);
+            }
+        }
+
+        // Step 2: Transitive resurrection - objects reachable from resurrected are also resurrected
+        // This is critical for cases like: Lazarus resurrects itself, its cargo should also survive
+        let mut worklist: Vec<GcObjectPtr> = resurrected_set.iter().copied().collect();
+        while let Some(ptr) = worklist.pop() {
+            let obj = unsafe { ptr.0.as_ref() };
+            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
+            for child_ptr in referent_ptrs {
+                let child_gc_ptr = GcObjectPtr(child_ptr);
+                // If child is in unreachable set and not yet marked as resurrected
+                if unreachable_set.contains(&child_gc_ptr) && resurrected_set.insert(child_gc_ptr) {
+                    worklist.push(child_gc_ptr);
+                }
+            }
+        }
+
+        // Step 3: Partition into resurrected and truly dead
+        let (resurrected, truly_dead): (Vec<_>, Vec<_>) =
+            unreachable_refs.into_iter().partition(|obj| {
+                let ptr = GcObjectPtr(core::ptr::NonNull::from(obj.as_ref()));
+                resurrected_set.contains(&ptr)
+            });
+
+        let resurrected_count = resurrected.len();
+
+        if debug & DEBUG_STATS != 0 {
+            eprintln!(
+                "gc: {} resurrected, {} truly dead",
+                resurrected_count,
+                truly_dead.len()
+            );
+        }
+
+        // 6e: Break cycles ONLY for truly dead objects (not resurrected)
+        // Only count objects with pop_edges (containers like list, dict, tuple)
+        // This matches CPython's behavior where instance objects themselves
+        // are not counted, only their __dict__ and other container types
+        let collected = truly_dead
+            .iter()
+            .filter(|obj| obj.gc_has_pop_edges())
+            .count();
+
+        // 6e-1: If DEBUG_SAVEALL is set, save truly dead objects to garbage
+        if debug & DEBUG_SAVEALL != 0 {
+            let mut garbage_guard = self.garbage.lock();
+            for obj_ref in truly_dead.iter() {
+                if obj_ref.gc_has_pop_edges() {
+                    garbage_guard.push(obj_ref.clone());
+                }
+            }
+        }
+
+        if !truly_dead.is_empty() {
+            // 6f-1: Break cycles by clearing references
+            // Note: weakrefs were already cleared in step 6c (before __del__)
+            rustpython_common::refcount::with_deferred_drops(|| {
+                for obj_ref in truly_dead.iter() {
+                    if obj_ref.gc_has_pop_edges() {
+                        let edges = unsafe { obj_ref.gc_pop_edges() };
+                        drop(edges);
+                    }
+                }
+                // Drop truly_dead references, triggering actual deallocation
+                drop(truly_dead);
             });
         }
 
+        // 6f: Resurrected objects stay in tracked_objects (they're still alive)
+        // Just drop our references to them
+        drop(resurrected);
+
         // Promote survivors (reachable objects) to next generation
         self.promote_survivors(generation, &reachable);
+
+        // Reset gen0 count after collection (enables automatic GC to trigger again)
+        self.generations[0].count.store(0, Ordering::SeqCst);
 
         self.generations[generation].update_stats(collected as u64, 0);
         (collected, 0)

@@ -224,14 +224,33 @@ impl WeakRefList {
         weak
     }
 
+    /// Clear all weakrefs and call their callbacks.
+    /// This is the main clear function called when the owner object is being dropped.
+    /// It decrements ref_count and deallocates if needed.
     fn clear(&self) {
+        self.clear_inner(true)
+    }
+
+    /// Clear all weakrefs and call their callbacks, but don't decrement ref_count.
+    /// Used by GC when clearing weakrefs before pop_edges.
+    /// The owner object is not being dropped yet, so we shouldn't decrement ref_count.
+    fn clear_for_gc(&self) {
+        self.clear_inner(false)
+    }
+
+    fn clear_inner(&self, decrement_ref_count: bool) {
         let to_dealloc = {
             let ptr = match self.inner.get() {
                 Some(ptr) => ptr,
                 None => return,
             };
             let mut inner = unsafe { ptr.as_ref().lock() };
+
+            // If already cleared (obj is None), skip the ref_count decrement
+            // to avoid double decrement when called by both GC and drop_slow_inner
+            let already_cleared = inner.obj.is_none();
             inner.obj = None;
+
             // TODO: can be an arrayvec
             let mut v = Vec::with_capacity(16);
             loop {
@@ -271,8 +290,14 @@ impl WeakRefList {
                     }
                 })
             }
-            inner.ref_count -= 1;
-            (inner.ref_count == 0).then_some(ptr)
+
+            // Only decrement ref_count if requested AND not already cleared
+            if decrement_ref_count && !already_cleared {
+                inner.ref_count -= 1;
+                (inner.ref_count == 0).then_some(ptr)
+            } else {
+                None
+            }
         };
         if let Some(ptr) = to_dealloc {
             unsafe { Self::dealloc(ptr) }
@@ -821,7 +846,15 @@ impl PyObject {
         // CPython-compatible drop implementation
         let del = self.class().slots.del.load();
         if let Some(slot_del) = del {
-            call_slot_del(self, slot_del)?;
+            // Check if already finalized by GC (prevents double __del__ calls)
+            let ptr = core::ptr::NonNull::from(self);
+            let gc = crate::gc_state::gc_state();
+            if !gc.is_finalized(ptr) {
+                // Mark as finalized BEFORE calling __del__
+                // This ensures is_finalized() returns True even if object is resurrected
+                gc.mark_finalized(ptr);
+                call_slot_del(self, slot_del)?;
+            }
         }
         if let Some(wrl) = self.weak_ref_list() {
             wrl.clear();
@@ -905,6 +938,33 @@ impl PyObject {
         }
         // Objects with instance dict are also tracked (user-defined class instances)
         self.0.dict.is_some()
+    }
+
+    /// Call __del__ if present, without triggering object deallocation.
+    /// Used by GC to call finalizers before breaking cycles.
+    /// This allows proper resurrection detection.
+    pub fn try_call_finalizer(&self) {
+        let del = self.class().slots.del.load();
+        if let Some(slot_del) = del {
+            crate::vm::thread::with_vm(self, |vm| {
+                if let Err(e) = slot_del(self, vm) {
+                    if let Some(del_method) = self.get_class_attr(identifier!(vm, __del__)) {
+                        vm.run_unraisable(e, None, del_method);
+                    }
+                }
+            });
+        }
+    }
+
+    /// Clear weakrefs to this object, calling their callbacks.
+    /// Used by GC to notify weakref holders before object is collected.
+    /// Clear weakrefs for GC collection.
+    /// This calls weakref callbacks but doesn't decrement ref_count,
+    /// because the owner object is not being dropped yet.
+    pub fn gc_clear_weakrefs(&self) {
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear_for_gc();
+        }
     }
 
     /// Get the referents (objects directly referenced) of this object.
@@ -1206,9 +1266,12 @@ impl<T: PyPayload + core::fmt::Debug> PyRef<T> {
         // Track object if IS_TRACE is true OR has instance dict
         // (user-defined class instances have dict but may not have IS_TRACE)
         if T::IS_TRACE || has_dict {
+            let gc = crate::gc_state::gc_state();
             unsafe {
-                crate::gc_state::gc_state().track_object(ptr.cast());
+                gc.track_object(ptr.cast());
             }
+            // Check if automatic GC should run
+            gc.maybe_collect();
         }
 
         Self { ptr }

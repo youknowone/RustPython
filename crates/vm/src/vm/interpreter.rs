@@ -130,6 +130,10 @@ impl Interpreter {
 
             atexit::_run_exitfuncs(vm);
 
+            // Run GC to finalize objects before shutdown
+            // This ensures __del__ methods are called for objects with cycles
+            crate::gc_state::gc_state().collect_force(2);
+
             vm.state.finalizing.store(true, Ordering::Release);
 
             vm.flush_std();
