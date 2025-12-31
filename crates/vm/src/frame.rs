@@ -37,13 +37,11 @@ struct Block {
 
 #[derive(Clone, Debug)]
 enum BlockType {
-    Loop,
-    TryExcept {
-        handler: bytecode::Label,
-    },
-    Finally {
-        handler: bytecode::Label,
-    },
+    /// TryExcept block (still needed for frozen stdlib legacy bytecode)
+    TryExcept { handler: bytecode::Label },
+
+    /// Finally block (still used by with/async with)
+    Finally { handler: bytecode::Label },
 
     /// Active finally sequence
     FinallyHandler {
@@ -399,34 +397,9 @@ impl ExecutingFrame<'_> {
 
                         vm.contextualize_exception(&exception);
 
-                        // Try exception table first (CPython 3.11+ zero-cost exception handling)
-                        if let Some(entry) =
-                            bytecode::find_exception_handler(&frame.code.exceptiontable, idx as u32)
-                        {
-                            // Pop stack to handler's expected depth
-                            while frame.state.stack.len() > entry.depth as usize {
-                                frame.pop_value();
-                            }
-
-                            // Push lasti if handler expects it (for finally blocks)
-                            if entry.push_lasti {
-                                let lasti = vm.ctx.new_int(idx as i32);
-                                frame.push_value(lasti.into());
-                            }
-
-                            // Push the exception onto the stack
-                            frame.push_value(exception.clone().into());
-
-                            // Set as current exception
-                            vm.set_exception(Some(exception));
-
-                            // Jump to handler
-                            frame.jump(bytecode::Label(entry.target));
-
-                            return Ok(None); // Continue execution at handler
-                        }
-
-                        // Fallback to block-based unwinding (legacy support)
+                        // Use exception table for zero-cost exception handling (CPython 3.11+)
+                        // But first check if there's a handler in block stack (hybrid approach)
+                        // Then fall back to exception table if block stack doesn't handle it
                         frame.unwind_blocks(vm, UnwindReason::Raising { exception })
                     }
 
@@ -1499,22 +1472,24 @@ impl ExecutingFrame<'_> {
                 self.push_value(enter_res);
                 Ok(None)
             }
+            // SetupExcept pushes block for legacy bytecode (frozen stdlib)
+            // New bytecode uses exception table instead
             bytecode::Instruction::SetupExcept { handler } => {
                 self.push_block(BlockType::TryExcept {
                     handler: handler.get(arg),
                 });
                 Ok(None)
             }
+            // SetupFinally pushes block for legacy bytecode (frozen stdlib)
+            // New bytecode uses exception table instead
             bytecode::Instruction::SetupFinally { handler } => {
                 self.push_block(BlockType::Finally {
                     handler: handler.get(arg),
                 });
                 Ok(None)
             }
-            bytecode::Instruction::SetupLoop => {
-                self.push_block(BlockType::Loop);
-                Ok(None)
-            }
+            // Note: SetupLoop is now a pseudo-instruction
+            bytecode::Instruction::SetupLoop => Ok(None),
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 let error_string = || -> String {
@@ -1757,26 +1732,26 @@ impl ExecutingFrame<'_> {
     /// The reason for unwinding gives a hint on what to do when
     /// unwinding a block.
     /// Optionally returns an exception.
+    /// Handles unwinding for both legacy bytecode (frozen stdlib) and new bytecode.
+    /// Legacy bytecode uses TryExcept/Finally blocks, new bytecode uses exception table.
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             // eprintln!("unwinding block: {:.60?} {:.60?}", block.typ, reason);
             match block.typ {
-                BlockType::Loop => match reason {
-                    UnwindReason::Break { target } => {
-                        self.pop_block();
-                        self.jump(target);
+                BlockType::TryExcept { handler } => {
+                    // Legacy bytecode (frozen stdlib) - handle TryExcept blocks
+                    self.pop_block();
+                    if let UnwindReason::Raising { exception } = reason {
+                        let prev_exc = vm.current_exception();
+                        self.push_block(BlockType::ExceptHandler { prev_exc });
+                        vm.set_exception(Some(exception.clone()));
+                        self.push_value(exception.into());
+                        self.jump(handler);
                         return Ok(None);
                     }
-                    UnwindReason::Continue { target } => {
-                        self.jump(target);
-                        return Ok(None);
-                    }
-                    _ => {
-                        self.pop_block();
-                    }
-                },
+                }
                 BlockType::Finally { handler } => {
                     self.pop_block();
                     let prev_exc = vm.current_exception();
@@ -1789,19 +1764,6 @@ impl ExecutingFrame<'_> {
                     });
                     self.jump(handler);
                     return Ok(None);
-                }
-                BlockType::TryExcept { handler } => {
-                    self.pop_block();
-                    if let UnwindReason::Raising { exception } = reason {
-                        self.push_block(BlockType::ExceptHandler {
-                            prev_exc: vm.current_exception(),
-                        });
-                        vm.contextualize_exception(&exception);
-                        vm.set_exception(Some(exception.clone()));
-                        self.push_value(exception.into());
-                        self.jump(handler);
-                        return Ok(None);
-                    }
                 }
                 BlockType::FinallyHandler { prev_exc, .. }
                 | BlockType::ExceptHandler { prev_exc } => {
