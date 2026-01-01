@@ -379,6 +379,10 @@ impl GcState {
             Err(_) => return (0, 0),
         };
 
+        // Memory barrier to ensure visibility of all reference count updates
+        // from other threads before we start analyzing the object graph.
+        std::sync::atomic::fence(Ordering::SeqCst);
+
         let generation = generation.min(2);
         let debug = self.debug.load(Ordering::SeqCst);
 
@@ -629,9 +633,12 @@ impl GcState {
             // Weakrefs were already cleared in step 6c, but new weakrefs created
             // during __del__ (step 6d) can still be upgraded.
             //
-            // Safety check: Filter out any objects that have been resurrected by
-            // other threads between our reachability analysis and now.
-            // This prevents race conditions in multi-threaded scenarios.
+            // EBR-aligned destruction: Use critical section to ensure safe deallocation.
+            // All object accesses should happen within pinned regions.
+            let guard = rustpython_common::ebr::cs();
+
+            // Double-check: Filter out any objects that might have been resurrected
+            // by other threads between our reachability analysis and now.
             let truly_dead: Vec<_> = truly_dead
                 .into_iter()
                 .filter(|obj| {
@@ -651,6 +658,9 @@ impl GcState {
                 // Drop truly_dead references, triggering actual deallocation
                 drop(truly_dead);
             });
+
+            // Flush deferred operations before dropping guard
+            guard.flush();
         }
 
         // 6f: Resurrected objects stay in tracked_objects (they're still alive)

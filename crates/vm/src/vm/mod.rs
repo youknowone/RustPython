@@ -993,11 +993,26 @@ impl VirtualMachine {
                         if name.starts_with('_')
                             || matches!(
                                 name,
-                                "sys" | "builtins" | "os" | "io" | "traceback"
-                                    | "linecache" | "posixpath" | "ntpath"
-                                    | "genericpath" | "abc" | "codecs" | "encodings"
-                                    | "stat" | "collections" | "functools" | "types"
-                                    | "importlib" | "warnings" | "weakref" | "gc"
+                                "sys"
+                                    | "builtins"
+                                    | "os"
+                                    | "io"
+                                    | "traceback"
+                                    | "linecache"
+                                    | "posixpath"
+                                    | "ntpath"
+                                    | "genericpath"
+                                    | "abc"
+                                    | "codecs"
+                                    | "encodings"
+                                    | "stat"
+                                    | "collections"
+                                    | "functools"
+                                    | "types"
+                                    | "importlib"
+                                    | "warnings"
+                                    | "weakref"
+                                    | "gc"
                             )
                         {
                             continue;
