@@ -2227,6 +2227,54 @@ impl Compiler {
 
         let else_block = self.new_block();
 
+        // CPython compile.c:3367-3372 - if handlers is empty, compile body directly
+        // without wrapping in TryExcept (only FinallyTry is needed)
+        if handlers.is_empty() {
+            // Just compile body with FinallyTry fblock active (if finalbody exists)
+            self.compile_statements(body)?;
+            emit!(self, Instruction::Jump { target: else_block });
+
+            // Skip to else/finally processing
+            self.switch_to_block(else_block);
+            self.compile_statements(orelse)?;
+
+            if !finalbody.is_empty() {
+                self.pop_fblock(FBlockType::FinallyTry);
+            }
+
+            self.switch_to_block(finally_block);
+            if !finalbody.is_empty() {
+                self.compile_statements(finalbody)?;
+                emit!(self, Instruction::Jump { target: end_block });
+            }
+
+            if let Some(finally_except) = finally_except_block {
+                self.switch_to_block(finally_except);
+                if let Some(cleanup) = finally_cleanup_block {
+                    self.push_fblock_with_handler(
+                        FBlockType::FinallyEnd, cleanup, cleanup, Some(cleanup),
+                        current_depth + 1, true,
+                    )?;
+                }
+                emit!(self, Instruction::PushExcInfo);
+                self.compile_statements(finalbody)?;
+                if finally_cleanup_block.is_some() {
+                    self.pop_fblock(FBlockType::FinallyEnd);
+                }
+                emit!(self, Instruction::Raise { kind: bytecode::RaiseKind::ReraiseFromStack });
+            }
+
+            if let Some(cleanup) = finally_cleanup_block {
+                self.switch_to_block(cleanup);
+                emit!(self, Instruction::CopyItem { index: 3_u32 });
+                emit!(self, Instruction::PopException);
+                emit!(self, Instruction::Raise { kind: bytecode::RaiseKind::ReraiseFromStack });
+            }
+
+            self.switch_to_block(end_block);
+            return Ok(());
+        }
+
         // try:
         // Push fblock with handler info for exception table generation
         // No SetupExcept emit - exception table handles this
