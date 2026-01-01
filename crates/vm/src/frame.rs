@@ -360,14 +360,28 @@ impl ExecutingFrame<'_> {
 
                         let (loc, _end_loc) = frame.code.locations[idx];
                         let next = exception.__traceback__();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            frame.object.to_owned(),
-                            frame.lasti() * 2,
-                            loc.line,
-                        );
-                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
-                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+
+                        // Check if traceback already has an entry for this frame at this location
+                        // This prevents duplicate entries when RERAISE goes through handle_exception again
+                        let should_add_traceback = match &next {
+                            Some(tb) => {
+                                // Only add if this is a different frame or different location
+                                !core::ptr::eq::<Py<Frame>>(&*tb.frame, frame.object)
+                                    || tb.lineno != loc.line.get() as i32
+                            }
+                            None => true,
+                        };
+
+                        if should_add_traceback {
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                frame.object.to_owned(),
+                                idx as u32 * 2,
+                                loc.line,
+                            );
+                            vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
+                            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        }
 
                         vm.contextualize_exception(&exception);
 
