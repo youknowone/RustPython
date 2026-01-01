@@ -404,8 +404,41 @@ fn setup_context(
 
     let (globals, filename, lineno) = if let Some(f) = f {
         (f.globals.clone(), f.code.source_path, f.f_lineno())
+    } else if let Some(frame) = vm.current_frame() {
+        // We have a frame but it wasn't found during stack walking
+        (frame.globals.clone(), vm.ctx.intern_str("sys"), 1)
     } else {
-        (vm.current_globals().clone(), vm.ctx.intern_str("sys"), 1)
+        // No frames on the stack - we're in interpreter shutdown or similar state
+        // Use __main__ globals if available, otherwise skip the warning
+        match vm
+            .sys_module
+            .get_attr(identifier!(vm, modules), vm)
+            .and_then(|modules| modules.get_item(vm.ctx.intern_str("__main__"), vm))
+            .and_then(|main_mod| main_mod.get_attr(identifier!(vm, __dict__), vm))
+        {
+            Ok(globals) => {
+                if let Ok(dict) = globals.downcast::<crate::builtins::PyDict>() {
+                    (dict, vm.ctx.intern_str("sys"), 1)
+                } else {
+                    // Cannot get globals, skip warning
+                    return Ok((
+                        vm.ctx.intern_str("sys").to_owned(),
+                        1,
+                        None,
+                        vm.ctx.new_dict().into(),
+                    ));
+                }
+            }
+            Err(_) => {
+                // Cannot get __main__ globals, skip warning
+                return Ok((
+                    vm.ctx.intern_str("sys").to_owned(),
+                    1,
+                    None,
+                    vm.ctx.new_dict().into(),
+                ));
+            }
+        }
     };
 
     let registry = if let Ok(registry) = globals.get_item(__warningregistry__, vm) {

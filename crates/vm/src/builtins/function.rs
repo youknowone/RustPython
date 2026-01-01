@@ -50,6 +50,11 @@ unsafe impl Traverse for PyFunction {
             closure.as_untyped().traverse(tracer_fn);
         }
         self.defaults_and_kwdefaults.traverse(tracer_fn);
+        // Traverse additional fields that may contain references
+        self.type_params.lock().traverse(tracer_fn);
+        self.annotations.lock().traverse(tracer_fn);
+        self.module.lock().traverse(tracer_fn);
+        self.doc.lock().traverse(tracer_fn);
     }
 }
 

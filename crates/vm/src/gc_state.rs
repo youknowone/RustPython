@@ -532,11 +532,9 @@ impl GcState {
             })
             .collect();
 
-        // 6c: Clear weakrefs BEFORE calling __del__
-        // CPython order: weakref clear → weakref callbacks → __del__ → tp_clear
-        // This ensures that:
-        // 1. Weakref callbacks can see the object's state (attrs, dict, etc.)
-        // 2. __del__ sees weakrefs as invalidated (wr() returns None)
+        // 6c: Clear existing weakrefs BEFORE calling __del__
+        // This invalidates existing weakrefs, but new weakrefs created during __del__
+        // will still work (WeakRefList::add restores inner.obj if cleared)
         for obj_ref in &unreachable_refs {
             obj_ref.gc_clear_weakrefs();
         }
@@ -627,8 +625,22 @@ impl GcState {
         }
 
         if !truly_dead.is_empty() {
-            // 6f-1: Break cycles by clearing references
-            // Note: weakrefs were already cleared in step 6c (before __del__)
+            // 6g: Break cycles by clearing references (tp_clear equivalent)
+            // Weakrefs were already cleared in step 6c, but new weakrefs created
+            // during __del__ (step 6d) can still be upgraded.
+            //
+            // Safety check: Filter out any objects that have been resurrected by
+            // other threads between our reachability analysis and now.
+            // This prevents race conditions in multi-threaded scenarios.
+            let truly_dead: Vec<_> = truly_dead
+                .into_iter()
+                .filter(|obj| {
+                    // If strong_count > 1, another thread acquired a reference
+                    // (our reference + theirs). Skip this object to be safe.
+                    obj.strong_count() == 1
+                })
+                .collect();
+
             rustpython_common::refcount::with_deferred_drops(|| {
                 for obj_ref in truly_dead.iter() {
                     if obj_ref.gc_has_pop_edges() {

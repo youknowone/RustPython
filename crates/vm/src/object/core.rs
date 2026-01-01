@@ -201,6 +201,11 @@ impl WeakRefList {
             }))
         });
         let mut inner = unsafe { inner_ptr.as_ref().lock() };
+        // If obj was cleared by GC but object is still alive (e.g., new weakref
+        // created during __del__), restore the obj pointer
+        if inner.obj.is_none() {
+            inner.obj = Some(NonNull::from(obj));
+        }
         if is_generic && let Some(generic_weakref) = inner.generic_weakref {
             let generic_weakref = unsafe { generic_weakref.as_ref() };
             if generic_weakref.0.ref_count.get() != 0 {
