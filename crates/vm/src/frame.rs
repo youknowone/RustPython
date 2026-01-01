@@ -351,6 +351,7 @@ impl ExecutingFrame<'_> {
                         frame: &mut ExecutingFrame<'_>,
                         exception: PyBaseExceptionRef,
                         idx: usize,
+                        is_reraise: bool,
                         vm: &VirtualMachine,
                     ) -> FrameResult {
                         // 1. Extract traceback from exception's '__traceback__' attr.
@@ -358,29 +359,33 @@ impl ExecutingFrame<'_> {
                         // 3. First, try to find handler in exception table (CPython 3.11+ style)
                         // 4. If not found, unwind block stack till appropriate handler is found (legacy).
 
-                        let (loc, _end_loc) = frame.code.locations[idx];
-                        let next = exception.__traceback__();
+                        // RERAISE instructions should not add traceback entries - they're just
+                        // re-raising an already-processed exception (CPython behavior)
+                        if !is_reraise {
+                            let (loc, _end_loc) = frame.code.locations[idx];
+                            let next = exception.__traceback__();
 
-                        // Check if traceback already has an entry for this frame at this location
-                        // This prevents duplicate entries when RERAISE goes through handle_exception again
-                        let should_add_traceback = match &next {
-                            Some(tb) => {
-                                // Only add if this is a different frame or different location
-                                !core::ptr::eq::<Py<Frame>>(&*tb.frame, frame.object)
-                                    || tb.lineno != loc.line.get() as i32
+                            // Check if traceback already has an entry for this frame at this location
+                            // This prevents duplicate entries
+                            let should_add_traceback = match &next {
+                                Some(tb) => {
+                                    // Only add if this is a different frame or different location
+                                    !core::ptr::eq::<Py<Frame>>(&*tb.frame, frame.object)
+                                        || tb.lineno != loc.line
+                                }
+                                None => true,
+                            };
+
+                            if should_add_traceback {
+                                let new_traceback = PyTraceback::new(
+                                    next,
+                                    frame.object.to_owned(),
+                                    idx as u32 * 2,
+                                    loc.line,
+                                );
+                                vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
+                                exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
                             }
-                            None => true,
-                        };
-
-                        if should_add_traceback {
-                            let new_traceback = PyTraceback::new(
-                                next,
-                                frame.object.to_owned(),
-                                idx as u32 * 2,
-                                loc.line,
-                            );
-                            vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
-                            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
                         vm.contextualize_exception(&exception);
@@ -391,12 +396,31 @@ impl ExecutingFrame<'_> {
                         frame.unwind_blocks(vm, UnwindReason::Raising { exception })
                     }
 
-                    match handle_exception(self, exception, idx, vm) {
+                    // Check if this is a RERAISE instruction
+                    let is_reraise = match op {
+                        bytecode::Instruction::Raise { kind } => matches!(
+                            kind.get(arg),
+                            bytecode::RaiseKind::Reraise | bytecode::RaiseKind::ReraiseFromStack
+                        ),
+                        _ => false,
+                    };
+
+                    match handle_exception(self, exception, idx, is_reraise, vm) {
                         Ok(None) => {}
                         Ok(Some(result)) => break Ok(result),
-                        // TODO: append line number to traceback?
-                        // traceback.append();
-                        Err(exception) => break Err(exception),
+                        Err(exception) => {
+                            // Restore lasti from traceback so frame.f_lineno matches tb_lineno
+                            // The traceback was created with the correct lasti when exception
+                            // was first raised, but frame.lasti may have changed during cleanup
+                            if let Some(tb) = exception.__traceback__() {
+                                if core::ptr::eq::<Py<Frame>>(&*tb.frame, self.object) {
+                                    // This traceback entry is for this frame - restore its lasti
+                                    // tb.lasti is in bytes (idx * 2), convert back to instruction index
+                                    self.update_lasti(|i| *i = tb.lasti / 2);
+                                }
+                            }
+                            break Err(exception);
+                        }
                     }
                 }
             }
