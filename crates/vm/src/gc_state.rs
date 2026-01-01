@@ -379,6 +379,12 @@ impl GcState {
             Err(_) => return (0, 0),
         };
 
+        // Enter EBR critical section for the entire collection.
+        // This ensures that any objects being freed by other threads won't have
+        // their memory actually deallocated until we exit this critical section.
+        // Other threads' deferred deallocations will wait for us to unpin.
+        let ebr_guard = rustpython_common::ebr::cs();
+
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
         std::sync::atomic::fence(Ordering::SeqCst);
@@ -388,15 +394,19 @@ impl GcState {
 
         // ================================================================
         // Step 1: Gather objects from generations 0..=generation
+        // Hold read locks for the entire collection to prevent other threads
+        // from untracking objects while we're iterating.
         // ================================================================
+        let gen_locks: Vec<_> = (0..=generation)
+            .filter_map(|i| self.generation_objects[i].read().ok())
+            .collect();
+
         let mut collecting: HashSet<GcObjectPtr> = HashSet::new();
-        for gen_idx in 0..=generation {
-            if let Ok(gen_set) = self.generation_objects[gen_idx].read() {
-                for &ptr in gen_set.iter() {
-                    let obj = unsafe { ptr.0.as_ref() };
-                    if obj.strong_count() > 0 {
-                        collecting.insert(ptr);
-                    }
+        for gen_set in &gen_locks {
+            for &ptr in gen_set.iter() {
+                let obj = unsafe { ptr.0.as_ref() };
+                if obj.strong_count() > 0 {
+                    collecting.insert(ptr);
                 }
             }
         }
@@ -494,12 +504,17 @@ impl GcState {
 
         if unreachable.is_empty() {
             // No cycles found - promote survivors to next generation
+            drop(gen_locks); // Release read locks before promoting
             self.promote_survivors(generation, &collecting);
             // Reset gen0 count
             self.generations[0].count.store(0, Ordering::SeqCst);
             self.generations[generation].update_stats(0, 0);
             return (0, 0);
         }
+
+        // Release read locks before finalization phase.
+        // This allows other threads to untrack objects while we finalize.
+        drop(gen_locks);
 
         // ================================================================
         // Step 6: Finalize unreachable objects and handle resurrection
@@ -633,11 +648,8 @@ impl GcState {
             // Weakrefs were already cleared in step 6c, but new weakrefs created
             // during __del__ (step 6d) can still be upgraded.
             //
-            // Thread-safe destruction: Use EBR critical section for thread safety.
-            // The critical section ensures proper memory visibility across threads.
-            let guard = rustpython_common::ebr::cs();
-
-            // Pop edges and destroy objects within the critical section
+            // Pop edges and destroy objects using the ebr_guard from the start of collection.
+            // The guard ensures deferred deallocations from other threads wait for us.
             rustpython_common::refcount::with_deferred_drops(|| {
                 for obj_ref in truly_dead.iter() {
                     if obj_ref.gc_has_pop_edges() {
@@ -648,9 +660,6 @@ impl GcState {
                 // Drop truly_dead references, triggering actual deallocation
                 drop(truly_dead);
             });
-
-            // Flush deferred operations before dropping guard
-            guard.flush();
         }
 
         // 6f: Resurrected objects stay in tracked_objects (they're still alive)
@@ -664,6 +673,11 @@ impl GcState {
         self.generations[0].count.store(0, Ordering::SeqCst);
 
         self.generations[generation].update_stats(collected as u64, 0);
+
+        // Flush EBR deferred operations before exiting collection.
+        // This ensures any deferred deallocations from this collection are executed.
+        ebr_guard.flush();
+
         (collected, 0)
     }
 

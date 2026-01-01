@@ -73,11 +73,11 @@ unsafe impl Traverse for PyFunction {
             }
         }
 
-        // Pop annotations (equivalent to Py_CLEAR(func_annotations))
-        if let Some(guard) = self.annotations.try_lock() {
-            // Clear the dict entries, keeping the dict object
-            guard.clear();
-        }
+        // Note: We do NOT clear annotations here.
+        // Unlike CPython which can set func_annotations to NULL, RustPython always
+        // has a dict reference. Clearing the dict in-place would affect all functions
+        // that share the same annotations dict (e.g., via functools.update_wrapper).
+        // The annotations dict typically doesn't create cycles, so skipping it is safe.
 
         // Replace name and qualname with empty string to break potential str subclass cycles
         // This matches CPython's func_clear behavior: "name and qualname could be str

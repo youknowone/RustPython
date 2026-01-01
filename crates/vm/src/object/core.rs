@@ -885,11 +885,12 @@ impl PyObject {
         let vtable = unsafe { ptr.as_ref().0.vtable };
         let has_dict = unsafe { ptr.as_ref().0.dict.is_some() };
 
-        // Untrack object from GC.
-        // Use try_defer_drop to avoid deadlock when called during GC collection.
-        // During GC.collect(), untrack is deferred until after the collection phase.
+        // Untrack object from GC BEFORE deallocation.
+        // This ensures the object is not in generation_objects when we free its memory.
         // Must match the condition in PyRef::new_ref: IS_TRACE || has_dict
         if vtable.trace.is_some() || has_dict {
+            // Try to untrack immediately. If we can't acquire the lock (e.g., GC is running),
+            // defer the untrack operation.
             rustpython_common::refcount::try_defer_drop(move || {
                 // SAFETY: untrack_object only removes the pointer address from a HashSet.
                 // It does NOT dereference the pointer, so it's safe even after deallocation.
