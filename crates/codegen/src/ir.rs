@@ -189,12 +189,19 @@ impl CodeInfo {
         let mut locations = Vec::new();
 
         let mut block_to_offset = vec![Label(0); blocks.len()];
+        // block_to_index: maps block idx to instruction index (for exception table)
+        // This is the index into the final instructions array, including EXTENDED_ARG
+        let mut block_to_index = vec![0u32; blocks.len()];
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
                 block_to_offset[idx.idx()] = Label(num_instructions as u32);
+                // block_to_index uses the same value as block_to_offset but as u32
+                // because lasti in frame.rs is the index into instructions array
+                // and instructions array index == byte offset (each instruction is 1 CodeUnit)
+                block_to_index[idx.idx()] = num_instructions as u32;
                 for instr in &block.instructions {
-                    num_instructions += instr.arg.instr_size()
+                    num_instructions += instr.arg.instr_size();
                 }
             }
 
@@ -261,7 +268,7 @@ impl CodeInfo {
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
             linetable,
-            exceptiontable: generate_exception_table(&blocks, &block_to_offset),
+            exceptiontable: generate_exception_table(&blocks, &block_to_index),
         })
     }
 
@@ -604,14 +611,17 @@ fn write_signed_varint(buf: &mut Vec<u8>, val: i32) -> usize {
 }
 
 /// Generate CPython 3.11+ exception table from instruction handler info
-fn generate_exception_table(blocks: &[Block], block_to_offset: &[Label]) -> Box<[u8]> {
+fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8]> {
     let mut entries: Vec<ExceptionTableEntry> = Vec::new();
-    let mut current_entry: Option<(ExceptHandlerInfo, u32)> = None; // (handler_info, start_offset)
-    let mut offset = 0u32;
+    let mut current_entry: Option<(ExceptHandlerInfo, u32)> = None; // (handler_info, start_index)
+    let mut instr_index = 0u32;
 
     // Iterate through all instructions in block order
+    // instr_index is the index into the final instructions array (including EXTENDED_ARG)
+    // This matches how frame.rs uses lasti
     for (_, block) in iter_blocks(blocks) {
         for instr in &block.instructions {
+            // instr_size includes EXTENDED_ARG instructions
             let instr_size = instr.arg.instr_size() as u32;
 
             match (&current_entry, &instr.except_handler) {
@@ -620,7 +630,7 @@ fn generate_exception_table(blocks: &[Block], block_to_offset: &[Label]) -> Box<
 
                 // No current entry, handler starts - begin new entry
                 (None, Some(handler)) => {
-                    current_entry = Some((handler.clone(), offset));
+                    current_entry = Some((handler.clone(), instr_index));
                 }
 
                 // Current entry exists, same handler - continue
@@ -631,24 +641,24 @@ fn generate_exception_table(blocks: &[Block], block_to_offset: &[Label]) -> Box<
 
                 // Current entry exists, different handler - finish current, start new
                 (Some((curr_handler, start)), Some(handler)) => {
-                    let target_offset = block_to_offset[curr_handler.handler_block.idx()].0;
+                    let target_index = block_to_index[curr_handler.handler_block.idx()];
                     entries.push(ExceptionTableEntry::new(
                         *start,
-                        offset,
-                        target_offset,
+                        instr_index,
+                        target_index,
                         curr_handler.stack_depth as u16,
                         curr_handler.preserve_lasti,
                     ));
-                    current_entry = Some((handler.clone(), offset));
+                    current_entry = Some((handler.clone(), instr_index));
                 }
 
                 // Current entry exists, no handler - finish current entry
                 (Some((curr_handler, start)), None) => {
-                    let target_offset = block_to_offset[curr_handler.handler_block.idx()].0;
+                    let target_index = block_to_index[curr_handler.handler_block.idx()];
                     entries.push(ExceptionTableEntry::new(
                         *start,
-                        offset,
-                        target_offset,
+                        instr_index,
+                        target_index,
                         curr_handler.stack_depth as u16,
                         curr_handler.preserve_lasti,
                     ));
@@ -656,17 +666,17 @@ fn generate_exception_table(blocks: &[Block], block_to_offset: &[Label]) -> Box<
                 }
             }
 
-            offset += instr_size;
+            instr_index += instr_size;  // Account for EXTENDED_ARG instructions
         }
     }
 
     // Finish any remaining entry
     if let Some((curr_handler, start)) = current_entry {
-        let target_offset = block_to_offset[curr_handler.handler_block.idx()].0;
+        let target_index = block_to_index[curr_handler.handler_block.idx()];
         entries.push(ExceptionTableEntry::new(
             start,
-            offset,
-            target_offset,
+            instr_index,
+            target_index,
             curr_handler.stack_depth as u16,
             curr_handler.preserve_lasti,
         ));
