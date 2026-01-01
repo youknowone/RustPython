@@ -520,10 +520,12 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.with_recursion("", || {
             self.frames.borrow_mut().push(frame.clone());
-            // Push a new exception stack item for this frame (CPython: exc_info per frame)
+            // Push a new exception context for frame isolation
+            // Each frame starts with no active exception (None)
+            // This prevents exceptions from leaking between function calls
             self.push_exception(None);
             let result = f(frame);
-            // Pop the exception stack item - restores previous frame's exception state
+            // Pop the exception context - restores caller's exception state
             self.pop_exception();
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();

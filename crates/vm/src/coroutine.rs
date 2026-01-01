@@ -81,29 +81,29 @@ impl Coro {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
 
-        // Save outer exception state before entering generator frame
-        // This is the exception state of the caller, which we need to restore after generator runs
-        let outer_exc = vm.current_exception();
-
+        // CPython genobject.c:225-227 - swap exception state
         // Get generator's saved exception state from last yield
         let gen_exc = self.exception.lock().take();
 
+        // Use a slot to capture generator's exception state before with_frame pops
+        let exception_slot = &self.exception;
+
         // Run the generator frame
-        // with_frame does push_exception(None)/pop_exception() for frame isolation,
-        // but generators need their own exception state preserved across yields
+        // with_frame does push_exception(None) which creates a new exception context
+        // The caller's exception remains in the chain via prev, so topmost_exception()
+        // will find it if generator's exception is None
         let result = vm.with_frame(self.frame.clone(), |f| {
-            // Pop the None that with_frame pushed
+            // with_frame pushed None, creating: { exc: None, prev: caller's exc_info }
+            // Pop None and push generator's exception instead
+            // This maintains the chain: { exc: gen_exc, prev: caller's exc_info }
             vm.pop_exception();
-            // Push the generator's actual exception state
             vm.push_exception(gen_exc);
-            func(f)
+            let result = func(f);
+            // Save generator's exception state BEFORE with_frame pops
+            // This is the generator's current exception context
+            *exception_slot.lock() = vm.current_exception();
+            result
         });
-
-        // Save generator's current exception state for next resume
-        *self.exception.lock() = vm.pop_exception();
-
-        // Restore outer exception state (the caller's exception context)
-        vm.set_exception(outer_exc);
 
         self.running.store(false);
         result
