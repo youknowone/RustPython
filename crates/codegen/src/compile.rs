@@ -2269,7 +2269,6 @@ impl Compiler {
             // Handler matched
             // Stack: [prev_exc, orig, list, new_rest, match]
             let handler_except_block = self.new_block();
-            let except_with_error_block = self.new_block();
 
             // CPython compile.c:3725-3731: Store match to name or pop
             if let Some(alias) = name {
@@ -2321,24 +2320,28 @@ impl Compiler {
 
             // CPython compile.c:3778: LIST_APPEND(3) - append raised_exc to list
             // Stack: [prev_exc, orig, list, new_rest, lasti, raised_exc]
-            // LIST_APPEND 3: STACK[-4] = list, appends raised_exc
-            emit!(self, Instruction::ListAppend { i: 3 });
+            // After pop: [prev_exc, orig, list, new_rest, lasti] (len=5)
+            // nth_value(i) = stack[len - i - 1], we need stack[2] = list
+            // stack[5 - i - 1] = 2 -> i = 2
+            emit!(self, Instruction::ListAppend { i: 2 });
             // Stack: [prev_exc, orig, list, new_rest, lasti]
 
             // CPython compile.c:3779: POP_TOP - pop lasti
             emit!(self, Instruction::PopTop);
             // Stack: [prev_exc, orig, list, new_rest]
 
-            emit!(self, Instruction::Jump { target: except_with_error_block });
+            // CPython compile.c:3780: JUMP except_with_error
+            // We directly JUMP to next_block since no_match_block falls through to it
+            emit!(self, Instruction::Jump { target: next_block });
 
             // CPython compile.c:3786: No match - pop match (None)
             self.switch_to_block(no_match_block);
             emit!(self, Instruction::PopTop); // pop match (None)
             // Stack: [prev_exc, orig, list, new_rest]
+            // Falls through to next_block
 
-            self.switch_to_block(except_with_error_block);
-            // Stack: [prev_exc, orig, list, rest]
-
+            // CPython compile.c:3789: except_with_error label
+            // All paths merge here at next_block
             self.switch_to_block(next_block);
             // Stack: [prev_exc, orig, list, rest]
 
@@ -2346,7 +2349,10 @@ impl Compiler {
             if i == n - 1 {
                 // Stack: [prev_exc, orig, list, rest]
                 // CPython: ADDOP_I(c, NO_LOCATION, LIST_APPEND, 1);
-                emit!(self, Instruction::ListAppend { i: 1 });
+                // CPython PEEK(1) = stack[len-1] after pop
+                // RustPython nth_value(i) = stack[len-i-1] after pop
+                // For LIST_APPEND 1: stack[len-1] = stack[len-i-1] -> i = 0
+                emit!(self, Instruction::ListAppend { i: 0 });
                 // Stack: [prev_exc, orig, list]
                 emit!(
                     self,

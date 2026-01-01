@@ -1764,11 +1764,6 @@ impl ExecutingFrame<'_> {
                     Err(exception)
                 }
             }
-        }
-
-        // We do not have any more blocks to unwind. Inspect the reason we are here:
-        match reason {
-            UnwindReason::Raising { exception } => Err(exception),
             UnwindReason::Returning { value } => {
                 // Clear tracebacks of exceptions in fastlocals to break reference cycles.
                 // This is needed because when returning from inside an except block,
@@ -1805,9 +1800,11 @@ impl ExecutingFrame<'_> {
                 drop(fastlocals);
                 Ok(Some(ExecutionResult::Return(value)))
             }
-            UnwindReason::Break { .. } | UnwindReason::Continue { .. } => {
-                self.fatal("break or continue must occur within a loop block.")
-            } // UnwindReason::NoWorries => Ok(None),
+            UnwindReason::Break { target } | UnwindReason::Continue { target } => {
+                // Break/continue: jump to the target label
+                self.jump(target);
+                Ok(None)
+            }
         }
     }
 
