@@ -37,7 +37,12 @@ impl Guard {
     ///
     /// Apart from that, keep in mind that another thread may execute `f`, so anything accessed by
     /// the closure must be `Send`.
-    pub(crate) unsafe fn defer_unchecked<F, R>(&self, f: F)
+    /// # Safety
+    ///
+    /// The given function must not hold reference onto the stack. It is highly recommended that
+    /// the passed function is **always** marked with `move` in order to prevent accidental
+    /// borrows. The closure must be `Send` as another thread may execute it.
+    pub unsafe fn defer_unchecked<F, R>(&self, f: F)
     where
         F: FnOnce() -> R,
     {

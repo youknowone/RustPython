@@ -633,21 +633,11 @@ impl GcState {
             // Weakrefs were already cleared in step 6c, but new weakrefs created
             // during __del__ (step 6d) can still be upgraded.
             //
-            // EBR-aligned destruction: Use critical section to ensure safe deallocation.
-            // All object accesses should happen within pinned regions.
+            // Thread-safe destruction: Use EBR critical section for thread safety.
+            // The critical section ensures proper memory visibility across threads.
             let guard = rustpython_common::ebr::cs();
 
-            // Double-check: Filter out any objects that might have been resurrected
-            // by other threads between our reachability analysis and now.
-            let truly_dead: Vec<_> = truly_dead
-                .into_iter()
-                .filter(|obj| {
-                    // If strong_count > 1, another thread acquired a reference
-                    // (our reference + theirs). Skip this object to be safe.
-                    obj.strong_count() == 1
-                })
-                .collect();
-
+            // Pop edges and destroy objects within the critical section
             rustpython_common::refcount::with_deferred_drops(|| {
                 for obj_ref in truly_dead.iter() {
                     if obj_ref.gc_has_pop_edges() {

@@ -446,3 +446,23 @@ pub fn flush_deferred_drops() {
         }
     });
 }
+
+/// Defer a closure execution using EBR until all pinned threads unpin.
+///
+/// This function queues a closure to be executed only after all currently
+/// pinned threads (those in EBR critical sections) have exited their
+/// critical sections. This is the 3-epoch guarantee of EBR.
+///
+/// # Safety
+///
+/// - The closure must not hold references to the stack
+/// - The closure must be `Send` (may execute on a different thread)
+/// - Should only be called within an EBR critical section (with a valid Guard)
+#[inline]
+pub unsafe fn defer_destruction<F>(guard: &Guard, f: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    // SAFETY: Caller guarantees the closure is safe to defer
+    unsafe { guard.defer_unchecked(f) };
+}

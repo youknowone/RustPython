@@ -523,6 +523,12 @@ impl VirtualMachine {
             let result = f(frame);
             // defer dec frame
             let _popped = self.frames.borrow_mut().pop();
+
+            // Reactivate EBR guard at frame boundary (safe point)
+            // This allows GC to advance epochs and free deferred objects
+            #[cfg(feature = "threading")]
+            crate::vm::thread::reactivate_guard();
+
             result
         })
     }

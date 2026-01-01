@@ -349,6 +349,10 @@ pub(crate) mod _thread {
     }
 
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
+        // Enter EBR critical section for this thread (Coarse-grained pinning)
+        // This ensures GC won't free objects while this thread might access them
+        crate::vm::thread::ensure_pinned();
+
         match func.invoke(args, vm) {
             Ok(_obj) => {}
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
@@ -366,6 +370,9 @@ pub(crate) mod _thread {
             }
         }
         vm.state.thread_count.fetch_sub(1);
+
+        // Drop EBR guard when thread exits, allowing epoch advancement
+        crate::vm::thread::drop_guard();
     }
 
     #[cfg(not(target_arch = "wasm32"))]
