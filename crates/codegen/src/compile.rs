@@ -2258,10 +2258,13 @@ impl Compiler {
                 }
                 emit!(self, Instruction::PushExcInfo);
                 self.compile_statements(finalbody)?;
+                // CPython compile.c:3387-3390: RERAISE 0 is emitted BEFORE pop_fblock
+                // This ensures RERAISE goes to cleanup block (FinallyEnd handler)
+                // which then properly restores prev_exc before going to outer handler
+                emit!(self, Instruction::Raise { kind: bytecode::RaiseKind::ReraiseFromStack });
                 if finally_cleanup_block.is_some() {
                     self.pop_fblock(FBlockType::FinallyEnd);
                 }
-                emit!(self, Instruction::Raise { kind: bytecode::RaiseKind::ReraiseFromStack });
             }
 
             if let Some(cleanup) = finally_cleanup_block {
@@ -2506,10 +2509,9 @@ impl Compiler {
             // Run finally body
             self.compile_statements(finalbody)?;
 
-            if finally_cleanup_block.is_some() {
-                self.pop_fblock(FBlockType::FinallyEnd);
-            }
-
+            // CPython compile.c:3387-3390: RERAISE 0 is emitted BEFORE pop_fblock
+            // This ensures RERAISE goes to cleanup block (FinallyEnd handler)
+            // which then properly restores prev_exc before going to outer handler
             // RERAISE 0: reraise the exception on TOS
             // Stack: [lasti, prev_exc, exc] - exception is on top
             emit!(
@@ -2518,6 +2520,10 @@ impl Compiler {
                     kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
+
+            if finally_cleanup_block.is_some() {
+                self.pop_fblock(FBlockType::FinallyEnd);
+            }
         }
 
         // CPython compile.c:3439-3443 - finally cleanup block
