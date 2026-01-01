@@ -2020,21 +2020,39 @@ impl Compiler {
         let handler_block = self.new_block();
         let finally_block = self.new_block();
 
+        // CPython compile.c:3428-3444 - finally needs TWO blocks:
+        // - finally_block: normal path (no exception active)
+        // - finally_except_block: exception path (PUSH_EXC_INFO -> body -> RERAISE)
+        let finally_except_block = if !finalbody.is_empty() {
+            Some(self.new_block())
+        } else {
+            None
+        };
+        let finally_cleanup_block = if finally_except_block.is_some() {
+            Some(self.new_block())
+        } else {
+            None
+        };
+        // End block - continuation point after try-finally
+        // Normal path jumps here to skip exception path blocks
+        let end_block = self.new_block();
+
         // Calculate the stack depth at this point (for exception table)
         // CPython compile.c: SETUP_FINALLY captures current stack depth
         let current_depth = self.handler_stack_depth();
 
         // Setup a finally block if we have a finally statement.
         // Push fblock with handler info for exception table generation
+        // IMPORTANT: handler goes to finally_except_block (exception path), not finally_block
         if !finalbody.is_empty() {
             // No SetupFinally emit - exception table handles this
             self.push_fblock_with_handler(
                 FBlockType::FinallyTry,
                 finally_block,
                 finally_block,
-                Some(finally_block),
-                current_depth, // stack depth for exception handler
-                true,          // preserve lasti for finally
+                finally_except_block, // Exception path goes to finally_except_block
+                current_depth,
+                true,
             )?;
         }
 
@@ -2184,10 +2202,10 @@ impl Compiler {
         );
 
         // CPython compile.c:3602-3603 - cleanup block
-        // POP_EXCEPT_AND_RERAISE: COPY 3, POP_EXCEPT, RERAISE 1
+        // CPython uses COPY 3, POP_EXCEPT, RERAISE 1 for lasti restoration
+        // RustPython doesn't use lasti from stack, so just reraise the exception on TOS
+        // The exception is pushed by exception table when routing here
         self.switch_to_block(cleanup_block);
-        emit!(self, Instruction::CopyItem { index: 3 });
-        emit!(self, Instruction::PopException);
         emit!(
             self,
             Instruction::Raise {
@@ -2206,12 +2224,78 @@ impl Compiler {
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
-        // finally:
+        // finally (normal path):
         self.switch_to_block(finally_block);
         if !finalbody.is_empty() {
             self.compile_statements(finalbody)?;
-            // No EndFinally emit - exception table handles this
+            // Jump to end_block to skip exception path blocks
+            // This prevents fall-through to finally_except_block
+            emit!(self, Instruction::Jump { target: end_block });
         }
+
+        // CPython compile.c:3428-3444 - finally (exception path)
+        // This is where exceptions go to run finally before reraising
+        // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
+        if let Some(finally_except) = finally_except_block {
+            self.switch_to_block(finally_except);
+
+            // CPython compile.c:3434-3435 - SETUP_CLEANUP for finally body
+            // Exceptions during finally body need to go to cleanup block
+            // Stack at entry: [lasti, exc] (lasti from exception table, exc pushed)
+            // After PUSH_EXC_INFO: [lasti, prev_exc, exc]
+            // So depth should account for lasti being on stack
+            if let Some(cleanup) = finally_cleanup_block {
+                self.push_fblock_with_handler(
+                    FBlockType::FinallyEnd,
+                    cleanup,
+                    cleanup,
+                    Some(cleanup),
+                    current_depth + 1, // [lasti] on stack before PUSH_EXC_INFO
+                    true,
+                )?;
+            }
+
+            // PUSH_EXC_INFO: [lasti, exc] -> [lasti, prev_exc, exc]
+            // Sets exc as current VM exception, saves prev_exc for restoration
+            emit!(self, Instruction::PushExcInfo);
+
+            // Run finally body
+            self.compile_statements(finalbody)?;
+
+            if finally_cleanup_block.is_some() {
+                self.pop_fblock(FBlockType::FinallyEnd);
+            }
+
+            // RERAISE 0: reraise the exception on TOS
+            emit!(
+                self,
+                Instruction::Raise {
+                    kind: bytecode::RaiseKind::Reraise,
+                }
+            );
+        }
+
+        // CPython compile.c:3439-3443 - finally cleanup block
+        // This handles exceptions that occur during the finally body itself
+        // Stack at entry: [lasti, prev_exc, lasti2, exc2] after exception table routing
+        if let Some(cleanup) = finally_cleanup_block {
+            self.switch_to_block(cleanup);
+            // COPY 3: copy the exception from position 3
+            emit!(self, Instruction::CopyItem { index: 3_u32 });
+            // POP_EXCEPT: restore prev_exc as current exception
+            emit!(self, Instruction::PopException);
+            // RERAISE 1: reraise with lasti from stack
+            emit!(
+                self,
+                Instruction::Raise {
+                    kind: bytecode::RaiseKind::Reraise,
+                }
+            );
+        }
+
+        // End block - continuation point after try-finally
+        // Normal execution continues here after the finally block
+        self.switch_to_block(end_block);
 
         Ok(())
     }
