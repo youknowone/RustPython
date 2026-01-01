@@ -2090,8 +2090,14 @@ impl Compiler {
                 emit!(self, Instruction::PopTop);
             }
 
+            // CPython compile.c:3481 - push HANDLER_CLEANUP fblock
+            // This allows break/continue/return inside except block to emit PopException
+            self.push_fblock(FBlockType::HandlerCleanup, finally_block, finally_block)?;
+
             // Handler code:
             self.compile_statements(body)?;
+
+            self.pop_fblock(FBlockType::HandlerCleanup);
             emit!(self, Instruction::PopException);
 
             // Delete the exception variable if it was bound
@@ -2152,14 +2158,18 @@ impl Compiler {
         orelse: &[Stmt],
         finalbody: &[Stmt],
     ) -> CompileResult<()> {
-        // Simplified except* implementation using PrepReraiseStar intrinsic
-        // Stack layout during handler processing: [orig, list, rest]
+        // CPython compile.c:3662 compiler_try_star_except
+        // Stack layout during handler processing: [prev_exc, orig, list, rest]
         let handler_block = self.new_block();
         let finally_block = self.new_block();
         let else_block = self.new_block();
         let end_block = self.new_block();
         let reraise_star_block = self.new_block();
         let reraise_block = self.new_block();
+        let cleanup_block = self.new_block();
+
+        // Calculate the stack depth at this point (for exception table)
+        let current_depth = self.handler_stack_depth();
 
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
@@ -2169,39 +2179,37 @@ impl Compiler {
                 finally_block,
                 finally_block,
                 Some(finally_block),
-                0,    // stack depth
-                true, // preserve lasti for finally
+                current_depth, // stack depth for exception handler
+                true,          // preserve lasti for finally
             )?;
         }
 
+        // CPython compile.c:3673 - SETUP_FINALLY for try body
         // Push fblock with handler info for exception table generation
-        // No SetupExcept emit - exception table handles this
         self.push_fblock_with_handler(
             FBlockType::TryExcept,
             handler_block,
             handler_block,
             Some(handler_block),
-            0,     // stack depth
-            false, // no lasti for except
+            current_depth, // stack depth for exception handler
+            false,         // no lasti for except
         )?;
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
-        // No PopBlock emit - exception table handles this
         emit!(self, Instruction::Jump { target: else_block });
 
-        // Exception handler entry
+        // CPython compile.c:3684 - Exception handler entry
         self.switch_to_block(handler_block);
-        // Stack: [exc]
+        // Stack: [exc] (from exception table)
 
-        // Create list for tracking exception results and copy orig
-        emit!(self, Instruction::BuildList { size: 0 });
-        // Stack: [exc, []]
-        // CopyItem is 1-indexed: CopyItem(1)=TOS, CopyItem(2)=second from top
-        // With stack [exc, []], CopyItem(2) copies exc
-        emit!(self, Instruction::CopyItem { index: 2 });
-        // Stack: [exc, [], exc_copy]
+        // CPython compile.c:3687 - PUSH_EXC_INFO
+        emit!(self, Instruction::PushExcInfo);
+        // Stack: [prev_exc, exc]
 
-        // Now stack is: [orig, list, rest]
+        // CPython compile.c:3690-3692 - Push EXCEPTION_GROUP_HANDLER fblock
+        let eg_dummy1 = self.new_block();
+        let eg_dummy2 = self.new_block();
+        self.push_fblock(FBlockType::ExceptionGroupHandler, eg_dummy1, eg_dummy2)?;
 
         let n = handlers.len();
         for (i, handler) in handlers.iter().enumerate() {
@@ -2212,7 +2220,18 @@ impl Compiler {
             let no_match_block = self.new_block();
             let next_block = self.new_block();
 
-            // Compile exception type
+            // CPython compile.c:3702-3714: first handler creates list and copies exc
+            if i == 0 {
+                // CPython: ADDOP_I(c, loc, BUILD_LIST, 0);
+                emit!(self, Instruction::BuildList { size: 0 });
+                // Stack: [prev_exc, exc, []]
+                // CPython: ADDOP_I(c, loc, COPY, 2);
+                emit!(self, Instruction::CopyItem { index: 2 });
+                // Stack: [prev_exc, exc, [], exc_copy]
+                // Now stack is: [prev_exc, orig, list, rest]
+            }
+
+            // CPython compile.c:3715-3719: Compile exception type
             if let Some(exc_type) = type_ {
                 // Check for unparenthesized tuple
                 if let Expr::Tuple(ExprTuple { elts, range, .. }) = exc_type.as_ref()
@@ -2229,13 +2248,14 @@ impl Compiler {
                     "except* must specify an exception type".to_owned(),
                 )));
             }
-            // Stack: [orig, list, rest, type]
+            // Stack: [prev_exc, orig, list, rest, type]
 
+            // CPython: ADDOP(c, loc, CHECK_EG_MATCH);
             emit!(self, Instruction::CheckEgMatch);
-            // Stack: [orig, list, new_rest, match]
+            // Stack: [prev_exc, orig, list, new_rest, match]
 
-            // Check if match is not None (use identity check, not truthiness)
-            // CopyItem is 1-indexed: CopyItem(1) = TOS, CopyItem(2) = second from top
+            // CPython: ADDOP_I(c, loc, COPY, 1);
+            // CPython: ADDOP_JUMP(c, loc, POP_JUMP_IF_NONE, no_match);
             emit!(self, Instruction::CopyItem { index: 1 });
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::IsOp(bytecode::Invert::No)); // is None?
@@ -2247,109 +2267,87 @@ impl Compiler {
             );
 
             // Handler matched
-            // Stack: [orig, list, new_rest, match]
+            // Stack: [prev_exc, orig, list, new_rest, match]
             let handler_except_block = self.new_block();
-            let handler_done_block = self.new_block();
+            let except_with_error_block = self.new_block();
 
-            // Set matched exception as current exception for bare 'raise'
-            emit!(self, Instruction::SetExcInfo);
-
-            // Store match to name if provided
+            // CPython compile.c:3725-3731: Store match to name or pop
             if let Some(alias) = name {
-                // CopyItem(1) copies TOS (match)
-                emit!(self, Instruction::CopyItem { index: 1 });
                 self.store_name(alias.as_str())?;
+            } else {
+                emit!(self, Instruction::PopTop); // pop match
             }
-            // Stack: [orig, list, new_rest, match]
+            // Stack: [prev_exc, orig, list, new_rest]
 
-            // Setup exception handler to catch 'raise' in handler body
-            // No SetupExcept emit - exception table handles this
-
-            // Push fblock to disallow break/continue/return in except* handler
-            // Also registers handler for exception table
+            // CPython compile.c:3744-3749: HANDLER_CLEANUP fblock for handler body
+            // Stack depth: prev_exc(1) + orig(1) + list(1) + new_rest(1) = 4
+            let eg_handler_depth = self.handler_stack_depth() + 4;
             self.push_fblock_with_handler(
-                FBlockType::ExceptionGroupHandler,
-                handler_done_block,
+                FBlockType::HandlerCleanup,
+                next_block,
                 end_block,
                 Some(handler_except_block),
-                0,     // stack depth
-                false, // no lasti
+                eg_handler_depth,
+                true, // preserve lasti
             )?;
 
-            // Execute handler body
+            // CPython compile.c:3752: Execute handler body
             self.compile_statements(body)?;
 
-            // Handler body completed normally (didn't raise)
-            self.pop_fblock(FBlockType::ExceptionGroupHandler);
-            // No PopBlock emit - exception table handles this
+            // CPython compile.c:3753: Handler body completed normally
+            self.pop_fblock(FBlockType::HandlerCleanup);
 
-            // Cleanup name binding
+            // CPython compile.c:3756-3762: Cleanup name binding
             if let Some(alias) = name {
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
             }
 
-            // Stack: [orig, list, new_rest, match]
-            // Pop match (handler consumed it)
-            emit!(self, Instruction::PopTop);
-            // Stack: [orig, list, new_rest]
-
-            // Append None to list (exception was consumed, not reraised)
-            self.emit_load_const(ConstantData::None);
-            // Stack: [orig, list, new_rest, None]
-            emit!(self, Instruction::ListAppend { i: 1 });
-            // Stack: [orig, list, new_rest]
-
-            emit!(
-                self,
-                Instruction::Jump {
-                    target: handler_done_block
-                }
-            );
-
-            // Handler raised an exception (bare 'raise' or other)
-            self.switch_to_block(handler_except_block);
-            // Stack: [orig, list, new_rest, match, raised_exc]
-
-            // Cleanup name binding
-            if let Some(alias) = name {
-                self.emit_load_const(ConstantData::None);
-                self.store_name(alias.as_str())?;
-                self.compile_name(alias.as_str(), NameUsage::Delete)?;
-            }
-
-            // Append raised_exc to list (the actual exception that was raised)
-            // Stack: [orig, list, new_rest, match, raised_exc]
-            // ListAppend(2): pop raised_exc, then append to list at stack[4-2-1]=stack[1]
-            emit!(self, Instruction::ListAppend { i: 2 });
-            // Stack: [orig, list, new_rest, match]
-
-            // Pop match (no longer needed)
-            emit!(self, Instruction::PopTop);
-            // Stack: [orig, list, new_rest]
-
-            self.switch_to_block(handler_done_block);
-            // Stack: [orig, list, new_rest]
-
+            // CPython compile.c:3763: Jump to next handler
             emit!(self, Instruction::Jump { target: next_block });
 
-            // No match - pop match (None), keep rest unchanged
+            // CPython compile.c:3766: Handler raised an exception (cleanup_end label)
+            self.switch_to_block(handler_except_block);
+            // Stack: [prev_exc, orig, list, new_rest, lasti, raised_exc]
+            // (lasti is pushed because push_lasti=true in HANDLER_CLEANUP fblock)
+
+            // CPython compile.c:3769-3775: Cleanup name binding
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            // CPython compile.c:3778: LIST_APPEND(3) - append raised_exc to list
+            // Stack: [prev_exc, orig, list, new_rest, lasti, raised_exc]
+            // LIST_APPEND 3: STACK[-4] = list, appends raised_exc
+            emit!(self, Instruction::ListAppend { i: 3 });
+            // Stack: [prev_exc, orig, list, new_rest, lasti]
+
+            // CPython compile.c:3779: POP_TOP - pop lasti
+            emit!(self, Instruction::PopTop);
+            // Stack: [prev_exc, orig, list, new_rest]
+
+            emit!(self, Instruction::Jump { target: except_with_error_block });
+
+            // CPython compile.c:3786: No match - pop match (None)
             self.switch_to_block(no_match_block);
             emit!(self, Instruction::PopTop); // pop match (None)
-            // Stack: [orig, list, new_rest]
+            // Stack: [prev_exc, orig, list, new_rest]
+
+            self.switch_to_block(except_with_error_block);
+            // Stack: [prev_exc, orig, list, rest]
 
             self.switch_to_block(next_block);
-            // Stack: [orig, list, rest] (rest may have been updated)
+            // Stack: [prev_exc, orig, list, rest]
 
-            // After last handler, append remaining rest to list
+            // CPython compile.c:3791-3794: After last handler, append rest to list
             if i == n - 1 {
-                // Stack: [orig, list, rest]
-                // ListAppend(i) pops TOS, then accesses stack[len - i - 1]
-                // After pop, stack is [orig, list], len=2
-                // We want list at index 1, so 2 - i - 1 = 1, i = 0
-                emit!(self, Instruction::ListAppend { i: 0 });
-                // Stack: [orig, list]
+                // Stack: [prev_exc, orig, list, rest]
+                // CPython: ADDOP_I(c, NO_LOCATION, LIST_APPEND, 1);
+                emit!(self, Instruction::ListAppend { i: 1 });
+                // Stack: [prev_exc, orig, list]
                 emit!(
                     self,
                     Instruction::Jump {
@@ -2359,19 +2357,28 @@ impl Compiler {
             }
         }
 
-        // Reraise star block
+        // CPython compile.c:3798: Pop EXCEPTION_GROUP_HANDLER fblock
+        self.pop_fblock(FBlockType::ExceptionGroupHandler);
+
+        // CPython compile.c:3801: Reraise star block
         self.switch_to_block(reraise_star_block);
-        // Stack: [orig, list]
+        // Stack: [prev_exc, orig, list]
+
+        // CPython compile.c:3802: CALL_INTRINSIC_2 PREP_RERAISE_STAR
+        // Takes 2 args (orig, list) and produces result
         emit!(
             self,
             Instruction::CallIntrinsic2 {
                 func: bytecode::IntrinsicFunction2::PrepReraiseStar
             }
         );
-        // Stack: [result] (exception to reraise or None)
+        // Stack: [prev_exc, result]
 
-        // Check if result is not None (use identity check, not truthiness)
+        // CPython compile.c:3803: COPY 1
         emit!(self, Instruction::CopyItem { index: 1 });
+        // Stack: [prev_exc, result, result]
+
+        // CPython compile.c:3804: POP_JUMP_IF_NOT_NONE reraise
         self.emit_load_const(ConstantData::None);
         emit!(self, Instruction::IsOp(bytecode::Invert::Yes)); // is not None?
         emit!(
@@ -2380,27 +2387,40 @@ impl Compiler {
                 target: reraise_block
             }
         );
+        // Stack: [prev_exc, result]
 
-        // Nothing to reraise
+        // CPython compile.c:3806-3810: Nothing to reraise
+        // POP_TOP - pop result (None)
         emit!(self, Instruction::PopTop);
+        // Stack: [prev_exc]
+
+        // POP_BLOCK - no-op for us with exception tables (fblocks handle this)
+        // POP_EXCEPT - restore previous exception context
         emit!(self, Instruction::PopException);
+        // Stack: []
 
         if !finalbody.is_empty() {
-            // No PopBlock/EnterFinally emit - exception table handles this
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
         emit!(self, Instruction::Jump { target: end_block });
 
-        // Reraise the result
+        // CPython compile.c:3812-3816: Reraise the result
         self.switch_to_block(reraise_block);
-        // Exception propagates through exception table
-        emit!(
-            self,
-            Instruction::Raise {
-                kind: bytecode::RaiseKind::Raise
-            }
-        );
+        // Stack: [prev_exc, result]
+
+        // CPython compile.c:3813: POP_BLOCK - no-op for us
+
+        // CPython compile.c:3814: SWAP 2
+        emit!(self, Instruction::Swap { index: 2 });
+        // Stack: [result, prev_exc]
+
+        // CPython compile.c:3815: POP_EXCEPT
+        emit!(self, Instruction::PopException);
+        // Stack: [result]
+
+        // CPython compile.c:3816: RERAISE 0
+        emit!(self, Instruction::Reraise { depth: 0 });
 
         // try-else path
         self.switch_to_block(else_block);

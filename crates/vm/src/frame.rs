@@ -1728,6 +1728,12 @@ impl ExecutingFrame<'_> {
                 // Look up handler in exception table
                 // lasti points to NEXT instruction (already incremented in run loop)
                 // The exception occurred at the previous instruction
+                // CPython uses signed int where INSTR_OFFSET() - 1 = -1 before first instruction
+                // We use u32, so check for 0 explicitly (equivalent to CPython's -1)
+                if self.lasti() == 0 {
+                    // No instruction executed yet, no handler can match
+                    return Err(exception);
+                }
                 let offset = self.lasti() - 1;
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
