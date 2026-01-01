@@ -2020,6 +2020,10 @@ impl Compiler {
         let handler_block = self.new_block();
         let finally_block = self.new_block();
 
+        // Calculate the stack depth at this point (for exception table)
+        // CPython compile.c: SETUP_FINALLY captures current stack depth
+        let current_depth = self.handler_stack_depth();
+
         // Setup a finally block if we have a finally statement.
         // Push fblock with handler info for exception table generation
         if !finalbody.is_empty() {
@@ -2029,8 +2033,8 @@ impl Compiler {
                 finally_block,
                 finally_block,
                 Some(finally_block),
-                0,    // stack depth will be handled by the instruction
-                true, // preserve lasti for finally
+                current_depth, // stack depth for exception handler
+                true,          // preserve lasti for finally
             )?;
         }
 
@@ -2044,8 +2048,8 @@ impl Compiler {
             handler_block,
             handler_block,
             Some(handler_block),
-            0,     // stack depth
-            false, // no lasti for except
+            current_depth, // stack depth for exception handler
+            false,         // no lasti for except
         )?;
         self.compile_statements(body)?;
         self.pop_fblock(FBlockType::TryExcept);
@@ -5825,6 +5829,103 @@ impl Compiler {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
+    /// Compile break or continue statement with proper fblock cleanup.
+    /// CPython compile.c:3288 compiler_break, compile.c:3304 compiler_continue
+    /// This handles unwinding through With blocks and exception handlers.
+    fn compile_break_continue(
+        &mut self,
+        range: ruff_text_size::TextRange,
+        is_break: bool,
+    ) -> CompileResult<()> {
+        // CPython compile.c:1619 compiler_unwind_fblock_stack
+        // Collect the fblocks we need to unwind through
+        #[derive(Clone, Copy)]
+        enum UnwindAction {
+            With { is_async: bool },
+            HandlerCleanup,
+        }
+        let mut unwind_actions = Vec::new();
+        let mut loop_info = None;
+
+        {
+            let code = self.current_code_info();
+            for i in (0..code.fblock.len()).rev() {
+                match code.fblock[i].fb_type {
+                    FBlockType::With => {
+                        unwind_actions.push(UnwindAction::With { is_async: false });
+                    }
+                    FBlockType::AsyncWith => {
+                        unwind_actions.push(UnwindAction::With { is_async: true });
+                    }
+                    FBlockType::HandlerCleanup => {
+                        unwind_actions.push(UnwindAction::HandlerCleanup);
+                    }
+                    FBlockType::WhileLoop => {
+                        loop_info = Some((code.fblock[i].fb_block, code.fblock[i].fb_exit, false));
+                        break;
+                    }
+                    FBlockType::ForLoop => {
+                        loop_info = Some((code.fblock[i].fb_block, code.fblock[i].fb_exit, true));
+                        break;
+                    }
+                    FBlockType::ExceptionGroupHandler => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            range,
+                        ));
+                    }
+                    _ => continue,
+                }
+            }
+        }
+
+        let Some((loop_block, exit_block, is_for_loop)) = loop_info else {
+            if is_break {
+                return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
+            } else {
+                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
+            }
+        };
+
+        // Emit cleanup for each fblock
+        for action in unwind_actions {
+            match action {
+                UnwindAction::With { is_async } => {
+                    // CPython compile.c:1461-1467 compiler_call_exit_with_nones
+                    self.emit_load_const(ConstantData::None);
+                    self.emit_load_const(ConstantData::None);
+                    self.emit_load_const(ConstantData::None);
+                    emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
+
+                    if is_async {
+                        emit!(self, Instruction::GetAwaitable);
+                        self.emit_load_const(ConstantData::None);
+                        emit!(self, Instruction::YieldFrom);
+                    }
+
+                    emit!(self, Instruction::PopTop);
+                }
+                UnwindAction::HandlerCleanup => {
+                    emit!(self, Instruction::PopException);
+                }
+            }
+        }
+
+        // For break in a for loop, pop the iterator
+        if is_break && is_for_loop {
+            emit!(self, Instruction::PopTop);
+        }
+
+        // Jump to target
+        if is_break {
+            emit!(self, Instruction::Break { target: exit_block });
+        } else {
+            emit!(self, Instruction::Continue { target: loop_block });
+        }
+
+        Ok(())
+    }
+
     /// Calculate the current with statement nesting depth.
     /// Each nested with statement adds one __exit__ on the stack.
     fn with_stack_depth(&self) -> u32 {
@@ -5836,6 +5937,25 @@ impl Compiler {
         for fblock in &code.fblock {
             match fblock.fb_type {
                 FBlockType::With | FBlockType::AsyncWith => depth += 1,
+                _ => {}
+            }
+        }
+        depth
+    }
+
+    /// Calculate the current exception handler stack depth.
+    /// CPython calculates this based on the SETUP_FINALLY/SETUP_CLEANUP stack depth.
+    fn handler_stack_depth(&self) -> u32 {
+        let code = match self.code_stack.last() {
+            Some(c) => c,
+            None => return 0,
+        };
+        let mut depth = 0u32;
+        for fblock in &code.fblock {
+            match fblock.fb_type {
+                FBlockType::ForLoop => depth += 1,
+                FBlockType::With | FBlockType::AsyncWith => depth += 1,
+                FBlockType::HandlerCleanup => depth += 1,
                 _ => {}
             }
         }
