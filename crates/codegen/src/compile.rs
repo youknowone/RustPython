@@ -2378,19 +2378,21 @@ impl Compiler {
             self.switch_to_block(next_handler);
         }
 
-        // CPython compile.c:3599 - pop EXCEPTION_HANDLER fblock
-        self.pop_fblock(FBlockType::ExceptionHandler);
-
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
         // CPython compile.c:3600 - RERAISE 0
         // Stack: [prev_exc, exc] - exception is on stack from PUSH_EXC_INFO
+        // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
         emit!(
             self,
             Instruction::Raise {
                 kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
+
+        // CPython compile.c:3599 - pop EXCEPTION_HANDLER fblock
+        // Pop after RERAISE so the instruction has the correct exception handler
+        self.pop_fblock(FBlockType::ExceptionHandler);
 
         // CPython compile.c:3602-3603 - cleanup block (POP_EXCEPT_AND_RERAISE)
         // Stack at entry: [prev_exc, lasti, exc] (depth=1 + lasti + exc pushed)
