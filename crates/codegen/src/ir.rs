@@ -669,7 +669,7 @@ fn generate_exception_table(blocks: &[Block], block_to_index: &[u32]) -> Box<[u8
                 }
             }
 
-            instr_index += instr_size;  // Account for EXTENDED_ARG instructions
+            instr_index += instr_size; // Account for EXTENDED_ARG instructions
         }
     }
 

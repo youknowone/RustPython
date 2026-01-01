@@ -2566,7 +2566,9 @@ impl ExecutingFrame<'_> {
         let stack_len = self.state.stack.len();
         if count > stack_len {
             let instr = self.code.instructions.get(self.lasti() as usize);
-            let op_name = instr.map(|i| format!("{:?}", i.op)).unwrap_or_else(|| "None".to_string());
+            let op_name = instr
+                .map(|i| format!("{:?}", i.op))
+                .unwrap_or_else(|| "None".to_string());
             panic!(
                 "Stack underflow in pop_multiple: trying to pop {} elements from stack with {} elements. lasti={}, code={}, op={}, source_path={}",
                 count,

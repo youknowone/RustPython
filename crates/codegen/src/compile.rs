@@ -2232,36 +2232,52 @@ impl Compiler {
         if handlers.is_empty() {
             // Just compile body with FinallyTry fblock active (if finalbody exists)
             self.compile_statements(body)?;
-            emit!(self, Instruction::Jump { target: else_block });
 
-            // Skip to else/finally processing
-            self.switch_to_block(else_block);
-            self.compile_statements(orelse)?;
-
+            // Pop FinallyTry fblock BEFORE compiling orelse/finally (normal path)
+            // This prevents exception table from covering the normal path
             if !finalbody.is_empty() {
                 self.pop_fblock(FBlockType::FinallyTry);
             }
 
-            self.switch_to_block(finally_block);
+            // Compile orelse (usually empty for try-finally without except)
+            self.compile_statements(orelse)?;
+
+            // Compile finally body inline for normal path (CPython compile.c:3373-3375)
             if !finalbody.is_empty() {
                 self.compile_statements(finalbody)?;
-                emit!(self, Instruction::Jump { target: end_block });
             }
+
+            // Jump to end (skip exception path blocks)
+            emit!(self, Instruction::Jump { target: end_block });
 
             if let Some(finally_except) = finally_except_block {
                 self.switch_to_block(finally_except);
+                // PUSH_EXC_INFO first, THEN push FinallyEnd fblock
+                // Stack after unwind_blocks: [lasti, exc] (depth = current_depth + 2)
+                // Stack after PUSH_EXC_INFO: [lasti, prev_exc, exc] (depth = current_depth + 3)
+                emit!(self, Instruction::PushExcInfo);
                 if let Some(cleanup) = finally_cleanup_block {
+                    // FinallyEnd fblock must be pushed AFTER PUSH_EXC_INFO
+                    // Depth = current_depth + 2 (lasti + prev_exc remain after RERAISE pops exc)
                     self.push_fblock_with_handler(
-                        FBlockType::FinallyEnd, cleanup, cleanup, Some(cleanup),
-                        current_depth + 1, true,
+                        FBlockType::FinallyEnd,
+                        cleanup,
+                        cleanup,
+                        Some(cleanup),
+                        current_depth + 2,
+                        true,
                     )?;
                 }
-                emit!(self, Instruction::PushExcInfo);
                 self.compile_statements(finalbody)?;
                 // CPython compile.c:3387-3390: RERAISE 0 is emitted BEFORE pop_fblock
                 // This ensures RERAISE goes to cleanup block (FinallyEnd handler)
                 // which then properly restores prev_exc before going to outer handler
-                emit!(self, Instruction::Raise { kind: bytecode::RaiseKind::ReraiseFromStack });
+                emit!(
+                    self,
+                    Instruction::Raise {
+                        kind: bytecode::RaiseKind::ReraiseFromStack
+                    }
+                );
                 if finally_cleanup_block.is_some() {
                     self.pop_fblock(FBlockType::FinallyEnd);
                 }
@@ -2271,7 +2287,12 @@ impl Compiler {
                 self.switch_to_block(cleanup);
                 emit!(self, Instruction::CopyItem { index: 3_u32 });
                 emit!(self, Instruction::PopException);
-                emit!(self, Instruction::Raise { kind: bytecode::RaiseKind::ReraiseFromStack });
+                emit!(
+                    self,
+                    Instruction::Raise {
+                        kind: bytecode::RaiseKind::ReraiseFromStack
+                    }
+                );
             }
 
             self.switch_to_block(end_block);
