@@ -83,11 +83,11 @@ unsafe impl Traverse for PyFunction {
         // This matches CPython's func_clear behavior: "name and qualname could be str
         // subclasses, so they could have reference cycles"
         if let Some(mut guard) = self.name.try_lock() {
-            let old_name = std::mem::replace(&mut *guard, self.empty_str.clone());
+            let old_name = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
             out.push(old_name.into());
         }
         if let Some(mut guard) = self.qualname.try_lock() {
-            let old_qualname = std::mem::replace(&mut *guard, self.empty_str.clone());
+            let old_qualname = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
             out.push(old_qualname.into());
         }
 
