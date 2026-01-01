@@ -2320,6 +2320,13 @@ impl Compiler {
             self.compile_statements(body)?;
 
             self.pop_fblock(FBlockType::HandlerCleanup);
+
+            // CPython compile.c:3557-3558 or 3591: POP_BLOCK (ExceptionHandler) then POP_EXCEPT
+            // After handler body completes, pop the ExceptionHandler fblock so that
+            // PopException and Jump use the OUTER exception handler (for nested try-except).
+            // This is critical: if an exception occurs during PopException/Jump cleanup,
+            // it should go to the outer handler, not back to this cleanup block.
+            self.pop_fblock(FBlockType::ExceptionHandler);
             emit!(self, Instruction::PopException);
 
             // Delete the exception variable if it was bound
@@ -2355,6 +2362,17 @@ impl Compiler {
                     }
                 );
             }
+
+            // Re-push ExceptionHandler for next handler in the loop
+            // This will be popped at the end of handlers loop or when matched
+            self.push_fblock_with_handler(
+                FBlockType::ExceptionHandler,
+                cleanup_block,
+                cleanup_block,
+                Some(cleanup_block),
+                current_depth + 1, // After PUSH_EXC_INFO: [prev_exc] stays on stack
+                true,              // preserve_lasti for cleanup
+            )?;
 
             // Emit a new label for the next handler
             self.switch_to_block(next_handler);
