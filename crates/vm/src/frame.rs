@@ -1474,18 +1474,16 @@ impl ExecutingFrame<'_> {
                 self.execute_set_function_attribute(vm, attr.get(arg))
             }
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
-            bytecode::Instruction::SetupAsyncWith { end: _ } => {
-                // enter_res is already on stack from BeforeAsyncWith + GetAwaitable + YieldFrom
-                // No block stack push - exception table handles cleanup
-                Ok(None)
-            }
             // SetupExcept is now a pseudo-instruction - exception table handles this
             bytecode::Instruction::SetupExcept { handler: _ } => Ok(None),
             // SetupFinally is now a pseudo-instruction - exception table handles this
             bytecode::Instruction::SetupFinally { handler: _ } => Ok(None),
             // Note: SetupLoop is now a pseudo-instruction
             bytecode::Instruction::SetupLoop => Ok(None),
-            bytecode::Instruction::SetupWith { end: _ } => {
+            // CPython 3.12+ BEFORE_WITH instruction
+            bytecode::Instruction::BeforeWith => {
+                // TOS: context_manager
+                // Result: [..., __exit__, __enter__ result]
                 let context_manager = self.pop_value();
                 let error_string = || -> String {
                     format!(
@@ -1493,20 +1491,22 @@ impl ExecutingFrame<'_> {
                         context_manager.class().name(),
                     )
                 };
+
+                // Get __exit__ first (before calling __enter__)
+                let exit = context_manager
+                    .get_attr(identifier!(vm, __exit__), vm)
+                    .map_err(|_exc| {
+                        vm.new_type_error(format!("{} (missed __exit__ method)", error_string()))
+                    })?;
+
+                // Get and call __enter__
                 let enter_res = vm
                     .get_special_method(&context_manager, identifier!(vm, __enter__))?
                     .ok_or_else(|| vm.new_type_error(error_string()))?
                     .invoke((), vm)?;
 
-                let exit = context_manager
-                    .get_attr(identifier!(vm, __exit__), vm)
-                    .map_err(|_exc| {
-                        vm.new_type_error({
-                            format!("{} (missed __exit__ method)", error_string())
-                        })
-                    })?;
+                // Push __exit__ first, then enter result
                 self.push_value(exit);
-                // No block stack push - exception table handles cleanup
                 self.push_value(enter_res);
                 Ok(None)
             }
@@ -1566,70 +1566,13 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::UnpackSequence { size } => {
                 self.unpack_sequence(size.get(arg), vm)
             }
-            bytecode::Instruction::WithCleanupFinish => {
-                // CPython: Stack is [..., __exit__, lasti, prev_exc, exc, exit_res]
-                // Both SETUP_WITH and SETUP_CLEANUP set preserve_lasti=true (flowgraph.c:682-684)
-                //
-                // CPython pattern:
-                //   WITH_EXCEPT_START  # call __exit__, push result
-                //   TO_BOOL            # convert to bool
-                //   POP_JUMP_IF_TRUE   # if suppressed, jump to cleanup
-                //   RERAISE 2          # if not suppressed, reraise (keeps items for cleanup handler)
-                //
-                // The key insight: when re-raising, we must NOT pop the stack items!
-                // The SETUP_CLEANUP handler (depth=3) expects [__exit__, lasti, prev_exc] to remain.
-                // If we pop them before re-raising, the cleanup handler will get wrong stack state.
-                let suppress_exception = self.pop_value().try_to_bool(vm)?;
-
-                if suppress_exception {
-                    // Exception was suppressed by __exit__
-                    // Pop exc, prev_exc, lasti, __exit__ from stack
-                    self.pop_value(); // exc
-                    let prev_exc = self.pop_value(); // prev_exc
-                    self.pop_value(); // lasti
-                    self.pop_value(); // __exit__
-                    // Restore prev_exc as current exception (may be None)
-                    let prev_exc = prev_exc
-                        .downcast_ref::<PyBaseException>()
-                        .map(|e| e.to_owned());
-                    vm.set_exception(prev_exc);
-                    Ok(None)
-                } else {
-                    // Exception not suppressed - re-raise it
-                    // DO NOT pop items here! The SETUP_CLEANUP handler will do the cleanup.
-                    // Stack: [__exit__, lasti, prev_exc, exc] (exit_res already popped)
-                    // The cleanup handler (COPY 3; POP_EXCEPT; RERAISE 1) expects this layout.
-                    //
-                    // The exception is at TOS (last item on stack)
-                    if let Some(exc) = self.state.stack.last().cloned() {
-                        if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
-                            Err(exc_ref.to_owned())
-                        } else {
-                            // If exc is not an exception, get from vm.current_exception()
-                            if let Some(exc_ref) = vm.current_exception() {
-                                Err(exc_ref)
-                            } else {
-                                // No exception to re-raise, just continue
-                                Ok(None)
-                            }
-                        }
-                    } else {
-                        // Stack is empty - get exception from vm.current_exception()
-                        if let Some(exc_ref) = vm.current_exception() {
-                            Err(exc_ref)
-                        } else {
-                            Ok(None)
-                        }
-                    }
-                }
-            }
-            bytecode::Instruction::WithCleanupStart => {
-                // CPython: After PUSH_EXC_INFO, stack is [..., __exit__, lasti, prev_exc, exc]
-                // Both SETUP_WITH and SETUP_CLEANUP set preserve_lasti=true (flowgraph.c:682-684)
-                // Get exception from vm.current_exception() (set by PUSH_EXC_INFO)
+            // CPython 3.12+ WITH_EXCEPT_START instruction
+            bytecode::Instruction::WithExceptStart => {
+                // Stack: [..., __exit__, lasti, prev_exc, exc]
+                // Call __exit__(type, value, tb) and push result
+                // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
                 let exc = vm.current_exception();
 
-                // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
                 let stack_len = self.state.stack.len();
                 let exit = self.state.stack[stack_len - 4].clone();
 

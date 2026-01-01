@@ -758,6 +758,7 @@ pub type NameIdx = u32;
 #[repr(u8)]
 pub enum Instruction {
     BeforeAsyncWith,
+    BeforeWith,
     BinaryOp {
         op: Arg<BinaryOperator>,
     },
@@ -989,9 +990,6 @@ pub enum Instruction {
         attr: Arg<MakeFunctionFlags>,
     },
     SetupAnnotation,
-    SetupAsyncWith {
-        end: Arg<Label>,
-    },
 
     SetupExcept {
         handler: Arg<Label>,
@@ -1004,9 +1002,6 @@ pub enum Instruction {
         handler: Arg<Label>,
     },
     SetupLoop,
-    SetupWith {
-        end: Arg<Label>,
-    },
     StoreAttr {
         idx: Arg<NameIdx>,
     },
@@ -1029,8 +1024,7 @@ pub enum Instruction {
     UnpackSequence {
         size: Arg<u32>,
     },
-    WithCleanupFinish,
-    WithCleanupStart,
+    WithExceptStart,
     YieldFrom,
     YieldValue,
     /// Set the current exception to TOS (for except* handlers).
@@ -1813,8 +1807,6 @@ impl Instruction {
             | ForIter { target: l }
             | SetupFinally { handler: l }
             | SetupExcept { handler: l }
-            | SetupWith { end: l }
-            | SetupAsyncWith { end: l }
             | Break { target: l }
             | Continue { target: l } => Some(*l),
             _ => None,
@@ -1934,9 +1926,8 @@ impl Instruction {
             Reraise { .. } => 0, // Exception raised, stack effect doesn't matter
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
-            SetupWith { .. } => (!jump) as i32,
-            WithCleanupStart => 0,
-            WithCleanupFinish => -1,
+            BeforeWith => 1, // push __exit__, then replace ctx_mgr with __enter__ result
+            WithExceptStart => 1, // push __exit__ result
             PopBlock => 0,
             Raise { kind } => {
                 // Stack effects for different raise kinds:
@@ -1985,13 +1976,6 @@ impl Instruction {
             Reverse { .. } => 0,
             GetAwaitable => 0,
             BeforeAsyncWith => 1,
-            SetupAsyncWith { .. } => {
-                if jump {
-                    -1
-                } else {
-                    0
-                }
-            }
             GetAIter => 0,
             GetANext => 1,
             EndAsyncFor => -2,
@@ -2155,11 +2139,10 @@ impl Instruction {
             SetAdd { i } => w!(SET_ADD, i),
             SetFunctionAttribute { attr } => w!(SET_FUNCTION_ATTRIBUTE, ?attr),
             SetupAnnotation => w!(SETUP_ANNOTATION),
-            SetupAsyncWith { end } => w!(SETUP_ASYNC_WITH, end),
             SetupExcept { handler } => w!(SETUP_EXCEPT, handler),
             SetupFinally { handler } => w!(SETUP_FINALLY, handler),
             SetupLoop => w!(SETUP_LOOP),
-            SetupWith { end } => w!(SETUP_WITH, end),
+            BeforeWith => w!(BEFORE_WITH),
             StoreAttr { idx } => w!(STORE_ATTR, name = idx),
             StoreDeref(idx) => w!(STORE_DEREF, cell_name = idx),
             SetExcInfo => w!(SET_EXC_INFO),
@@ -2176,8 +2159,7 @@ impl Instruction {
             UnaryOperation { op } => w!(UNARY_OPERATION, ?op),
             UnpackEx { args } => w!(UNPACK_EX, args),
             UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
-            WithCleanupFinish => w!(WITH_CLEANUP_FINISH),
-            WithCleanupStart => w!(WITH_CLEANUP_START),
+            WithExceptStart => w!(WITH_EXCEPT_START),
             YieldFrom => w!(YIELD_FROM),
             YieldValue => w!(YIELD_VALUE),
         }

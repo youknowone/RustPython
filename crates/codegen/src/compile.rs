@@ -3658,76 +3658,92 @@ impl Compiler {
         body: &[Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
+        // CPython 3.12+ style with statement:
+        //
+        // BEFORE_WITH          # TOS: ctx_mgr -> [__exit__, __enter__ result]
+        // L1: STORE_NAME f     # exception table: L1 to L2 -> L3 [1] lasti
+        // L2: ... body ...
+        //     LOAD_CONST None  # normal exit
+        //     LOAD_CONST None
+        //     LOAD_CONST None
+        //     CALL 2           # __exit__(None, None, None)
+        //     POP_TOP
+        //     JUMP after
+        // L3: PUSH_EXC_INFO    # exception handler
+        //     WITH_EXCEPT_START # call __exit__(type, value, tb), push result
+        //     TO_BOOL
+        //     POP_JUMP_IF_TRUE suppress
+        //     RERAISE 2
+        // suppress:
+        //     POP_TOP          # pop exit result
+        // L5: POP_EXCEPT
+        //     POP_TOP          # pop __exit__
+        //     POP_TOP          # pop prev_exc (or lasti depending on layout)
+        //     JUMP after
+        // L6: COPY 3           # cleanup handler for reraise
+        //     POP_EXCEPT
+        //     RERAISE 1
+        // after: ...
+
         let with_range = self.current_source_range;
 
         let Some((item, items)) = items.split_first() else {
             return Err(self.error(CodegenErrorType::EmptyWithItems));
         };
 
-        let (exc_handler_block, after_block) = {
-            let exc_handler_block = self.new_block();
-            let normal_exit_block = self.new_block();
-            let after_block = self.new_block();
-            self.compile_expression(&item.context_expr)?;
+        let exc_handler_block = self.new_block();
+        let after_block = self.new_block();
 
-            self.set_source_range(with_range);
+        // Compile context expression and BEFORE_WITH
+        self.compile_expression(&item.context_expr)?;
+        self.set_source_range(with_range);
+
+        if is_async {
+            emit!(self, Instruction::BeforeAsyncWith);
+            emit!(self, Instruction::GetAwaitable);
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::YieldFrom);
+            emit!(
+                self,
+                Instruction::Resume {
+                    arg: bytecode::ResumeType::AfterAwait as u32
+                }
+            );
+        } else {
+            emit!(self, Instruction::BeforeWith);
+        }
+
+        // Stack: [..., __exit__, enter_result]
+        // Push fblock for exception table - handler goes to exc_handler_block
+        // CPython: preserve_lasti=true for with statements
+        // Use handler_stack_depth() to include all items on stack (for loops, etc.)
+        let with_depth = self.handler_stack_depth() + 1; // +1 for current __exit__
+        self.push_fblock_with_handler(
             if is_async {
-                emit!(self, Instruction::BeforeAsyncWith);
-                emit!(self, Instruction::GetAwaitable);
-                self.emit_load_const(ConstantData::None);
-                emit!(self, Instruction::YieldFrom);
-                emit!(
-                    self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterAwait as u32
-                    }
-                );
-                emit!(
-                    self,
-                    Instruction::SetupAsyncWith {
-                        end: exc_handler_block
-                    }
-                );
+                FBlockType::AsyncWith
             } else {
-                emit!(
-                    self,
-                    Instruction::SetupWith {
-                        end: exc_handler_block
-                    }
-                );
+                FBlockType::With
+            },
+            exc_handler_block, // block start (will become exit target after store)
+            after_block,
+            Some(exc_handler_block),
+            with_depth,
+            true, // preserve_lasti=true
+        )?;
+
+        // Store or pop the enter result
+        match &item.optional_vars {
+            Some(var) => {
+                self.set_source_range(var.range());
+                self.compile_store(var)?;
             }
-
-            // Push fblock for exception table - handler goes to exc_handler_block
-            // Stack at this point: [..., __exit__, enter_res]
-            // After store/pop: [..., __exit__]
-            // Dynamic depth for nested with statements: keep all __exit__ on stack
-            // CPython SETUP_WITH: preserve_lasti=true (flowgraph.c:682-684)
-            // Both SETUP_WITH and SETUP_CLEANUP set b_preserve_lasti = 1
-            self.push_fblock_with_handler(
-                if is_async {
-                    FBlockType::AsyncWith
-                } else {
-                    FBlockType::With
-                },
-                normal_exit_block,
-                after_block,
-                Some(exc_handler_block),
-                self.with_stack_depth() + 1, // dynamic depth for nested with statements
-                true,                        // SETUP_WITH: preserve_lasti=true
-            )?;
-
-            match &item.optional_vars {
-                Some(var) => {
-                    self.set_source_range(var.range());
-                    self.compile_store(var)?;
-                }
-                None => {
-                    emit!(self, Instruction::PopTop);
-                }
+            None => {
+                emit!(self, Instruction::PopTop);
             }
-            (exc_handler_block, after_block)
-        };
+        }
+        // Stack: [..., __exit__]
 
+        // Compile body or nested with
         if items.is_empty() {
             if body.is_empty() {
                 return Err(self.error(CodegenErrorType::EmptyWithBody));
@@ -3738,10 +3754,7 @@ impl Compiler {
             self.compile_with(items, body, is_async)?;
         }
 
-        // Calculate depth BEFORE popping fblock (includes current with's __exit__)
-        let cleanup_handler_depth = self.with_stack_depth();
-
-        // Pop fblock before cleanup
+        // Pop fblock before normal exit
         self.pop_fblock(if is_async {
             FBlockType::AsyncWith
         } else {
@@ -3750,16 +3763,11 @@ impl Compiler {
 
         // ===== Normal exit path =====
         // Stack: [..., __exit__]
-        // Push None args first, then use Push/Call pattern
-        // CPython uses: LOAD_CONST (None, None, None); CALL
+        // Call __exit__(None, None, None)
         self.set_source_range(with_range);
-        // __exit__ is at TOS, push None args below it
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
-        // Stack: [..., __exit__, None, None, None]
-        // We need to call __exit__(None, None, None)
-        // Use CallFunctionPositional with __exit__ already on stack
         emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
         if is_async {
             emit!(self, Instruction::GetAwaitable);
@@ -3781,40 +3789,36 @@ impl Compiler {
         );
 
         // ===== Exception handler path =====
-        // Stack after unwind: [..., __exit__, exc]
-        // CPython structure:
-        //   SETUP_CLEANUP cleanup  (push nested handler with preserve_lasti=true)
-        //   PUSH_EXC_INFO
-        //   WITH_EXCEPT_START
-        //   ... (TO_BOOL, POP_JUMP_IF_TRUE, RERAISE, etc.)
-        // cleanup:
-        //   COPY 3; POP_EXCEPT; RERAISE 1
+        // Stack at entry (after unwind): [..., __exit__, lasti, exc]
+        // CPython: PUSH_EXC_INFO -> [..., __exit__, lasti, prev_exc, exc]
         self.switch_to_block(exc_handler_block);
 
-        // Create cleanup block for nested exception handler (SETUP_CLEANUP)
+        // Create blocks for exception handling
         let cleanup_block = self.new_block();
+        let suppress_block = self.new_block();
 
-        // Push nested fblock - CPython SETUP_CLEANUP: preserve_lasti=true
-        // Stack at exception handler entry: [..., __exit__, lasti, exc] (after SETUP_WITH handler)
-        // SETUP_CLEANUP is set BEFORE PUSH_EXC_INFO
-        // CPython exception table depth for SETUP_CLEANUP = stack depth at handler entry
-        //   = cleanup_handler_depth (number of __exit__) + 2 (lasti + exc from first handler)
-        // When exception occurs after PUSH_EXC_INFO: [..., __exit__, lasti, prev_exc, exc]
-        // Unwind to depth=N+2 keeps [__exit__, lasti, prev_exc]
-        // Then push lasti and exc: [..., __exit__, lasti, prev_exc, lasti2, exc2]
-        // At cleanup block: COPY 3 copies prev_exc (3rd from top)
+        // Push nested fblock for cleanup handler
+        // Stack at exc_handler_block entry: [..., __exit__, lasti, exc]
+        // After PUSH_EXC_INFO: [..., __exit__, lasti, prev_exc, exc]
+        // If exception in __exit__, cleanup handler entry: [..., __exit__, lasti, prev_exc, lasti2, exc2]
+        // cleanup_depth should be: with_depth + 2 (lasti + prev_exc)
+        let cleanup_depth = with_depth + 2;
         self.push_fblock_with_handler(
             FBlockType::ExceptionHandler,
             exc_handler_block,
             after_block,
             Some(cleanup_block),
-            cleanup_handler_depth + 2, // depth at exc_handler_block: __exit__ + lasti + exc
-            true,                      // SETUP_CLEANUP: preserve_lasti=true
+            cleanup_depth,
+            true, // preserve_lasti=true
         )?;
 
-        // CPython 3.11+: PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] and sets current exception
+        // PUSH_EXC_INFO: [exc] -> [prev_exc, exc]
         emit!(self, Instruction::PushExcInfo);
-        emit!(self, Instruction::WithCleanupStart);
+
+        // WITH_EXCEPT_START: call __exit__(type, value, tb)
+        // Stack: [..., __exit__, lasti, prev_exc, exc]
+        // __exit__ is at TOS-3, call with exception info
+        emit!(self, Instruction::WithExceptStart);
 
         if is_async {
             emit!(self, Instruction::GetAwaitable);
@@ -3828,10 +3832,30 @@ impl Compiler {
             );
         }
 
-        emit!(self, Instruction::WithCleanupFinish);
+        // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
+        emit!(self, Instruction::ToBool);
+        emit!(
+            self,
+            Instruction::PopJumpIfTrue {
+                target: suppress_block
+            }
+        );
 
-        // Jump to after_block after successful exception handling
-        // (CPython: JUMP_NO_INTERRUPT exit after suppress path)
+        // Not suppressed: RERAISE 2
+        emit!(self, Instruction::Reraise { depth: 2 });
+
+        // Pop the nested fblock before suppress/cleanup blocks
+        self.pop_fblock(FBlockType::ExceptionHandler);
+
+        // ===== Suppress block =====
+        // Exception was suppressed, clean up stack
+        // Stack: [..., __exit__, lasti, prev_exc, exc, True]
+        // Need to pop: True, exc, prev_exc, __exit__
+        self.switch_to_block(suppress_block);
+        emit!(self, Instruction::PopTop); // pop True (TO_BOOL result)
+        emit!(self, Instruction::PopException); // pop exc and restore prev_exc
+        emit!(self, Instruction::PopTop); // pop __exit__
+        emit!(self, Instruction::PopTop); // pop lasti
         emit!(
             self,
             Instruction::Jump {
@@ -3839,17 +3863,11 @@ impl Compiler {
             }
         );
 
-        // Pop the nested fblock
-        self.pop_fblock(FBlockType::ExceptionHandler);
-
-        // ===== Cleanup block (POP_EXCEPT_AND_RERAISE) =====
-        // Stack at cleanup entry: [__exit__, lasti, exc]
-        // COPY 3 copies __exit__ to TOS (but we don't need it, it's for exc_info in CPython)
-        // POP_EXCEPT: pops TOS and restores exception state
-        // RERAISE 1: re-raises the exception
-        // CPython: COPY 3; POP_EXCEPT; RERAISE 1
-        // NOTE: Clear fblock temporarily to avoid circular handler reference
-        // (cleanup block should not have exception handler, RERAISE handles unwinding)
+        // ===== Cleanup block (for nested exception during __exit__) =====
+        // Stack: [..., __exit__, lasti, prev_exc, lasti2, exc2]
+        // COPY 3: copy prev_exc to TOS
+        // POP_EXCEPT: restore exception state
+        // RERAISE 1: re-raise with lasti
         self.switch_to_block(cleanup_block);
         let saved_fblock = std::mem::take(&mut self.current_code_info().fblock);
         emit!(self, Instruction::CopyItem { index: 3 });
@@ -6382,23 +6400,6 @@ impl Compiler {
         }
 
         Ok(())
-    }
-
-    /// Calculate the current with statement nesting depth.
-    /// Each nested with statement adds one __exit__ on the stack.
-    fn with_stack_depth(&self) -> u32 {
-        let code = match self.code_stack.last() {
-            Some(c) => c,
-            None => return 0,
-        };
-        let mut depth = 0u32;
-        for fblock in &code.fblock {
-            match fblock.fb_type {
-                FBlockType::With | FBlockType::AsyncWith => depth += 1,
-                _ => {}
-            }
-        }
-        depth
     }
 
     /// Calculate the current exception handler stack depth.
