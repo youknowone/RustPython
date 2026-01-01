@@ -1629,92 +1629,14 @@ impl Compiler {
                 }
             }
             Stmt::Break(_) => {
-                // Find the innermost loop in fblock stack
-                // Error if we encounter ExceptionGroupHandler before finding a loop
-                let found_loop = {
-                    let code = self.current_code_info();
-                    let mut result = Ok(None);
-                    for i in (0..code.fblock.len()).rev() {
-                        match code.fblock[i].fb_type {
-                            FBlockType::WhileLoop => {
-                                // While loop: no cleanup needed
-                                result = Ok(Some((code.fblock[i].fb_exit, false)));
-                                break;
-                            }
-                            FBlockType::ForLoop => {
-                                // For loop: need to pop iterator from stack
-                                result = Ok(Some((code.fblock[i].fb_exit, true)));
-                                break;
-                            }
-                            FBlockType::ExceptionGroupHandler => {
-                                result = Err(());
-                                break;
-                            }
-                            _ => continue,
-                        }
-                    }
-                    result
-                };
-
-                match found_loop {
-                    Ok(Some((exit_block, pop_iterator))) => {
-                        // For for-loops, we need to pop the iterator before breaking
-                        if pop_iterator {
-                            emit!(self, Instruction::PopTop);
-                        }
-                        emit!(self, Instruction::Break { target: exit_block });
-                    }
-                    Ok(None) => {
-                        return Err(
-                            self.error_ranged(CodegenErrorType::InvalidBreak, statement.range())
-                        );
-                    }
-                    Err(()) => {
-                        return Err(self.error_ranged(
-                            CodegenErrorType::BreakContinueReturnInExceptStar,
-                            statement.range(),
-                        ));
-                    }
-                }
+                // CPython compile.c:3288 compiler_break
+                // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
+                self.compile_break_continue(statement.range(), true)?;
             }
             Stmt::Continue(_) => {
-                // Find the innermost loop in fblock stack
-                // Error if we encounter ExceptionGroupHandler before finding a loop
-                let found_loop = {
-                    let code = self.current_code_info();
-                    let mut result = Ok(None);
-                    for i in (0..code.fblock.len()).rev() {
-                        match code.fblock[i].fb_type {
-                            FBlockType::WhileLoop | FBlockType::ForLoop => {
-                                result = Ok(Some(code.fblock[i].fb_block));
-                                break;
-                            }
-                            FBlockType::ExceptionGroupHandler => {
-                                result = Err(());
-                                break;
-                            }
-                            _ => continue,
-                        }
-                    }
-                    result
-                };
-
-                match found_loop {
-                    Ok(Some(loop_block)) => {
-                        emit!(self, Instruction::Continue { target: loop_block });
-                    }
-                    Ok(None) => {
-                        return Err(
-                            self.error_ranged(CodegenErrorType::InvalidContinue, statement.range())
-                        );
-                    }
-                    Err(()) => {
-                        return Err(self.error_ranged(
-                            CodegenErrorType::BreakContinueReturnInExceptStar,
-                            statement.range(),
-                        ));
-                    }
-                }
+                // CPython compile.c:3304 compiler_continue
+                // Unwind fblock stack until we find a loop, emitting cleanup for each fblock
+                self.compile_break_continue(statement.range(), false)?;
             }
             Stmt::Return(StmtReturn { value, .. }) => {
                 if !self.ctx.in_func() {
@@ -3424,17 +3346,19 @@ impl Compiler {
         // Push nested fblock - CPython SETUP_CLEANUP: preserve_lasti=true
         // Stack at exception handler entry: [..., __exit__, lasti, exc] (after SETUP_WITH handler)
         // SETUP_CLEANUP is set BEFORE PUSH_EXC_INFO
-        // Handler depth = number of __exit__ on stack (calculated before pop_fblock)
+        // CPython exception table depth for SETUP_CLEANUP = stack depth at handler entry
+        //   = cleanup_handler_depth (number of __exit__) + 2 (lasti + exc from first handler)
         // When exception occurs after PUSH_EXC_INFO: [..., __exit__, lasti, prev_exc, exc]
-        // Unwind to depth keeps only __exit__(s)
-        // Then push lasti and exc: [..., __exit__, lasti, exc] - matches cleanup block expectation
+        // Unwind to depth=N+2 keeps [__exit__, lasti, prev_exc]
+        // Then push lasti and exc: [..., __exit__, lasti, prev_exc, lasti2, exc2]
+        // At cleanup block: COPY 3 copies prev_exc (3rd from top)
         self.push_fblock_with_handler(
             FBlockType::ExceptionHandler,
             exc_handler_block,
             after_block,
             Some(cleanup_block),
-            cleanup_handler_depth, // Use pre-calculated depth (includes current with's __exit__)
-            true,                  // SETUP_CLEANUP: preserve_lasti=true
+            cleanup_handler_depth + 2, // depth at exc_handler_block: __exit__ + lasti + exc
+            true,                      // SETUP_CLEANUP: preserve_lasti=true
         )?;
 
         // CPython 3.11+: PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] and sets current exception

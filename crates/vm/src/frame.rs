@@ -1405,20 +1405,27 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Reraise { depth } => {
                 // CPython 3.11+ RERAISE
-                // depth=0: simple reraise
-                // depth>0: pop lasti values from stack first
+                // CPython bytecodes.c:1146: inst(RERAISE, (values[oparg], exc -- values[oparg]))
+                // Only pop exc from TOS, leave values[oparg] on stack
                 let depth_val = depth.get(arg);
 
-                // Pop lasti values if depth > 0
-                for _ in 0..depth_val {
-                    let _ = self.pop_value();
-                }
+                // Pop exception from TOS only
+                let exc = self.pop_value();
 
-                // Reraise the current exception
-                let exc = vm
-                    .topmost_exception()
-                    .ok_or_else(|| vm.new_runtime_error("No active exception to re-raise"))?;
-                Err(exc)
+                // CPython: if oparg > 0, values[0] is lasti for restoring instruction pointer
+                // RustPython handles lasti differently (via exception table), so we don't use it here
+                // But we leave values on stack - they will be handled by exception unwinding
+                let _ = depth_val; // suppress unused warning
+
+                if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
+                    Err(exc_ref.to_owned())
+                } else {
+                    // Fallback: use current exception if TOS is not an exception
+                    let exc = vm
+                        .topmost_exception()
+                        .ok_or_else(|| vm.new_runtime_error("No active exception to re-raise"))?;
+                    Err(exc)
+                }
             }
             bytecode::Instruction::SetFunctionAttribute { attr } => {
                 self.execute_set_function_attribute(vm, attr.get(arg))
@@ -1519,6 +1526,16 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::WithCleanupFinish => {
                 // CPython: Stack is [..., __exit__, lasti, prev_exc, exc, exit_res]
                 // Both SETUP_WITH and SETUP_CLEANUP set preserve_lasti=true (flowgraph.c:682-684)
+                //
+                // CPython pattern:
+                //   WITH_EXCEPT_START  # call __exit__, push result
+                //   TO_BOOL            # convert to bool
+                //   POP_JUMP_IF_TRUE   # if suppressed, jump to cleanup
+                //   RERAISE 2          # if not suppressed, reraise (keeps items for cleanup handler)
+                //
+                // The key insight: when re-raising, we must NOT pop the stack items!
+                // The SETUP_CLEANUP handler (depth=3) expects [__exit__, lasti, prev_exc] to remain.
+                // If we pop them before re-raising, the cleanup handler will get wrong stack state.
                 let suppress_exception = self.pop_value().try_to_bool(vm)?;
 
                 if suppress_exception {
@@ -1536,21 +1553,30 @@ impl ExecutingFrame<'_> {
                     Ok(None)
                 } else {
                     // Exception not suppressed - re-raise it
-                    // Pop exc, prev_exc, lasti, __exit__ first
-                    let exc = self.pop_value();
-                    let prev_exc = self.pop_value();
-                    self.pop_value(); // lasti
-                    self.pop_value(); // __exit__
-                    // Restore prev_exc as current (for proper exception chaining)
-                    let prev_exc = prev_exc
-                        .downcast_ref::<PyBaseException>()
-                        .map(|e| e.to_owned());
-                    vm.set_exception(prev_exc);
-                    // Re-raise the exception
-                    if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
-                        Err(exc_ref.to_owned())
+                    // DO NOT pop items here! The SETUP_CLEANUP handler will do the cleanup.
+                    // Stack: [__exit__, lasti, prev_exc, exc] (exit_res already popped)
+                    // The cleanup handler (COPY 3; POP_EXCEPT; RERAISE 1) expects this layout.
+                    //
+                    // The exception is at TOS (last item on stack)
+                    if let Some(exc) = self.state.stack.last().cloned() {
+                        if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
+                            Err(exc_ref.to_owned())
+                        } else {
+                            // If exc is not an exception, get from vm.current_exception()
+                            if let Some(exc_ref) = vm.current_exception() {
+                                Err(exc_ref)
+                            } else {
+                                // No exception to re-raise, just continue
+                                Ok(None)
+                            }
+                        }
                     } else {
-                        Ok(None)
+                        // Stack is empty - get exception from vm.current_exception()
+                        if let Some(exc_ref) = vm.current_exception() {
+                            Err(exc_ref)
+                        } else {
+                            Ok(None)
+                        }
                     }
                 }
             }
@@ -1706,31 +1732,22 @@ impl ExecutingFrame<'_> {
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
-                    eprintln!(
-                        "DEBUG unwind: code={} offset={} entry.depth={} entry.push_lasti={} entry.target={}",
-                        self.code.obj_name, offset, entry.depth, entry.push_lasti, entry.target
-                    );
-                    eprintln!("  stack_len before pop: {}", self.state.stack.len());
-
                     // 1. Pop stack to entry.depth
                     while self.state.stack.len() > entry.depth as usize {
                         self.pop_value();
                     }
-                    eprintln!("  stack_len after pop: {}", self.state.stack.len());
 
                     // 2. If push_lasti=true (SETUP_CLEANUP), push lasti before exception
                     // CPython ceval.c:911-921: pushes lasti as PyLong
                     if entry.push_lasti {
                         self.push_value(vm.ctx.new_int(offset as i32).into());
                     }
-                    eprintln!("  stack_len after lasti: {}", self.state.stack.len());
 
                     // 3. Push exception onto stack
                     // CPython 3.11+: always push exception, PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc]
                     // Note: Do NOT call vm.set_exception here! PUSH_EXC_INFO will do it.
                     // PUSH_EXC_INFO needs to get prev_exc from vm.current_exception() BEFORE setting the new one.
                     self.push_value(exception.into());
-                    eprintln!("  stack_len after exc: {}", self.state.stack.len());
 
                     // 4. Jump to handler
                     self.jump(bytecode::Label(entry.target));
