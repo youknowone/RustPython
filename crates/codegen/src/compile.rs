@@ -2393,15 +2393,37 @@ impl Compiler {
 
             self.pop_fblock(FBlockType::HandlerCleanup);
 
-            // CPython compile.c:3557-3558 or 3591: POP_BLOCK (ExceptionHandler) then POP_EXCEPT
-            // After handler body completes, pop the ExceptionHandler fblock so that
-            // PopException and Jump use the OUTER exception handler (for nested try-except).
-            // This is critical: if an exception occurs during PopException/Jump cleanup,
-            // it should go to the outer handler, not back to this cleanup block.
+            // CPython compile.c:3568-3577 - cleanup_end block for named handler
+            // IMPORTANT: In CPython, cleanup_end is within outer SETUP_CLEANUP scope (line 3506),
+            // so when RERAISE is executed, it goes to the cleanup block which does POP_EXCEPT.
+            // We MUST compile cleanup_end BEFORE popping ExceptionHandler so RERAISE routes to cleanup_block.
+            if let Some(cleanup_end) = handler_cleanup_block {
+                self.switch_to_block(cleanup_end);
+                if let Some(alias) = name {
+                    // name = None; del name; before RERAISE
+                    self.emit_load_const(ConstantData::None);
+                    self.store_name(alias.as_str())?;
+                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                }
+                // RERAISE 1 (with lasti) - exception is on stack from exception table routing
+                // Stack at entry: [prev_exc (at handler_depth), lasti, exc]
+                // This RERAISE is within ExceptionHandler scope, so it routes to cleanup_block
+                // which does COPY 3; POP_EXCEPT; RERAISE
+                emit!(
+                    self,
+                    Instruction::Raise {
+                        kind: bytecode::RaiseKind::ReraiseFromStack,
+                    }
+                );
+            }
+
+            // Now pop ExceptionHandler - the normal path continues from here
+            // CPython compile.c:3557-3558: POP_BLOCK (HandlerCleanup) then POP_BLOCK (SETUP_CLEANUP)
+            // followed by POP_EXCEPT at line 3559
             self.pop_fblock(FBlockType::ExceptionHandler);
             emit!(self, Instruction::PopException);
 
-            // Delete the exception variable if it was bound
+            // Delete the exception variable if it was bound (normal path)
             if let Some(alias) = name {
                 // Set the variable to None before deleting
                 self.emit_load_const(ConstantData::None);
@@ -2416,24 +2438,6 @@ impl Compiler {
                     target: finally_block,
                 }
             );
-
-            // CPython compile.c:3568-3577 - cleanup_end block for named handler
-            if let Some(cleanup_end) = handler_cleanup_block {
-                self.switch_to_block(cleanup_end);
-                if let Some(alias) = name {
-                    // name = None; del name; before RERAISE
-                    self.emit_load_const(ConstantData::None);
-                    self.store_name(alias.as_str())?;
-                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
-                }
-                // RERAISE 1 (with lasti) - exception is on stack
-                emit!(
-                    self,
-                    Instruction::Raise {
-                        kind: bytecode::RaiseKind::ReraiseFromStack,
-                    }
-                );
-            }
 
             // Re-push ExceptionHandler for next handler in the loop
             // This will be popped at the end of handlers loop or when matched

@@ -81,11 +81,29 @@ impl Coro {
             return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
 
-        vm.push_exception(self.exception.lock().take());
+        // Save outer exception state before entering generator frame
+        // This is the exception state of the caller, which we need to restore after generator runs
+        let outer_exc = vm.current_exception();
 
-        let result = vm.with_frame(self.frame.clone(), func);
+        // Get generator's saved exception state from last yield
+        let gen_exc = self.exception.lock().take();
 
+        // Run the generator frame
+        // with_frame does push_exception(None)/pop_exception() for frame isolation,
+        // but generators need their own exception state preserved across yields
+        let result = vm.with_frame(self.frame.clone(), |f| {
+            // Pop the None that with_frame pushed
+            vm.pop_exception();
+            // Push the generator's actual exception state
+            vm.push_exception(gen_exc);
+            func(f)
+        });
+
+        // Save generator's current exception state for next resume
         *self.exception.lock() = vm.pop_exception();
+
+        // Restore outer exception state (the caller's exception context)
+        vm.set_exception(outer_exc);
 
         self.running.store(false);
         result
