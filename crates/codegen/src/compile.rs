@@ -2058,6 +2058,19 @@ impl Compiler {
 
         // except handlers:
         self.switch_to_block(handler_block);
+
+        // CPython compile.c:3506 - SETUP_CLEANUP(cleanup) for except block
+        // This handles exceptions during exception matching
+        let cleanup_block = self.new_block();
+        self.push_fblock_with_handler(
+            FBlockType::ExceptionHandler,
+            cleanup_block,
+            cleanup_block,
+            Some(cleanup_block),
+            current_depth, // stack depth before exception
+            false,         // no lasti for this cleanup
+        )?;
+
         // Exception is on top of stack now, pushed by unwind_blocks
         // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopException
         emit!(self, Instruction::PushExcInfo);
@@ -2090,9 +2103,28 @@ impl Compiler {
                 emit!(self, Instruction::PopTop);
             }
 
-            // CPython compile.c:3481 - push HANDLER_CLEANUP fblock
-            // This allows break/continue/return inside except block to emit PopException
-            self.push_fblock(FBlockType::HandlerCleanup, finally_block, finally_block)?;
+            // CPython compile.c:3546-3551 or 3584-3587
+            // If name is bound, we need a cleanup handler for RERAISE
+            let handler_cleanup_block = if name.is_some() {
+                // CPython: SETUP_CLEANUP(cleanup_end) for named handler
+                let cleanup_end = self.new_block();
+                // Stack at handler entry: [prev_exc, exc]
+                // depth = 1 (prev_exc on stack after exception is popped)
+                let handler_depth = current_depth + 1;
+                self.push_fblock_with_handler(
+                    FBlockType::HandlerCleanup,
+                    cleanup_end,
+                    cleanup_end,
+                    Some(cleanup_end),
+                    handler_depth,
+                    true, // preserve_lasti for RERAISE
+                )?;
+                Some(cleanup_end)
+            } else {
+                // CPython: no SETUP_CLEANUP for unnamed handler
+                self.push_fblock(FBlockType::HandlerCleanup, finally_block, finally_block)?;
+                None
+            };
 
             // Handler code:
             self.compile_statements(body)?;
@@ -2109,7 +2141,6 @@ impl Compiler {
             }
 
             // Jump to finally block
-            // No PopBlock/EnterFinally emit - exception table handles this
             emit!(
                 self,
                 Instruction::Jump {
@@ -2117,12 +2148,46 @@ impl Compiler {
                 }
             );
 
+            // CPython compile.c:3568-3577 - cleanup_end block for named handler
+            if let Some(cleanup_end) = handler_cleanup_block {
+                self.switch_to_block(cleanup_end);
+                if let Some(alias) = name {
+                    // name = None; del name; before RERAISE
+                    self.emit_load_const(ConstantData::None);
+                    self.store_name(alias.as_str())?;
+                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                }
+                // RERAISE 1 (with lasti)
+                emit!(
+                    self,
+                    Instruction::Raise {
+                        kind: bytecode::RaiseKind::Reraise,
+                    }
+                );
+            }
+
             // Emit a new label for the next handler
             self.switch_to_block(next_handler);
         }
 
+        // CPython compile.c:3599 - pop EXCEPTION_HANDLER fblock
+        self.pop_fblock(FBlockType::ExceptionHandler);
+
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
+        // CPython compile.c:3600 - RERAISE 0
+        emit!(
+            self,
+            Instruction::Raise {
+                kind: bytecode::RaiseKind::Reraise,
+            }
+        );
+
+        // CPython compile.c:3602-3603 - cleanup block
+        // POP_EXCEPT_AND_RERAISE: COPY 3, POP_EXCEPT, RERAISE 1
+        self.switch_to_block(cleanup_block);
+        emit!(self, Instruction::CopyItem { index: 3 });
+        emit!(self, Instruction::PopException);
         emit!(
             self,
             Instruction::Raise {
@@ -5982,6 +6047,8 @@ impl Compiler {
                 FBlockType::ForLoop => depth += 1,
                 FBlockType::With | FBlockType::AsyncWith => depth += 1,
                 FBlockType::HandlerCleanup => depth += 1,
+                // CPython: inside exception handler, prev_exc is on stack
+                FBlockType::ExceptionHandler => depth += 1,
                 _ => {}
             }
         }
