@@ -859,13 +859,9 @@ class ReferencesTestCase(TestBase):
         gc.collect()
         self.assertEqual(alist, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_gc_during_ref_creation(self):
         self.check_gc_during_creation(weakref.ref)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_gc_during_proxy_creation(self):
         self.check_gc_during_creation(weakref.proxy)
 
@@ -1353,13 +1349,9 @@ class MappingTestCase(TestBase):
         self.assertIn(n1, (0, 1))
         self.assertEqual(n2, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_keyed_len_cycles(self):
         self.check_len_cycles(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_valued_len_cycles(self):
         self.check_len_cycles(weakref.WeakValueDictionary, lambda k: (1, k))
 
@@ -1387,13 +1379,9 @@ class MappingTestCase(TestBase):
             self.assertGreaterEqual(n2, 0)
             self.assertLessEqual(n2, n1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_keyed_len_race(self):
         self.check_len_race(weakref.WeakKeyDictionary, lambda k: (k, 1))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_weak_valued_len_race(self):
         self.check_len_race(weakref.WeakValueDictionary, lambda k: (1, k))
 

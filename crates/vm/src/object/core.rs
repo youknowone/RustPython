@@ -829,15 +829,34 @@ impl PyObject {
             slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
         ) -> Result<(), ()> {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
+                // Note: inc() from 0 does a double increment (0→2) for thread safety.
+                // This gives us "permission" to decrement twice.
                 zelf.0.ref_count.inc();
+                let after_inc = zelf.strong_count(); // Should be 2
+
                 if let Err(e) = slot_del(zelf, vm) {
                     let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
+
+                let after_del = zelf.strong_count();
+
+                // First decrement
+                zelf.0.ref_count.dec();
+
+                // Check for resurrection: if ref_count increased beyond our expected 2,
+                // then __del__ created new references (resurrection occurred).
+                if after_del > after_inc {
+                    // Resurrected - don't do second decrement, leave object alive
+                    return false;
+                }
+
+                // No resurrection - do second decrement to get back to 0
+                // This matches the double increment from inc()
                 zelf.0.ref_count.dec()
             });
             match ret {
-                // the decref right above set ref_count back to 0
+                // the decref set ref_count back to 0
                 Some(true) => Ok(()),
                 // we've been resurrected by __del__
                 Some(false) => Err(()),
@@ -846,6 +865,13 @@ impl PyObject {
                     Ok(())
                 }
             }
+        }
+
+        // Clear weak refs FIRST (before __del__), consistent with GC behavior.
+        // GC clears weakrefs before calling finalizers (gc_state.rs:554-559).
+        // This ensures weakref holders are notified even if __del__ causes resurrection.
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear();
         }
 
         // CPython-compatible drop implementation
@@ -860,9 +886,6 @@ impl PyObject {
                 gc.mark_finalized(ptr);
                 call_slot_del(self, slot_del)?;
             }
-        }
-        if let Some(wrl) = self.weak_ref_list() {
-            wrl.clear();
         }
 
         Ok(())
