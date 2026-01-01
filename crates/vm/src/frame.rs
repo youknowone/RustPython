@@ -393,7 +393,12 @@ impl ExecutingFrame<'_> {
                             }
                         }
 
-                        vm.contextualize_exception(&exception);
+                        // Only contextualize exception for new raises, not re-raises
+                        // CPython only calls _PyErr_SetObject (which does chaining) on initial raise
+                        // RERAISE just propagates the exception without modifying __context__
+                        if !is_reraise {
+                            vm.contextualize_exception(&exception);
+                        }
 
                         // Use exception table for zero-cost exception handling (CPython 3.11+)
                         // But first check if there's a handler in block stack (hybrid approach)

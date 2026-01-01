@@ -2393,6 +2393,15 @@ impl Compiler {
 
             self.pop_fblock(FBlockType::HandlerCleanup);
 
+            // Create a block for normal path continuation (after handler body succeeds)
+            let handler_normal_exit = self.new_block();
+            emit!(
+                self,
+                Instruction::Jump {
+                    target: handler_normal_exit,
+                }
+            );
+
             // CPython compile.c:3568-3577 - cleanup_end block for named handler
             // IMPORTANT: In CPython, cleanup_end is within outer SETUP_CLEANUP scope (line 3506),
             // so when RERAISE is executed, it goes to the cleanup block which does POP_EXCEPT.
@@ -2416,6 +2425,9 @@ impl Compiler {
                     }
                 );
             }
+
+            // Switch to normal exit block - this is where handler body success continues
+            self.switch_to_block(handler_normal_exit);
 
             // Now pop ExceptionHandler - the normal path continues from here
             // CPython compile.c:3557-3558: POP_BLOCK (HandlerCleanup) then POP_BLOCK (SETUP_CLEANUP)
