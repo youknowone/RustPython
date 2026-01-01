@@ -315,32 +315,20 @@ impl CodeInfo {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut start_depths = vec![u32::MAX; self.blocks.len()];
+        // Track how many times each block has been processed (limit to prevent infinite loop)
+        let mut process_count = vec![0u8; self.blocks.len()];
+        const MAX_PROCESS_COUNT: u8 = 2; // Allow re-processing once for depth updates
         start_depths[0] = 0;
         stack.push(BlockIdx(0));
         const DEBUG: bool = false;
-        let mut iterations = 0u32;
-        const MAX_ITERATIONS: u32 = 100;
         'process_blocks: while let Some(block_idx) = stack.pop() {
-            iterations += 1;
-            if iterations > MAX_ITERATIONS {
-                eprintln!("ERROR: max_stackdepth infinite loop detected!");
-                eprintln!("  function: {}", self.metadata.name);
-                eprintln!("  iterations: {}", iterations);
-                eprintln!("  blocks.len(): {}", self.blocks.len());
-                eprintln!("  stack.len(): {}", stack.len());
-                eprintln!("  current block: {}", block_idx.0);
-                eprintln!("  start_depths: {:?}", start_depths);
-                for (i, b) in self.blocks.iter().enumerate() {
-                    eprintln!("  Block {}: {} instructions, next={:?}", i, b.instructions.len(), b.next);
-                    for ins in &b.instructions {
-                        if let Some(ref h) = ins.except_handler {
-                            eprintln!("    {:?} -> handler block {} depth {} lasti {}", ins.instr, h.handler_block.0, h.stack_depth, h.preserve_lasti);
-                        }
-                    }
-                }
-                panic!("max_stackdepth infinite loop");
+            let idx = block_idx.idx();
+            process_count[idx] += 1;
+            if process_count[idx] > MAX_PROCESS_COUNT {
+                // Already processed this block enough times, skip
+                continue 'process_blocks;
             }
-            let mut depth = start_depths[block_idx.idx()];
+            let mut depth = start_depths[idx];
             if DEBUG {
                 eprintln!("===BLOCK {}===", block_idx.0);
             }
@@ -449,8 +437,10 @@ fn stackdepth_push(
     target: BlockIdx,
     depth: u32,
 ) {
-    let block_depth = &mut start_depths[target.idx()];
-    if *block_depth == u32::MAX || depth > *block_depth {
+    let idx = target.idx();
+    let block_depth = &mut start_depths[idx];
+    if depth > *block_depth || *block_depth == u32::MAX {
+        // Found a path with higher depth (or first visit): update max and queue
         *block_depth = depth;
         stack.push(target);
     }

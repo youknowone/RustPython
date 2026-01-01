@@ -3365,6 +3365,9 @@ impl Compiler {
             self.compile_with(items, body, is_async)?;
         }
 
+        // Calculate depth BEFORE popping fblock (includes current with's __exit__)
+        let cleanup_handler_depth = self.with_stack_depth();
+
         // Pop fblock before cleanup
         self.pop_fblock(if is_async {
             FBlockType::AsyncWith
@@ -3418,16 +3421,20 @@ impl Compiler {
         // Create cleanup block for nested exception handler (SETUP_CLEANUP)
         let cleanup_block = self.new_block();
 
-        // Push nested fblock - CPython SETUP_CLEANUP: preserve_lasti=true, stack effect +2 on jump
-        // Stack at exception handler entry: [..., __exit__, exc]
-        // The handler will protect: __exit__ (depth 1) + exc (pushed by exception)
+        // Push nested fblock - CPython SETUP_CLEANUP: preserve_lasti=true
+        // Stack at exception handler entry: [..., __exit__, lasti, exc] (after SETUP_WITH handler)
+        // SETUP_CLEANUP is set BEFORE PUSH_EXC_INFO
+        // Handler depth = number of __exit__ on stack (calculated before pop_fblock)
+        // When exception occurs after PUSH_EXC_INFO: [..., __exit__, lasti, prev_exc, exc]
+        // Unwind to depth keeps only __exit__(s)
+        // Then push lasti and exc: [..., __exit__, lasti, exc] - matches cleanup block expectation
         self.push_fblock_with_handler(
             FBlockType::ExceptionHandler,
             exc_handler_block,
             after_block,
             Some(cleanup_block),
-            self.with_stack_depth() + 1, // __exit__ is on stack
-            true,                        // SETUP_CLEANUP: preserve_lasti=true
+            cleanup_handler_depth, // Use pre-calculated depth (includes current with's __exit__)
+            true,                  // SETUP_CLEANUP: preserve_lasti=true
         )?;
 
         // CPython 3.11+: PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] and sets current exception
@@ -3461,7 +3468,10 @@ impl Compiler {
         self.pop_fblock(FBlockType::ExceptionHandler);
 
         // ===== Cleanup block (POP_EXCEPT_AND_RERAISE) =====
-        // Stack: [exc_info, lasti, exc]
+        // Stack at cleanup entry: [__exit__, lasti, exc]
+        // COPY 3 copies __exit__ to TOS (but we don't need it, it's for exc_info in CPython)
+        // POP_EXCEPT: pops TOS and restores exception state
+        // RERAISE 1: re-raises the exception
         // CPython: COPY 3; POP_EXCEPT; RERAISE 1
         // NOTE: Clear fblock temporarily to avoid circular handler reference
         // (cleanup block should not have exception handler, RERAISE handles unwinding)

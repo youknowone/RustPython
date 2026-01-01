@@ -700,14 +700,15 @@ impl ExecutingFrame<'_> {
                 // CopyItem { index: 2 } copies second from top
                 // This is 1-indexed to match CPython
                 let idx = index.get(arg) as usize;
-                let value = self
-                    .state
-                    .stack
-                    .len()
-                    .checked_sub(idx)
-                    .map(|i| &self.state.stack[i])
-                    .unwrap();
-                self.push_value(value.clone());
+                let stack_len = self.state.stack.len();
+                if stack_len < idx {
+                    eprintln!("CopyItem ERROR: stack_len={}, idx={}", stack_len, idx);
+                    eprintln!("  code: {}", self.code.obj_name);
+                    eprintln!("  lasti: {}", self.lasti());
+                    panic!("CopyItem: stack underflow");
+                }
+                let value = self.state.stack[stack_len - idx].clone();
+                self.push_value(value);
                 Ok(None)
             }
             bytecode::Instruction::DeleteAttr { idx } => self.delete_attr(vm, idx.get(arg)),
@@ -1705,22 +1706,31 @@ impl ExecutingFrame<'_> {
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
+                    eprintln!(
+                        "DEBUG unwind: code={} offset={} entry.depth={} entry.push_lasti={} entry.target={}",
+                        self.code.obj_name, offset, entry.depth, entry.push_lasti, entry.target
+                    );
+                    eprintln!("  stack_len before pop: {}", self.state.stack.len());
+
                     // 1. Pop stack to entry.depth
                     while self.state.stack.len() > entry.depth as usize {
                         self.pop_value();
                     }
+                    eprintln!("  stack_len after pop: {}", self.state.stack.len());
 
                     // 2. If push_lasti=true (SETUP_CLEANUP), push lasti before exception
                     // CPython ceval.c:911-921: pushes lasti as PyLong
                     if entry.push_lasti {
                         self.push_value(vm.ctx.new_int(offset as i32).into());
                     }
+                    eprintln!("  stack_len after lasti: {}", self.state.stack.len());
 
                     // 3. Push exception onto stack
                     // CPython 3.11+: always push exception, PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc]
                     // Note: Do NOT call vm.set_exception here! PUSH_EXC_INFO will do it.
                     // PUSH_EXC_INFO needs to get prev_exc from vm.current_exception() BEFORE setting the new one.
                     self.push_value(exception.into());
+                    eprintln!("  stack_len after exc: {}", self.state.stack.len());
 
                     // 4. Jump to handler
                     self.jump(bytecode::Label(entry.target));
