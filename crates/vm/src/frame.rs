@@ -2008,18 +2008,22 @@ impl ExecutingFrame<'_> {
                 })
             }
             // if there's no cause arg, we keep the cause as is
-            bytecode::RaiseKind::Raise | bytecode::RaiseKind::Reraise => None,
+            _ => None,
         };
         let exception = match kind {
             bytecode::RaiseKind::RaiseCause | bytecode::RaiseKind::Raise => {
                 ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?
             }
             bytecode::RaiseKind::Reraise => {
-                // CPython 3.11+: RERAISE gets exception from stack top, not from VM state
-                // This is needed because cleanup handlers do POP_EXCEPT before RERAISE,
-                // which restores the previous exception state, but the exception to reraise
-                // is still on the stack.
-                // For bare `raise` in except block, the exception is also on stack from PUSH_EXC_INFO.
+                // CPython RAISE_VARARGS 0: bare `raise` gets exception from VM state
+                // This is the current exception set by PUSH_EXC_INFO
+                vm.topmost_exception().ok_or_else(|| {
+                    vm.new_runtime_error("No active exception to reraise".to_owned())
+                })?
+            }
+            bytecode::RaiseKind::ReraiseFromStack => {
+                // CPython 3.11+ RERAISE: gets exception from stack top
+                // Used in cleanup blocks where exception is on stack after COPY 3
                 let exc = self.pop_value();
                 exc.downcast::<PyBaseException>().map_err(|obj| {
                     vm.new_type_error(format!(

@@ -701,9 +701,15 @@ op_arg_enum!(
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
     pub enum RaiseKind {
+        /// Bare `raise` statement - gets exception from VM state (CPython RAISE_VARARGS 0)
         Reraise = 0,
+        /// `raise exc` - exception on stack
         Raise = 1,
+        /// `raise exc from cause` - exception and cause on stack
         RaiseCause = 2,
+        /// Reraise from stack (CPython RERAISE) - used in cleanup blocks
+        /// Gets exception from stack top, not from VM state
+        ReraiseFromStack = 3,
     }
 );
 
@@ -1932,7 +1938,19 @@ impl Instruction {
             WithCleanupStart => 0,
             WithCleanupFinish => -1,
             PopBlock => 0,
-            Raise { kind } => -(kind.get(arg) as u8 as i32),
+            Raise { kind } => {
+                // Stack effects for different raise kinds:
+                // - Reraise (0): gets from VM state, no stack pop
+                // - Raise (1): pops 1 exception
+                // - RaiseCause (2): pops 2 (exception + cause)
+                // - ReraiseFromStack (3): pops 1 exception from stack
+                match kind.get(arg) {
+                    RaiseKind::Reraise => 0,
+                    RaiseKind::Raise => -1,
+                    RaiseKind::RaiseCause => -2,
+                    RaiseKind::ReraiseFromStack => -1,
+                }
+            }
             BuildString { size }
             | BuildTuple { size, .. }
             | BuildTupleFromTuples { size, .. }

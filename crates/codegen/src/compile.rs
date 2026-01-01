@@ -2347,11 +2347,11 @@ impl Compiler {
                     self.store_name(alias.as_str())?;
                     self.compile_name(alias.as_str(), NameUsage::Delete)?;
                 }
-                // RERAISE 1 (with lasti)
+                // RERAISE 1 (with lasti) - exception is on stack
                 emit!(
                     self,
                     Instruction::Raise {
-                        kind: bytecode::RaiseKind::Reraise,
+                        kind: bytecode::RaiseKind::ReraiseFromStack,
                     }
                 );
             }
@@ -2366,10 +2366,11 @@ impl Compiler {
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
         // CPython compile.c:3600 - RERAISE 0
+        // Stack: [prev_exc, exc] - exception is on stack from PUSH_EXC_INFO
         emit!(
             self,
             Instruction::Raise {
-                kind: bytecode::RaiseKind::Reraise,
+                kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
 
@@ -2377,14 +2378,14 @@ impl Compiler {
         // Stack at entry: [prev_exc, lasti, exc] (depth=1 + lasti + exc pushed)
         // COPY 3: copy prev_exc to top -> [prev_exc, lasti, exc, prev_exc]
         // POP_EXCEPT: pop prev_exc from stack and restore -> [prev_exc, lasti, exc]
-        // RERAISE 1: reraise with lasti (not currently used by RustPython, but we keep the pattern)
+        // RERAISE 1: reraise with lasti
         self.switch_to_block(cleanup_block);
         emit!(self, Instruction::CopyItem { index: 3_u32 });
         emit!(self, Instruction::PopException);
         emit!(
             self,
             Instruction::Raise {
-                kind: bytecode::RaiseKind::Reraise,
+                kind: bytecode::RaiseKind::ReraiseFromStack,
             }
         );
 
@@ -2442,10 +2443,11 @@ impl Compiler {
             }
 
             // RERAISE 0: reraise the exception on TOS
+            // Stack: [lasti, prev_exc, exc] - exception is on top
             emit!(
                 self,
                 Instruction::Raise {
-                    kind: bytecode::RaiseKind::Reraise,
+                    kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
         }
@@ -2463,7 +2465,7 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::Raise {
-                    kind: bytecode::RaiseKind::Reraise,
+                    kind: bytecode::RaiseKind::ReraiseFromStack,
                 }
             );
         }
