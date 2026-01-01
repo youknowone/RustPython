@@ -383,8 +383,13 @@ impl ExecutingFrame<'_> {
                                     idx as u32 * 2,
                                     loc.line,
                                 );
-                                vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
-                                exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                                vm_trace!(
+                                    "Adding to traceback: {:?} {:?}",
+                                    new_traceback,
+                                    loc.line
+                                );
+                                exception
+                                    .set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
                             }
                         }
 
