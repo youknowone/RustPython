@@ -847,13 +847,30 @@ impl VirtualMachine {
         if let Some(context_exc) = self.topmost_exception()
             && !context_exc.is(exception)
         {
+            // Use Floyd's cycle detection (tortoise and hare) to detect cycles
+            // in the context chain while looking for `exception`
             let mut o = context_exc.clone();
+            let mut o2 = context_exc.clone();
             while let Some(context) = o.__context__() {
                 if context.is(exception) {
                     o.set___context__(None);
                     break;
                 }
                 o = context;
+                // Move o2 two steps ahead for cycle detection
+                if let Some(c2) = o2.__context__() {
+                    if let Some(c2_next) = c2.__context__() {
+                        if c2_next.is(&o) {
+                            // Cycle detected, stop traversal
+                            break;
+                        }
+                        o2 = c2_next;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
             exception.set___context__(Some(context_exc))
         }
