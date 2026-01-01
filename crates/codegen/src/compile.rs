@@ -2079,14 +2079,17 @@ impl Compiler {
 
         // CPython compile.c:3506 - SETUP_CLEANUP(cleanup) for except block
         // This handles exceptions during exception matching
+        // Exception table: L2 to L3 -> L5 [1] lasti
+        // After PUSH_EXC_INFO, stack is [prev_exc, exc]
+        // depth=1 means keep prev_exc on stack when routing to cleanup
         let cleanup_block = self.new_block();
         self.push_fblock_with_handler(
             FBlockType::ExceptionHandler,
             cleanup_block,
             cleanup_block,
             Some(cleanup_block),
-            current_depth, // stack depth before exception
-            false,         // no lasti for this cleanup
+            current_depth + 1, // After PUSH_EXC_INFO: [prev_exc] stays on stack
+            true,              // preserve_lasti for cleanup
         )?;
 
         // Exception is on top of stack now, pushed by unwind_blocks
@@ -2201,11 +2204,14 @@ impl Compiler {
             }
         );
 
-        // CPython compile.c:3602-3603 - cleanup block
-        // CPython uses COPY 3, POP_EXCEPT, RERAISE 1 for lasti restoration
-        // RustPython doesn't use lasti from stack, so just reraise the exception on TOS
-        // The exception is pushed by exception table when routing here
+        // CPython compile.c:3602-3603 - cleanup block (POP_EXCEPT_AND_RERAISE)
+        // Stack at entry: [prev_exc, lasti, exc] (depth=1 + lasti + exc pushed)
+        // COPY 3: copy prev_exc to top -> [prev_exc, lasti, exc, prev_exc]
+        // POP_EXCEPT: pop prev_exc from stack and restore -> [prev_exc, lasti, exc]
+        // RERAISE 1: reraise with lasti (not currently used by RustPython, but we keep the pattern)
         self.switch_to_block(cleanup_block);
+        emit!(self, Instruction::CopyItem { index: 3_u32 });
+        emit!(self, Instruction::PopException);
         emit!(
             self,
             Instruction::Raise {
