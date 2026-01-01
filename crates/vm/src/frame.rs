@@ -2565,12 +2565,16 @@ impl ExecutingFrame<'_> {
     fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<'_, PyObjectRef> {
         let stack_len = self.state.stack.len();
         if count > stack_len {
+            let instr = self.code.instructions.get(self.lasti() as usize);
+            let op_name = instr.map(|i| format!("{:?}", i.op)).unwrap_or_else(|| "None".to_string());
             panic!(
-                "Stack underflow in pop_multiple: trying to pop {} elements from stack with {} elements. lasti={}, code={}",
+                "Stack underflow in pop_multiple: trying to pop {} elements from stack with {} elements. lasti={}, code={}, op={}, source_path={}",
                 count,
                 stack_len,
                 self.lasti(),
-                self.code.obj_name
+                self.code.obj_name,
+                op_name,
+                self.code.source_path
             );
         }
         self.state.stack.drain(stack_len - count..)

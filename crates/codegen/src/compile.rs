@@ -6211,10 +6211,11 @@ impl Compiler {
     ) -> CompileResult<()> {
         // CPython compile.c:1619 compiler_unwind_fblock_stack
         // Collect the fblocks we need to unwind through
-        #[derive(Clone, Copy)]
+        #[derive(Clone)]
         enum UnwindAction {
             With { is_async: bool },
             HandlerCleanup,
+            FinallyTry { body: Vec<ruff_python_ast::Stmt> },
         }
         let mut unwind_actions = Vec::new();
         let mut loop_info = None;
@@ -6231,6 +6232,12 @@ impl Compiler {
                     }
                     FBlockType::HandlerCleanup => {
                         unwind_actions.push(UnwindAction::HandlerCleanup);
+                    }
+                    FBlockType::FinallyTry => {
+                        // Need to execute finally body before break/continue
+                        if let FBlockDatum::FinallyBody(ref body) = code.fblock[i].fb_datum {
+                            unwind_actions.push(UnwindAction::FinallyTry { body: body.clone() });
+                        }
                     }
                     FBlockType::WhileLoop => {
                         loop_info = Some((code.fblock[i].fb_block, code.fblock[i].fb_exit, false));
@@ -6279,6 +6286,10 @@ impl Compiler {
                 }
                 UnwindAction::HandlerCleanup => {
                     emit!(self, Instruction::PopException);
+                }
+                UnwindAction::FinallyTry { body } => {
+                    // CPython compile.c:1540-1556 - compile finally body inline
+                    self.compile_statements(&body)?;
                 }
             }
         }

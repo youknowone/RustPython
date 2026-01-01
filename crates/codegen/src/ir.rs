@@ -248,6 +248,9 @@ impl CodeInfo {
             opts.debug_ranges,
         );
 
+        // Generate exception table before moving source_path
+        let exceptiontable = generate_exception_table(&blocks, &block_to_index);
+
         Ok(CodeObject {
             flags,
             posonlyarg_count,
@@ -268,7 +271,7 @@ impl CodeInfo {
             freevars: freevar_cache.into_iter().collect(),
             cell2arg,
             linetable,
-            exceptiontable: generate_exception_table(&blocks, &block_to_index),
+            exceptiontable,
         })
     }
 
