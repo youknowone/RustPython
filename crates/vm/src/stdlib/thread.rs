@@ -407,6 +407,164 @@ pub(crate) mod _thread {
         vm.state.thread_count.load()
     }
 
+    /// ExceptHookArgs - simple class to hold exception hook arguments
+    /// This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
+    #[pyattr]
+    #[pyclass(module = "_thread", name = "_ExceptHookArgs")]
+    #[derive(Debug, PyPayload)]
+    struct ExceptHookArgs {
+        exc_type: crate::PyObjectRef,
+        exc_value: crate::PyObjectRef,
+        exc_traceback: crate::PyObjectRef,
+        thread: crate::PyObjectRef,
+    }
+
+    #[pyclass(with(Constructor))]
+    impl ExceptHookArgs {
+        #[pygetset]
+        fn exc_type(&self) -> crate::PyObjectRef {
+            self.exc_type.clone()
+        }
+
+        #[pygetset]
+        fn exc_value(&self) -> crate::PyObjectRef {
+            self.exc_value.clone()
+        }
+
+        #[pygetset]
+        fn exc_traceback(&self) -> crate::PyObjectRef {
+            self.exc_traceback.clone()
+        }
+
+        #[pygetset]
+        fn thread(&self) -> crate::PyObjectRef {
+            self.thread.clone()
+        }
+    }
+
+    impl Constructor for ExceptHookArgs {
+        // Takes a single iterable argument like namedtuple
+        type Args = (crate::PyObjectRef,);
+
+        fn py_new(
+            _cls: &Py<PyType>,
+            args: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            // Convert the argument to a list/tuple and extract elements
+            let seq: Vec<crate::PyObjectRef> = args.0.try_to_value(vm)?;
+            if seq.len() != 4 {
+                return Err(vm.new_type_error(format!(
+                    "_ExceptHookArgs expected 4 arguments, got {}",
+                    seq.len()
+                )));
+            }
+            Ok(Self {
+                exc_type: seq[0].clone(),
+                exc_value: seq[1].clone(),
+                exc_traceback: seq[2].clone(),
+                thread: seq[3].clone(),
+            })
+        }
+    }
+
+    /// Handle uncaught exception in Thread.run()
+    /// Suppresses exceptions during interpreter shutdown.
+    #[pyfunction]
+    fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        use std::sync::atomic::Ordering;
+
+        // During interpreter finalization, suppress exceptions from daemon threads
+        if vm.state.finalizing.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        // Get exception info from args (ExceptHookArgs namedtuple)
+        let exc_type = args.get_attr("exc_type", vm)?;
+        let exc_value = args.get_attr("exc_value", vm).ok();
+        let exc_traceback = args.get_attr("exc_traceback", vm).ok();
+        let thread = args.get_attr("thread", vm).ok();
+
+        // Check for SystemExit - should be silently ignored
+        // exc_type is the exception TYPE (e.g., SystemExit class), not an instance
+        // We compare by checking if exc_type IS SystemExit (same object identity)
+        // or if exc_type is a subclass of SystemExit
+        let is_system_exit = exc_type
+            .downcast_ref::<PyType>()
+            .is_some_and(|ty| ty.fast_issubclass(vm.ctx.exceptions.system_exit));
+        if is_system_exit {
+            return Ok(());
+        }
+
+        // Get stderr - fall back to thread._stderr if sys.stderr is None
+        let stderr = match vm.sys_module.get_attr("stderr", vm) {
+            Ok(stderr) if !vm.is_none(&stderr) => stderr,
+            _ => {
+                // Try to get thread._stderr as fallback
+                if let Some(ref thread) = thread {
+                    if !vm.is_none(thread) {
+                        if let Ok(thread_stderr) = thread.get_attr("_stderr", vm) {
+                            if !vm.is_none(&thread_stderr) {
+                                thread_stderr
+                            } else {
+                                return Ok(());
+                            }
+                        } else {
+                            return Ok(());
+                        }
+                    } else {
+                        return Ok(());
+                    }
+                } else {
+                    return Ok(());
+                }
+            }
+        };
+
+        // Print "Exception in thread <name>:"
+        let thread_name = if let Some(thread) = &thread {
+            if !vm.is_none(thread) {
+                thread
+                    .get_attr("name", vm)
+                    .ok()
+                    .and_then(|n| n.str(vm).ok())
+                    .map(|s| s.as_str().to_owned())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let name = thread_name.unwrap_or_else(|| format!("{}", get_ident()));
+
+        let _ = vm.call_method(&stderr, "write", (format!("Exception in thread {}:\n", name),));
+        let _ = vm.call_method(&stderr, "flush", ());
+
+        // Print the traceback using traceback.print_exception
+        // Pass file=stderr to ensure output goes to the correct stderr
+        if let Ok(traceback_mod) = vm.import("traceback", 0) {
+            if let Ok(print_exc) = traceback_mod.get_attr("print_exception", vm) {
+                use crate::function::KwArgs;
+                let kwargs: KwArgs =
+                    vec![("file".to_owned(), stderr.clone())].into_iter().collect();
+                let _ = print_exc.call_with_args(
+                    crate::function::FuncArgs::new(
+                        vec![
+                            exc_type.clone(),
+                            exc_value.unwrap_or_else(|| vm.ctx.none()),
+                            exc_traceback.unwrap_or_else(|| vm.ctx.none()),
+                        ],
+                        kwargs,
+                    ),
+                    vm,
+                );
+            }
+        }
+
+        let _ = vm.call_method(&stderr, "flush", ());
+        Ok(())
+    }
+
     #[pyattr]
     #[pyclass(module = "thread", name = "_local")]
     #[derive(Debug, PyPayload)]
