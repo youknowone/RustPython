@@ -313,7 +313,10 @@ mod tests {
         }
 
         unsafe fn finalize(entry: &Entry, guard: &Guard) {
-            guard.defer_destroy(RawShared::from(Self::element_of(entry) as *const _));
+            // SAFETY: entry is valid and element_of returns a valid pointer
+            unsafe {
+                guard.defer_destroy(RawShared::from(Self::element_of(entry) as *const _));
+            }
         }
     }
 

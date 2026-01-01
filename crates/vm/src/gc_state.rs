@@ -118,6 +118,12 @@ pub struct GcState {
     finalized_objects: RwLock<HashSet<GcObjectPtr>>,
 }
 
+// SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
+// PyMutex<Vec<PyObjectRef>> is safe to share/send across threads because access is synchronized.
+// PyObjectRef itself is Send, and interior mutability is guarded by the mutex.
+unsafe impl Send for GcState {}
+unsafe impl Sync for GcState {}
+
 impl Default for GcState {
     fn default() -> Self {
         Self::new()

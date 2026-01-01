@@ -382,7 +382,7 @@ impl Local {
         let advance_count = self.advance_count.get().wrapping_add(1);
         self.advance_count.set(advance_count);
 
-        if advance_count % Self::COUNTS_BETWEEN_ADVANCE == 0 {
+        if advance_count.is_multiple_of(Self::COUNTS_BETWEEN_ADVANCE) {
             self.global().try_advance(guard);
         }
     }
@@ -564,7 +564,7 @@ impl Local {
         let manual_count = self.manual_count.get().wrapping_add(1);
         self.manual_count.set(manual_count);
 
-        if manual_count % unsafe { MANUAL_EVENTS_BETWEEN_COLLECT } == 0 {
+        if manual_count.is_multiple_of(unsafe { MANUAL_EVENTS_BETWEEN_COLLECT }) {
             self.flush(guard);
         }
     }
