@@ -64,6 +64,17 @@ pub enum FBlockType {
     StopIteration,
 }
 
+/// CPython compile.c: fb_datum field
+/// Stores additional data for fblock unwinding
+#[derive(Debug, Clone)]
+pub enum FBlockDatum {
+    None,
+    /// For FinallyTry: stores the finally body statements to compile during unwind
+    FinallyBody(Vec<Stmt>),
+    /// For HandlerCleanup: stores the exception variable name (e.g., "e" in "except X as e")
+    ExceptionName(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct FBlockInfo {
     pub fb_type: FBlockType,
@@ -73,6 +84,8 @@ pub struct FBlockInfo {
     pub fb_handler: Option<BlockIdx>, // Exception handler block
     pub fb_stack_depth: u32,          // Stack depth at block entry
     pub fb_preserve_lasti: bool,      // Whether to preserve lasti (for SETUP_CLEANUP)
+    // CPython compile.c: fb_datum - additional data for fblock unwinding
+    pub fb_datum: FBlockDatum,
 }
 
 pub(crate) type InternalResult<T> = Result<T, InternalError>;
@@ -884,7 +897,15 @@ impl Compiler {
         fb_block: BlockIdx,
         fb_exit: BlockIdx,
     ) -> CompileResult<()> {
-        self.push_fblock_with_handler(fb_type, fb_block, fb_exit, None, 0, false)
+        self.push_fblock_full(
+            fb_type,
+            fb_block,
+            fb_exit,
+            None,
+            0,
+            false,
+            FBlockDatum::None,
+        )
     }
 
     /// Push an fblock with exception handler info for CPython 3.11+ exception table generation
@@ -896,6 +917,28 @@ impl Compiler {
         fb_handler: Option<BlockIdx>,
         fb_stack_depth: u32,
         fb_preserve_lasti: bool,
+    ) -> CompileResult<()> {
+        self.push_fblock_full(
+            fb_type,
+            fb_block,
+            fb_exit,
+            fb_handler,
+            fb_stack_depth,
+            fb_preserve_lasti,
+            FBlockDatum::None,
+        )
+    }
+
+    /// Push an fblock with all parameters including fb_datum
+    fn push_fblock_full(
+        &mut self,
+        fb_type: FBlockType,
+        fb_block: BlockIdx,
+        fb_exit: BlockIdx,
+        fb_handler: Option<BlockIdx>,
+        fb_stack_depth: u32,
+        fb_preserve_lasti: bool,
+        fb_datum: FBlockDatum,
     ) -> CompileResult<()> {
         let code = self.current_code_info();
         if code.fblock.len() >= MAXBLOCKS {
@@ -910,6 +953,7 @@ impl Compiler {
             fb_handler,
             fb_stack_depth,
             fb_preserve_lasti,
+            fb_datum,
         });
         Ok(())
     }
@@ -921,6 +965,135 @@ impl Compiler {
         // TODO: Add assertion to check expected type matches
         // assert!(matches!(fblock.fb_type, expected_type));
         code.fblock.pop().expect("fblock stack underflow")
+    }
+
+    /// Unwind a single fblock, emitting cleanup code
+    /// CPython compile.c:1517-1615 compiler_unwind_fblock
+    /// preserve_tos: if true, preserve the top of stack (e.g., return value)
+    fn compiler_unwind_fblock(
+        &mut self,
+        info: &FBlockInfo,
+        preserve_tos: bool,
+    ) -> CompileResult<()> {
+        match info.fb_type {
+            FBlockType::WhileLoop
+            | FBlockType::ExceptionHandler
+            | FBlockType::ExceptionGroupHandler
+            | FBlockType::AsyncComprehensionGenerator
+            | FBlockType::StopIteration => {
+                // No cleanup needed
+            }
+
+            FBlockType::ForLoop => {
+                // Pop the iterator
+                if preserve_tos {
+                    emit!(self, Instruction::Swap { index: 2 });
+                }
+                emit!(self, Instruction::PopTop);
+            }
+
+            FBlockType::TryExcept => {
+                // No POP_BLOCK with exception table, just pop fblock
+            }
+
+            FBlockType::FinallyTry => {
+                // CPython compile.c:1540-1556
+                // Compile the finally body inline
+                if preserve_tos {
+                    // Push a POP_VALUE fblock to handle nested returns in finally
+                    self.push_fblock(FBlockType::PopValue, info.fb_block, info.fb_block)?;
+                }
+
+                // Get the finally body from fb_datum and compile it
+                if let FBlockDatum::FinallyBody(ref body) = info.fb_datum {
+                    self.compile_statements(body)?;
+                }
+
+                if preserve_tos {
+                    self.pop_fblock(FBlockType::PopValue);
+                }
+            }
+
+            FBlockType::FinallyEnd => {
+                // CPython compile.c:1558-1568
+                if preserve_tos {
+                    emit!(self, Instruction::Swap { index: 2 });
+                }
+                emit!(self, Instruction::PopTop); // exc_value
+                if preserve_tos {
+                    emit!(self, Instruction::Swap { index: 2 });
+                }
+                emit!(self, Instruction::PopException);
+            }
+
+            FBlockType::With | FBlockType::AsyncWith => {
+                // TODO: Implement with statement cleanup
+                // This requires calling __exit__ with None arguments
+            }
+
+            FBlockType::HandlerCleanup => {
+                // CPython compile.c:1590-1604
+                if preserve_tos {
+                    emit!(self, Instruction::Swap { index: 2 });
+                }
+                emit!(self, Instruction::PopException);
+
+                // If there's an exception name, clean it up
+                if let FBlockDatum::ExceptionName(ref name) = info.fb_datum {
+                    self.emit_load_const(ConstantData::None);
+                    self.store_name(name)?;
+                    self.compile_name(name, NameUsage::Delete)?;
+                }
+            }
+
+            FBlockType::PopValue => {
+                // CPython compile.c:1606-1611
+                if preserve_tos {
+                    emit!(self, Instruction::Swap { index: 2 });
+                }
+                emit!(self, Instruction::PopTop);
+            }
+        }
+        Ok(())
+    }
+
+    /// Unwind the fblock stack, emitting cleanup code for each block
+    /// CPython compile.c:1617-1641 compiler_unwind_fblock_stack
+    /// preserve_tos: if true, preserve the top of stack (e.g., return value)
+    /// stop_at_loop: if true, stop when encountering a loop (for break/continue)
+    fn compiler_unwind_fblock_stack(
+        &mut self,
+        preserve_tos: bool,
+        stop_at_loop: bool,
+    ) -> CompileResult<()> {
+        // Get a copy of the fblock stack to iterate over
+        // We need to temporarily pop each block, unwind it, then restore
+        let fblocks: Vec<FBlockInfo> = {
+            let code = self.current_code_info();
+            code.fblock.clone()
+        };
+
+        if fblocks.is_empty() {
+            return Ok(());
+        }
+
+        // Process from top of stack
+        for info in fblocks.iter().rev() {
+            // Check for exception group handler (forbidden)
+            if matches!(info.fb_type, FBlockType::ExceptionGroupHandler) {
+                return Err(self.error(CodegenErrorType::BreakContinueReturnInExceptStar));
+            }
+
+            // Stop at loop if requested
+            if stop_at_loop && matches!(info.fb_type, FBlockType::WhileLoop | FBlockType::ForLoop) {
+                break;
+            }
+
+            // Unwind this fblock
+            self.compiler_unwind_fblock(info, preserve_tos)?;
+        }
+
+        Ok(())
     }
 
     /// Get the current exception handler from fblock stack (for CPython 3.11+ exception table)
@@ -1639,23 +1812,13 @@ impl Compiler {
                 self.compile_break_continue(statement.range(), false)?;
             }
             Stmt::Return(StmtReturn { value, .. }) => {
+                // CPython compile.c:3253-3281 compiler_return
                 if !self.ctx.in_func() {
                     return Err(
                         self.error_ranged(CodegenErrorType::InvalidReturn, statement.range())
                     );
                 }
-                // Check if we're inside an except* block in the current function
-                {
-                    let code = self.current_code_info();
-                    for block in code.fblock.iter().rev() {
-                        if matches!(block.fb_type, FBlockType::ExceptionGroupHandler) {
-                            return Err(self.error_ranged(
-                                CodegenErrorType::BreakContinueReturnInExceptStar,
-                                statement.range(),
-                            ));
-                        }
-                    }
-                }
+
                 match value {
                     Some(v) => {
                         if self.ctx.func == FunctionContext::AsyncFunction
@@ -1670,9 +1833,13 @@ impl Compiler {
                             ));
                         }
                         self.compile_expression(v)?;
+                        // Unwind fblock stack with preserve_tos=true (preserve return value)
+                        self.compiler_unwind_fblock_stack(true, false)?;
                         self.emit_return_value();
                     }
                     None => {
+                        // Unwind fblock stack with preserve_tos=false (no value to preserve)
+                        self.compiler_unwind_fblock_stack(false, false)?;
                         self.emit_return_const(ConstantData::None);
                     }
                 }
@@ -2046,13 +2213,15 @@ impl Compiler {
         // IMPORTANT: handler goes to finally_except_block (exception path), not finally_block
         if !finalbody.is_empty() {
             // No SetupFinally emit - exception table handles this
-            self.push_fblock_with_handler(
+            // Store finally body in fb_datum for compiler_unwind_fblock to compile inline
+            self.push_fblock_full(
                 FBlockType::FinallyTry,
                 finally_block,
                 finally_block,
                 finally_except_block, // Exception path goes to finally_except_block
                 current_depth,
                 true,
+                FBlockDatum::FinallyBody(finalbody.to_vec()), // Clone finally body for unwind
             )?;
         }
 
