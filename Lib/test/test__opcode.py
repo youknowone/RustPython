@@ -27,6 +27,7 @@ class OpListTests(unittest.TestCase):
         self.check_bool_function_result(_opcode.has_local, invalid, False)
         self.check_bool_function_result(_opcode.has_exc, invalid, False)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON - no instrumented opcodes
     def test_is_valid(self):
         names = [
             'CACHE',
@@ -38,6 +39,7 @@ class OpListTests(unittest.TestCase):
         opcodes = [dis.opmap[opname] for opname in names]
         self.check_bool_function_result(_opcode.is_valid, opcodes, True)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON - opcode 520 doesn't exist in RustPython
     def test_oplists(self):
         def check_function(self, func, expected):
             for op in [-10, 520]:
@@ -110,6 +112,7 @@ class StackEffectTests(unittest.TestCase):
 
 
 class SpecializationStatsTests(unittest.TestCase):
+    @unittest.expectedFailure # TODO: RUSTPYTHON - no specialization stats
     def test_specialization_stats(self):
         stat_names = ["success", "failure", "hit", "deferred", "miss", "deopt"]
         specialized_opcodes = [
