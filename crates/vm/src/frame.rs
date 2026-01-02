@@ -529,6 +529,10 @@ impl ExecutingFrame<'_> {
         // gen_send_ex pushes Py_None to stack and restarts evalloop in exception mode
         let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
 
+        // CPython: when raising an exception, set __context__ to the current exception
+        // This is done in _PyErr_SetObject (Python/errors.c)
+        vm.contextualize_exception(&exception);
+
         // CPython always pushes Py_None before calling gen_send_ex with exc=1
         // This is needed for exception handler to have correct stack state
         self.push_value(vm.ctx.none());

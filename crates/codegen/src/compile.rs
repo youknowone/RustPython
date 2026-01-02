@@ -662,6 +662,14 @@ impl Compiler {
         self.symbol_table_stack.pop().expect("compiler bug")
     }
 
+    /// Check if this is an inlined comprehension context (PEP 709)
+    /// Currently disabled - always returns false to avoid stack issues
+    fn is_inlined_comprehension_context(&self, _comprehension_type: ComprehensionType) -> bool {
+        // TODO: Implement PEP 709 inlined comprehensions properly
+        // For now, disabled to avoid stack underflow issues
+        false
+    }
+
     /// Enter a new scope
     // = compiler_enter_scope
     fn enter_scope(
@@ -1027,8 +1035,31 @@ impl Compiler {
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
-                // TODO: Implement with statement cleanup
-                // This requires calling __exit__ with None arguments
+                // CPython compile.c:1570-1588
+                // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
+                // Need to call __exit__(None, None, None)
+
+                // If preserving return value, swap it below __exit__
+                if preserve_tos {
+                    emit!(self, Instruction::Swap { index: 2 });
+                }
+
+                // Call __exit__(None, None, None)
+                // Stack: [..., __exit__] or [..., return_value, __exit__]
+                self.emit_load_const(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
+                emit!(self, Instruction::CallFunctionPositional { nargs: 3 });
+
+                // For async with, await the result
+                if matches!(info.fb_type, FBlockType::AsyncWith) {
+                    emit!(self, Instruction::GetAwaitable);
+                    self.emit_load_const(ConstantData::None);
+                    self.compile_yield_from_sequence(true)?;
+                }
+
+                // Pop the __exit__ result
+                emit!(self, Instruction::PopTop);
             }
 
             FBlockType::HandlerCleanup => {
@@ -2242,6 +2273,19 @@ impl Compiler {
             // Compile orelse (usually empty for try-finally without except)
             self.compile_statements(orelse)?;
 
+            // Snapshot sub_tables before first finally compilation
+            // This allows us to restore them for the second compilation (exception path)
+            let sub_tables_snapshot = if !finalbody.is_empty() && finally_except_block.is_some() {
+                Some(
+                    self.symbol_table_stack
+                        .last()
+                        .map(|t| t.sub_tables.clone())
+                        .unwrap_or_default(),
+                )
+            } else {
+                None
+            };
+
             // Compile finally body inline for normal path (CPython compile.c:3373-3375)
             if !finalbody.is_empty() {
                 self.compile_statements(finalbody)?;
@@ -2251,6 +2295,13 @@ impl Compiler {
             emit!(self, Instruction::Jump { target: end_block });
 
             if let Some(finally_except) = finally_except_block {
+                // Restore sub_tables for exception path compilation
+                if let Some(snapshot) = sub_tables_snapshot {
+                    if let Some(current_table) = self.symbol_table_stack.last_mut() {
+                        current_table.sub_tables = snapshot;
+                    }
+                }
+
                 self.switch_to_block(finally_except);
                 // PUSH_EXC_INFO first, THEN push FinallyEnd fblock
                 // Stack after unwind_blocks: [lasti, exc] (depth = current_depth + 2)
@@ -2508,6 +2559,18 @@ impl Compiler {
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
+        // Snapshot sub_tables before first finally compilation (for double compilation issue)
+        let sub_tables_snapshot = if !finalbody.is_empty() && finally_except_block.is_some() {
+            Some(
+                self.symbol_table_stack
+                    .last()
+                    .map(|t| t.sub_tables.clone())
+                    .unwrap_or_default(),
+            )
+        } else {
+            None
+        };
+
         // finally (normal path):
         self.switch_to_block(finally_block);
         if !finalbody.is_empty() {
@@ -2521,6 +2584,13 @@ impl Compiler {
         // This is where exceptions go to run finally before reraising
         // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
         if let Some(finally_except) = finally_except_block {
+            // Restore sub_tables for exception path compilation
+            if let Some(snapshot) = sub_tables_snapshot {
+                if let Some(current_table) = self.symbol_table_stack.last_mut() {
+                    current_table.sub_tables = snapshot;
+                }
+            }
+
             self.switch_to_block(finally_except);
 
             // CPython compile.c:3434-3435 - SETUP_CLEANUP for finally body
@@ -6103,30 +6173,38 @@ impl Compiler {
         let prev_ctx = self.ctx;
         let has_an_async_gen = generators.iter().any(|g| g.is_async);
 
+        // Check if this comprehension should be inlined (PEP 709)
+        let is_inlined = self.is_inlined_comprehension_context(comprehension_type);
+
         // async comprehensions are allowed in various contexts:
         // - list/set/dict comprehensions in async functions
         // - always for generator expressions
-        // Note: generators have to be treated specially since their async version is a fundamentally
-        // different type (aiter vs iter) instead of just an awaitable.
-
-        // for if it actually is async, we check if any generator is async or if the element contains await
-
-        // if the element expression contains await, but the context doesn't allow for async,
-        // then we continue on here with is_async=false and will produce a syntax once the await is hit
-
         let is_async_list_set_dict_comprehension = comprehension_type
             != ComprehensionType::Generator
-            && (has_an_async_gen || element_contains_await) // does it have to be async? (uses await or async for)
-            && prev_ctx.func == FunctionContext::AsyncFunction; // is it allowed to be async? (in an async function)
+            && (has_an_async_gen || element_contains_await)
+            && prev_ctx.func == FunctionContext::AsyncFunction;
 
         let is_async_generator_comprehension = comprehension_type == ComprehensionType::Generator
             && (has_an_async_gen || element_contains_await);
 
-        // since one is for generators, and one for not generators, they should never both be true
         debug_assert!(!(is_async_list_set_dict_comprehension && is_async_generator_comprehension));
 
         let is_async = is_async_list_set_dict_comprehension || is_async_generator_comprehension;
 
+        // We must have at least one generator:
+        assert!(!generators.is_empty());
+
+        if is_inlined {
+            // PEP 709: Inlined comprehension - compile inline without new scope
+            return self.compile_inlined_comprehension(
+                init_collection,
+                generators,
+                compile_element,
+                has_an_async_gen,
+            );
+        }
+
+        // Non-inlined path: create a new code object (generator expressions, etc.)
         self.ctx = CompileContext {
             loop_data: None,
             in_class: prev_ctx.in_class,
@@ -6136,9 +6214,6 @@ impl Compiler {
                 FunctionContext::Function
             },
         };
-
-        // We must have at least one generator:
-        assert!(!generators.is_empty());
 
         let flags = bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED;
         let flags = if is_async {
@@ -6169,8 +6244,6 @@ impl Compiler {
             let loop_block = self.new_block();
             let after_block = self.new_block();
 
-            // emit!(self, Instruction::SetupLoop);
-
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 emit!(self, Instruction::LoadFast(arg0));
@@ -6189,14 +6262,8 @@ impl Compiler {
             loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
             if generator.is_async {
-                // First emit GET_ANEXT which pushes awaitable
                 emit!(self, Instruction::GetANext);
 
-                // Now push fblock for exception table generation
-                // Stack at this point: [init_collection?, all_iterators..., awaitable]
-                // CPython uses SETUP_FINALLY after GET_ANEXT, so the exception handler
-                // should preserve the awaitable on stack too
-                // depth = init_collection (0 or 1) + iterators (loop_labels.len()) + awaitable (1)
                 let current_depth =
                     (init_collection.is_some() as u32) + loop_labels.len() as u32 + 1;
                 self.push_fblock_with_handler(
@@ -6204,13 +6271,12 @@ impl Compiler {
                     loop_block,
                     after_block,
                     Some(after_block),
-                    current_depth, // stack depth: preserve all items including awaitable
-                    false,         // no lasti
+                    current_depth,
+                    false,
                 )?;
                 self.emit_load_const(ConstantData::None);
                 self.compile_yield_from_sequence(true)?;
                 self.compile_store(&generator.target)?;
-                // No PopBlock emit - exception table handles this
                 self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
             } else {
                 emit!(
@@ -6231,16 +6297,12 @@ impl Compiler {
         compile_element(self)?;
 
         for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
-            // Repeat:
             emit!(self, Instruction::Jump { target: loop_block });
 
-            // End of for loop:
             self.switch_to_block(after_block);
             if is_async {
-                // END_ASYNC_FOR pops awaitable and exc, leaving iterator on stack
-                // We need to pop the iterator too
                 emit!(self, Instruction::EndAsyncFor);
-                emit!(self, Instruction::PopTop); // Pop the iterator
+                emit!(self, Instruction::PopTop);
             }
         }
 
@@ -6248,10 +6310,8 @@ impl Compiler {
             self.emit_load_const(ConstantData::None)
         }
 
-        // Return freshly filled list:
         self.emit_return_value();
 
-        // Fetch code for listcomp function:
         let code = self.exit_scope();
 
         self.ctx = prev_ctx;
@@ -6272,12 +6332,226 @@ impl Compiler {
         // Call just created <listcomp> function:
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
         if is_async_list_set_dict_comprehension {
-            // async, but not a generator and not an async for
-            // in this case, we end up with an awaitable
-            // that evaluates to the list/set/dict, so here we add an await
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             self.compile_yield_from_sequence(true)?;
+        }
+
+        Ok(())
+    }
+
+    /// Collect variable names from an assignment target expression
+    fn collect_target_names(&self, target: &Expr, names: &mut Vec<String>) {
+        match target {
+            Expr::Name(name) => {
+                let name_str = name.id.to_string();
+                if !names.contains(&name_str) {
+                    names.push(name_str);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elt in &tuple.elts {
+                    self.collect_target_names(elt, names);
+                }
+            }
+            Expr::List(list) => {
+                for elt in &list.elts {
+                    self.collect_target_names(elt, names);
+                }
+            }
+            Expr::Starred(starred) => {
+                self.collect_target_names(&starred.value, names);
+            }
+            _ => {
+                // Other targets (attribute, subscript) don't bind local names
+            }
+        }
+    }
+
+    /// Compile an inlined comprehension (PEP 709)
+    /// This generates bytecode inline without creating a new code object
+    fn compile_inlined_comprehension(
+        &mut self,
+        init_collection: Option<Instruction>,
+        generators: &[Comprehension],
+        compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
+        has_an_async_gen: bool,
+    ) -> CompileResult<()> {
+        // PEP 709: Consume the comprehension's sub_table (but we won't use it as a separate scope)
+        // We need to consume it to keep sub_tables in sync with AST traversal order.
+        // The symbols are already merged into parent scope by analyze_symbol_table.
+        let _comp_table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table")
+            .sub_tables
+            .remove(0);
+
+        // Collect local variables that need to be saved/restored
+        // These are variables bound in the comprehension (iteration vars from targets)
+        let mut pushed_locals: Vec<String> = Vec::new();
+        for generator in generators {
+            self.collect_target_names(&generator.target, &mut pushed_locals);
+        }
+
+        // Step 1: Compile the outermost iterator
+        self.compile_expression(&generators[0].iter)?;
+        if has_an_async_gen {
+            emit!(self, Instruction::GetAIter);
+        } else {
+            emit!(self, Instruction::GetIter);
+        }
+
+        // Step 2: Save local variables that will be shadowed by the comprehension
+        for name in &pushed_locals {
+            let idx = self.varname(name)?;
+            emit!(self, Instruction::LoadFastAndClear(idx));
+        }
+
+        // Step 3: SWAP iterator to TOS (above saved locals)
+        if !pushed_locals.is_empty() {
+            emit!(
+                self,
+                Instruction::Swap {
+                    index: (pushed_locals.len() + 1) as u32
+                }
+            );
+        }
+
+        // Step 4: Create the collection (list/set/dict)
+        // For generator expressions, init_collection is None
+        if let Some(init_collection) = init_collection {
+            self._emit(init_collection, OpArg(0), BlockIdx::NULL);
+            // SWAP to get iterator on top
+            emit!(self, Instruction::Swap { index: 2 });
+        }
+
+        // Set up exception handler for cleanup on exception
+        let cleanup_block = self.new_block();
+        let end_block = self.new_block();
+
+        if !pushed_locals.is_empty() {
+            // Calculate stack depth for exception handler
+            // Stack: [saved_locals..., collection?, iterator]
+            let depth = self.handler_stack_depth()
+                + pushed_locals.len() as u32
+                + init_collection.is_some() as u32
+                + 1;
+            self.push_fblock_with_handler(
+                FBlockType::TryExcept,
+                cleanup_block,
+                end_block,
+                Some(cleanup_block),
+                depth,
+                false,
+            )?;
+        }
+
+        // Step 5: Compile the comprehension loop(s)
+        let mut loop_labels = vec![];
+        for (i, generator) in generators.iter().enumerate() {
+            let loop_block = self.new_block();
+            let after_block = self.new_block();
+
+            if i > 0 {
+                // For nested loops, compile the iterator expression
+                self.compile_expression(&generator.iter)?;
+                if generator.is_async {
+                    emit!(self, Instruction::GetAIter);
+                } else {
+                    emit!(self, Instruction::GetIter);
+                }
+            }
+
+            loop_labels.push((loop_block, after_block, generator.is_async));
+            self.switch_to_block(loop_block);
+
+            if generator.is_async {
+                emit!(self, Instruction::GetANext);
+                self.emit_load_const(ConstantData::None);
+                self.compile_yield_from_sequence(true)?;
+                self.compile_store(&generator.target)?;
+            } else {
+                emit!(
+                    self,
+                    Instruction::ForIter {
+                        target: after_block,
+                    }
+                );
+                self.compile_store(&generator.target)?;
+            }
+
+            // Evaluate the if conditions
+            for if_condition in &generator.ifs {
+                self.compile_jump_if(if_condition, false, loop_block)?;
+            }
+        }
+
+        // Step 6: Compile the element expression and append to collection
+        compile_element(self)?;
+
+        // Step 7: Close all loops
+        for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
+            emit!(self, Instruction::Jump { target: loop_block });
+            self.switch_to_block(after_block);
+            if is_async {
+                emit!(self, Instruction::EndAsyncFor);
+            }
+            // Pop the iterator
+            emit!(self, Instruction::PopTop);
+        }
+
+        // Step 8: Clean up - restore saved locals
+        if !pushed_locals.is_empty() {
+            self.pop_fblock(FBlockType::TryExcept);
+
+            // Normal path: jump past cleanup
+            emit!(self, Instruction::Jump { target: end_block });
+
+            // Exception cleanup path
+            self.switch_to_block(cleanup_block);
+            // Stack: [saved_locals..., collection, exception]
+            // Swap to get collection out from under exception
+            emit!(self, Instruction::Swap { index: 2 });
+            emit!(self, Instruction::PopTop); // Pop incomplete collection
+
+            // Restore locals
+            emit!(
+                self,
+                Instruction::Swap {
+                    index: (pushed_locals.len() + 1) as u32
+                }
+            );
+            for name in pushed_locals.iter().rev() {
+                let idx = self.varname(name)?;
+                emit!(self, Instruction::StoreFast(idx));
+            }
+            // Re-raise the exception
+            emit!(
+                self,
+                Instruction::Raise {
+                    kind: bytecode::RaiseKind::ReraiseFromStack
+                }
+            );
+
+            // Normal end path
+            self.switch_to_block(end_block);
+        }
+
+        // SWAP result to TOS (above saved locals)
+        if !pushed_locals.is_empty() {
+            emit!(
+                self,
+                Instruction::Swap {
+                    index: (pushed_locals.len() + 1) as u32
+                }
+            );
+        }
+
+        // Restore saved locals
+        for name in pushed_locals.iter().rev() {
+            let idx = self.varname(name)?;
+            emit!(self, Instruction::StoreFast(idx));
         }
 
         Ok(())
