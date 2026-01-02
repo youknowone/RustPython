@@ -1512,16 +1512,23 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Reraise { depth } => {
                 // CPython 3.11+ RERAISE
                 // CPython bytecodes.c:1146: inst(RERAISE, (values[oparg], exc -- values[oparg]))
-                // Only pop exc from TOS, leave values[oparg] on stack
-                let depth_val = depth.get(arg);
+                //
+                // Stack layout: [values..., exc] where len(values) == oparg
+                // If oparg > 0: values[0] is lasti (for traceback purposes in CPython).
+                // Then we pop exc and reraise it.
+                //
+                // IMPORTANT: In CPython, RERAISE sets frame->instr_ptr to lasti for traceback,
+                // but exception_unwind uses next_instr (not frame->instr_ptr) to find handlers.
+                // This means the exception table lookup uses RERAISE's position, NOT the
+                // original exception position.
+                //
+                // In RustPython, we use self.lasti for exception handler lookup, so we should
+                // NOT modify lasti here. The exception's traceback is already set correctly.
+                // We just pop exc and reraise it.
+                let _depth_val = depth.get(arg);
 
-                // Pop exception from TOS only
+                // Pop exception from TOS only (values remain on stack for cleanup)
                 let exc = self.pop_value();
-
-                // CPython: if oparg > 0, values[0] is lasti for restoring instruction pointer
-                // RustPython handles lasti differently (via exception table), so we don't use it here
-                // But we leave values on stack - they will be handled by exception unwinding
-                let _ = depth_val; // suppress unused warning
 
                 if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
                     Err(exc_ref.to_owned())
@@ -1700,10 +1707,20 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::CleanupThrow => {
-                // CPython: CLEANUP_THROW instruction
+                // CPython: CLEANUP_THROW instruction (generated_cases.c.h:2166-2197)
                 // Stack: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
                 // If StopIteration: pop all 3, extract value, push (None, value)
-                // Otherwise: DON'T pop, just re-raise - let exception_unwind handle stack
+                // Otherwise: set exception in tstate, goto exception_unwind
+                //
+                // CPython's exception_unwind will:
+                // 1. Find handler in exception table for current offset
+                // 2. Pop stack to handler's depth
+                // 3. Push lasti if needed
+                // 4. Get exception from tstate and push it
+                // 5. Jump to handler
+                //
+                // Key: CPython does NOT pop [sub_iter, last_sent_val, exc] before exception_unwind
+                // The exception_unwind will pop them as part of stack cleanup to handler depth
 
                 // First peek at exc_value (top of stack) without popping
                 let exc = self.top_value();
@@ -1723,11 +1740,18 @@ impl ExecutingFrame<'_> {
                     }
                 }
 
-                // Re-raise other exceptions - DON'T pop from stack!
-                // CPython: goto exception_unwind with stack unchanged
-                // exception_unwind will handle stack cleanup to handler's level
+                // Re-raise other exceptions
+                // CPython: _PyErr_SetRaisedException(tstate, Py_NewRef(exc_value))
+                //          goto exception_unwind
+                //
+                // Pop all three from stack first, then re-raise
+                // This is needed because RustPython's unwind_blocks will push the exception
+                // after cleaning stack to handler depth, but we already have the exception on stack
+                let exc = self.pop_value(); // exc
+                self.pop_value(); // last_sent_val
+                self.pop_value(); // sub_iter
+
                 let exc = exc
-                    .to_owned()
                     .downcast::<PyBaseException>()
                     .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
                 Err(exc)

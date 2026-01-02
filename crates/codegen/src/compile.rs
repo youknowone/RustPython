@@ -3853,11 +3853,14 @@ impl Compiler {
             }
         );
 
+        // Pop the nested fblock BEFORE RERAISE so that RERAISE's exception
+        // handler points to the outer handler (try-except), not cleanup_block.
+        // This is critical: when RERAISE propagates the exception, the exception
+        // table should route it to the outer try-except, not back to cleanup.
+        self.pop_fblock(FBlockType::ExceptionHandler);
+
         // Not suppressed: RERAISE 2
         emit!(self, Instruction::Reraise { depth: 2 });
-
-        // Pop the nested fblock before suppress/cleanup blocks
-        self.pop_fblock(FBlockType::ExceptionHandler);
 
         // ===== Suppress block =====
         // Exception was suppressed, clean up stack
@@ -6488,6 +6491,9 @@ impl Compiler {
                 // FBlockType::HandlerCleanup => depth += 1,
                 // CPython: inside exception handler, prev_exc is on stack
                 FBlockType::ExceptionHandler => depth += 1,
+                // FinallyEnd: inside finally exception path
+                // Stack has [lasti, prev_exc, exc] - add 3 for these
+                FBlockType::FinallyEnd => depth += 3,
                 _ => {}
             }
         }
