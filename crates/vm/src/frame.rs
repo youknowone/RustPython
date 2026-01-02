@@ -452,16 +452,15 @@ impl ExecutingFrame<'_> {
                 bytecode::Instruction::Resume { .. } => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
-                    if lasti > 0 {
-                        if let Some(prev_unit) = self.code.instructions.get(lasti - 1) {
-                            if let bytecode::Instruction::YieldValue { .. } = &prev_unit.op {
-                                // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
-                                // OpArgByte.0 is the raw byte value
-                                if prev_unit.arg.0 >= 1 {
-                                    // In yield-from/await context, delegate is on top of stack
-                                    return Some(self.top_value());
-                                }
-                            }
+                    if lasti > 0
+                        && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
+                        && let bytecode::Instruction::YieldValue { .. } = &prev_unit.op
+                    {
+                        // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
+                        // OpArgByte.0 is the raw byte value
+                        if prev_unit.arg.0 >= 1 {
+                            // In yield-from/await context, delegate is on top of stack
+                            return Some(self.top_value());
                         }
                     }
                 }

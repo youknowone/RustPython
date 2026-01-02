@@ -37,7 +37,7 @@ mod opcode {
         /// Check if opcode is valid (can be converted to an Instruction)
         #[must_use]
         pub fn is_valid(opcode: i32) -> bool {
-            if opcode < 0 || opcode > 255 {
+            if !(0..=255).contains(&opcode) {
                 return false;
             }
             Instruction::try_from(opcode as u8).is_ok()

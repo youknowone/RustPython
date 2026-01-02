@@ -1497,10 +1497,11 @@ impl SymbolTableBuilder {
             .get(self.tables.len().saturating_sub(2))
             .map(|t| t.can_see_class_scope)
             .unwrap_or(false);
-        if !is_generator && !parent_can_see_class {
-            if let Some(table) = self.tables.last_mut() {
-                table.comp_inlined = true;
-            }
+        if !is_generator
+            && !parent_can_see_class
+            && let Some(table) = self.tables.last_mut()
+        {
+            table.comp_inlined = true;
         }
 
         // Register the passed argument to the generator function as the name ".0"

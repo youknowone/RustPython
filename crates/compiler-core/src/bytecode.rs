@@ -2000,7 +2000,12 @@ impl Instruction {
             BuildSlice { argc } => {
                 // push 1
                 // pops either 2/3
-                1 - (argc.get(arg).argc().get() as i32)
+                // Default to Two (2 args) if arg is invalid
+                1 - (argc
+                    .try_get(arg)
+                    .unwrap_or(BuildSliceArgCount::Two)
+                    .argc()
+                    .get() as i32)
             }
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,

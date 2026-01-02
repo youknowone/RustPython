@@ -941,6 +941,7 @@ impl Compiler {
     }
 
     /// Push an fblock with all parameters including fb_datum
+    #[allow(clippy::too_many_arguments)]
     fn push_fblock_full(
         &mut self,
         fb_type: FBlockType,
@@ -2374,10 +2375,10 @@ impl Compiler {
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
-                if let Some(snapshot) = sub_tables_snapshot {
-                    if let Some(current_table) = self.symbol_table_stack.last_mut() {
-                        current_table.sub_tables = snapshot;
-                    }
+                if let Some(snapshot) = sub_tables_snapshot
+                    && let Some(current_table) = self.symbol_table_stack.last_mut()
+                {
+                    current_table.sub_tables = snapshot;
                 }
 
                 self.switch_to_block(finally_except);
@@ -2664,10 +2665,10 @@ impl Compiler {
         // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
         if let Some(finally_except) = finally_except_block {
             // Restore sub_tables for exception path compilation
-            if let Some(snapshot) = sub_tables_snapshot {
-                if let Some(current_table) = self.symbol_table_stack.last_mut() {
-                    current_table.sub_tables = snapshot;
-                }
+            if let Some(snapshot) = sub_tables_snapshot
+                && let Some(current_table) = self.symbol_table_stack.last_mut()
+            {
+                current_table.sub_tables = snapshot;
             }
 
             self.switch_to_block(finally_except);
@@ -6385,8 +6386,9 @@ impl Compiler {
             if generator.is_async {
                 emit!(self, Instruction::GetANext);
 
-                let current_depth =
-                    (init_collection.is_some() as u32) + loop_labels.len() as u32 + 1;
+                let current_depth = (init_collection.is_some() as u32)
+                    + u32::try_from(loop_labels.len()).unwrap()
+                    + 1;
                 self.push_fblock_with_handler(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_block,
@@ -6497,7 +6499,7 @@ impl Compiler {
         init_collection: Option<Instruction>,
         generators: &[Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
-        has_an_async_gen: bool,
+        _has_an_async_gen: bool,
     ) -> CompileResult<()> {
         // PEP 709: Consume the comprehension's sub_table (but we won't use it as a separate scope)
         // We need to consume it to keep sub_tables in sync with AST traversal order.
@@ -6536,7 +6538,7 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::Swap {
-                    index: (pushed_locals.len() + 1) as u32
+                    index: u32::try_from(pushed_locals.len() + 1).unwrap()
                 }
             );
         }
@@ -6557,7 +6559,7 @@ impl Compiler {
             // Calculate stack depth for exception handler
             // Stack: [saved_locals..., collection?, iterator]
             let depth = self.handler_stack_depth()
-                + pushed_locals.len() as u32
+                + u32::try_from(pushed_locals.len()).unwrap()
                 + init_collection.is_some() as u32
                 + 1;
             self.push_fblock_with_handler(
@@ -6642,7 +6644,7 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::Swap {
-                    index: (pushed_locals.len() + 1) as u32
+                    index: u32::try_from(pushed_locals.len() + 1).unwrap()
                 }
             );
             for name in pushed_locals.iter().rev() {
@@ -6666,7 +6668,7 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::Swap {
-                    index: (pushed_locals.len() + 1) as u32
+                    index: u32::try_from(pushed_locals.len() + 1).unwrap()
                 }
             );
         }
