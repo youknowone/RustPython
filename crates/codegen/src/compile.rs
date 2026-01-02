@@ -6146,20 +6146,24 @@ impl Compiler {
             loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
             if generator.is_async {
-                // No SetupExcept emit - exception table handles StopAsyncIteration
-                // Push fblock for exception table generation
-                // Stack: [init_collection?, all_iterators...]
-                // depth = init_collection (0 or 1) + number of iterators (loop_labels.len())
-                let current_depth = (init_collection.is_some() as u32) + loop_labels.len() as u32;
+                // First emit GET_ANEXT which pushes awaitable
+                emit!(self, Instruction::GetANext);
+
+                // Now push fblock for exception table generation
+                // Stack at this point: [init_collection?, all_iterators..., awaitable]
+                // CPython uses SETUP_FINALLY after GET_ANEXT, so the exception handler
+                // should preserve the awaitable on stack too
+                // depth = init_collection (0 or 1) + iterators (loop_labels.len()) + awaitable (1)
+                let current_depth =
+                    (init_collection.is_some() as u32) + loop_labels.len() as u32 + 1;
                 self.push_fblock_with_handler(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_block,
                     after_block,
                     Some(after_block),
-                    current_depth, // stack depth: preserve all items
+                    current_depth, // stack depth: preserve all items including awaitable
                     false,         // no lasti
                 )?;
-                emit!(self, Instruction::GetANext);
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
                 emit!(
@@ -6196,7 +6200,10 @@ impl Compiler {
             // End of for loop:
             self.switch_to_block(after_block);
             if is_async {
+                // END_ASYNC_FOR pops awaitable and exc, leaving iterator on stack
+                // We need to pop the iterator too
                 emit!(self, Instruction::EndAsyncFor);
+                emit!(self, Instruction::PopTop); // Pop the iterator
             }
         }
 
