@@ -835,10 +835,6 @@ impl VirtualMachine {
         cur.exc
     }
 
-    pub(crate) fn take_exception(&self) -> Option<PyBaseExceptionRef> {
-        self.exceptions.borrow_mut().exc.take()
-    }
-
     pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().exc.clone()
     }

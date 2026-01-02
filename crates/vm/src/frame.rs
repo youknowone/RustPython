@@ -841,14 +841,15 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::EndAsyncFor => {
-                // Exception table handles the exception, exception is in VM not stack
-                // Stack: [async_iterator] (preserved because depth=1)
-                let _async_iterator = self.pop_value();
+                // CPython: END_ASYNC_FOR pops (awaitable, exc) from stack
+                // Stack: [awaitable, exc] -> []
+                // exception_unwind pushes exception to stack before jumping to handler
+                let exc = self.pop_value();
+                let _awaitable = self.pop_value();
 
-                // Get exception from VM
-                let exc = vm
-                    .current_exception()
-                    .expect("EndAsyncFor should have exception");
+                let exc = exc
+                    .downcast::<PyBaseException>()
+                    .expect("EndAsyncFor expects exception on stack");
 
                 if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
                     // StopAsyncIteration - normal end of async for loop
@@ -1357,6 +1358,9 @@ impl ExecutingFrame<'_> {
             // PopBlock is now a pseudo-instruction - exception table handles this
             bytecode::Instruction::PopBlock => Ok(None),
             bytecode::Instruction::PopException => {
+                // Get current exception BEFORE restoring
+                let current_exc = vm.current_exception();
+
                 // Pop prev_exc from value stack and restore it
                 let prev_exc = self.pop_value();
                 if vm.is_none(&prev_exc) {
@@ -1364,6 +1368,19 @@ impl ExecutingFrame<'_> {
                 } else if let Ok(exc) = prev_exc.downcast::<PyBaseException>() {
                     vm.set_exception(Some(exc));
                 }
+
+                // Clear traceback of exception that is no longer active
+                // This breaks the reference cycle: Exception → Traceback → Frame → locals
+                // RustPython doesn't have a tracing GC, so we must break cycles manually.
+                if let Some(exc) = current_exc {
+                    // Only clear if it's different from the restored exception
+                    // (handles nested handlers where same exception is restored)
+                    let restored = vm.current_exception();
+                    if restored.as_ref().map_or(true, |r| !r.is(&exc)) {
+                        exc.set_traceback_typed(None);
+                    }
+                }
+
                 Ok(None)
             }
             bytecode::Instruction::PopJumpIfFalse { target } => {

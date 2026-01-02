@@ -2603,7 +2603,7 @@ impl Compiler {
         let end_block = self.new_block();
         let reraise_star_block = self.new_block();
         let reraise_block = self.new_block();
-        let cleanup_block = self.new_block();
+        let _cleanup_block = self.new_block();
 
         // Calculate the stack depth at this point (for exception table)
         let current_depth = self.handler_stack_depth();
@@ -2866,11 +2866,25 @@ impl Compiler {
         emit!(self, Instruction::Reraise { depth: 0 });
 
         // try-else path
+        // NOTE: When we reach here in compilation, the nothing-to-reraise path above
+        // has already popped FinallyTry. But else_block is a different execution path
+        // that branches from try body success (where FinallyTry is still active).
+        // We need to re-push FinallyTry to reflect the correct fblock state for else path.
+        if !finalbody.is_empty() {
+            self.push_fblock_with_handler(
+                FBlockType::FinallyTry,
+                finally_block,
+                finally_block,
+                Some(finally_block),
+                current_depth,
+                true,
+            )?;
+        }
         self.switch_to_block(else_block);
         self.compile_statements(orelse)?;
 
         if !finalbody.is_empty() {
-            // No PopBlock/EnterFinally emit - exception table handles this
+            // Pop the FinallyTry fblock we just pushed for the else path
             self.pop_fblock(FBlockType::FinallyTry);
         }
 
@@ -6129,18 +6143,21 @@ impl Compiler {
                 }
             }
 
-            loop_labels.push((loop_block, after_block));
+            loop_labels.push((loop_block, after_block, generator.is_async));
             self.switch_to_block(loop_block);
             if generator.is_async {
                 // No SetupExcept emit - exception table handles StopAsyncIteration
                 // Push fblock for exception table generation
+                // Stack: [init_collection?, all_iterators...]
+                // depth = init_collection (0 or 1) + number of iterators (loop_labels.len())
+                let current_depth = (init_collection.is_some() as u32) + loop_labels.len() as u32;
                 self.push_fblock_with_handler(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_block,
                     after_block,
                     Some(after_block),
-                    0,     // stack depth
-                    false, // no lasti
+                    current_depth, // stack depth: preserve all items
+                    false,         // no lasti
                 )?;
                 emit!(self, Instruction::GetANext);
                 self.emit_load_const(ConstantData::None);
@@ -6172,13 +6189,13 @@ impl Compiler {
 
         compile_element(self)?;
 
-        for (loop_block, after_block) in loop_labels.iter().rev().copied() {
+        for (loop_block, after_block, is_async) in loop_labels.iter().rev().copied() {
             // Repeat:
             emit!(self, Instruction::Jump { target: loop_block });
 
             // End of for loop:
             self.switch_to_block(after_block);
-            if has_an_async_gen {
+            if is_async {
                 emit!(self, Instruction::EndAsyncFor);
             }
         }
@@ -6430,7 +6447,10 @@ impl Compiler {
             match fblock.fb_type {
                 FBlockType::ForLoop => depth += 1,
                 FBlockType::With | FBlockType::AsyncWith => depth += 1,
-                FBlockType::HandlerCleanup => depth += 1,
+                // HandlerCleanup does NOT add to stack depth - it only tracks
+                // cleanup code for named exception handlers. The stack item
+                // (prev_exc) is already counted by ExceptionHandler.
+                // FBlockType::HandlerCleanup => depth += 1,
                 // CPython: inside exception handler, prev_exc is on stack
                 FBlockType::ExceptionHandler => depth += 1,
                 _ => {}
