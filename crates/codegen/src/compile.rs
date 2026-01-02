@@ -3732,13 +3732,7 @@ impl Compiler {
             emit!(self, Instruction::BeforeAsyncWith);
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::YieldFrom);
-            emit!(
-                self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
-            );
+            self.compile_yield_from_sequence(true)?;
         } else {
             emit!(self, Instruction::BeforeWith);
         }
@@ -3802,13 +3796,7 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::YieldFrom);
-            emit!(
-                self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
-            );
+            self.compile_yield_from_sequence(true)?;
         }
         emit!(self, Instruction::PopTop); // Pop __exit__ result
         emit!(
@@ -3853,13 +3841,7 @@ impl Compiler {
         if is_async {
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::YieldFrom);
-            emit!(
-                self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
-            );
+            self.compile_yield_from_sequence(true)?;
         }
 
         // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
@@ -3947,13 +3929,7 @@ impl Compiler {
 
             emit!(self, Instruction::GetANext);
             self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::YieldFrom);
-            emit!(
-                self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
-            );
+            self.compile_yield_from_sequence(true)?;
             self.compile_store(target)?;
             // Note: PopBlock is no longer emitted (exception table handles this)
         } else {
@@ -5436,6 +5412,80 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compile the yield-from/await sequence using SEND/END_SEND/CLEANUP_THROW.
+    /// CPython compile.c: compiler_add_yield_from
+    /// This generates:
+    ///   send:
+    ///     SEND exit
+    ///     SETUP_FINALLY fail (via exception table)
+    ///     YIELD_VALUE 1
+    ///     POP_BLOCK (implicit)
+    ///     RESUME
+    ///     JUMP send
+    ///   fail:
+    ///     CLEANUP_THROW
+    ///   exit:
+    ///     END_SEND
+    fn compile_yield_from_sequence(&mut self, is_await: bool) -> CompileResult<()> {
+        let send_block = self.new_block();
+        let fail_block = self.new_block();
+        let exit_block = self.new_block();
+
+        // send:
+        self.switch_to_block(send_block);
+        emit!(self, Instruction::Send { target: exit_block });
+
+        // SETUP_FINALLY fail - set up exception handler for YIELD_VALUE
+        // Stack at this point: [receiver, yielded_value]
+        // handler_depth = base + 2 (receiver + yielded_value)
+        let handler_depth = self.handler_stack_depth() + 2;
+        self.push_fblock_with_handler(
+            FBlockType::TryExcept, // Use TryExcept for exception handler
+            send_block,
+            exit_block,
+            Some(fail_block),
+            handler_depth,
+            false, // no lasti needed
+        )?;
+
+        // YIELD_VALUE with arg=1 (yield-from/await mode - not wrapped for async gen)
+        emit!(self, Instruction::YieldValue { arg: 1 });
+
+        // POP_BLOCK (implicit - pop fblock before RESUME)
+        self.pop_fblock(FBlockType::TryExcept);
+
+        // RESUME
+        emit!(
+            self,
+            Instruction::Resume {
+                arg: if is_await {
+                    bytecode::ResumeType::AfterAwait as u32
+                } else {
+                    bytecode::ResumeType::AfterYieldFrom as u32
+                }
+            }
+        );
+
+        // JUMP_NO_INTERRUPT send (regular JUMP in RustPython)
+        emit!(self, Instruction::Jump { target: send_block });
+
+        // fail: CLEANUP_THROW
+        // Stack when exception: [receiver, yielded_value, exc]
+        // CLEANUP_THROW: [sub_iter, last_sent_val, exc] -> [None, value]
+        // After: stack is [None, value], fall through to exit
+        self.switch_to_block(fail_block);
+        emit!(self, Instruction::CleanupThrow);
+        // Fall through to exit - CPython does NOT jump here
+
+        // exit: END_SEND
+        // Stack: [receiver, value] (from SEND) or [None, value] (from CLEANUP_THROW)
+        // END_SEND: [receiver/None, value] -> [value]
+        self.switch_to_block(exit_block);
+        emit!(self, Instruction::EndSend);
+
+        Ok(())
+    }
+
     fn compile_expression(&mut self, expression: &Expr) -> CompileResult<()> {
         use ruff_python_ast::*;
         trace!("Compiling {expression:?}");
@@ -5531,7 +5581,8 @@ impl Compiler {
                     Some(expression) => self.compile_expression(expression)?,
                     Option::None => self.emit_load_const(ConstantData::None),
                 };
-                emit!(self, Instruction::YieldValue);
+                // arg=0: direct yield (wrapped for async generators)
+                emit!(self, Instruction::YieldValue { arg: 0 });
                 emit!(
                     self,
                     Instruction::Resume {
@@ -5546,13 +5597,7 @@ impl Compiler {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::GetAwaitable);
                 self.emit_load_const(ConstantData::None);
-                emit!(self, Instruction::YieldFrom);
-                emit!(
-                    self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterAwait as u32
-                    }
-                );
+                self.compile_yield_from_sequence(true)?;
             }
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => {
                 match self.ctx.func {
@@ -5568,13 +5613,7 @@ impl Compiler {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::GetIter);
                 self.emit_load_const(ConstantData::None);
-                emit!(self, Instruction::YieldFrom);
-                emit!(
-                    self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterYieldFrom as u32
-                    }
-                );
+                self.compile_yield_from_sequence(false)?;
             }
             Expr::Name(ExprName { id, .. }) => self.load_name(id.as_str())?,
             Expr::Lambda(ExprLambda {
@@ -5746,7 +5785,8 @@ impl Compiler {
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
                         compiler.mark_generator();
-                        emit!(compiler, Instruction::YieldValue);
+                        // arg=0: direct yield (wrapped for async generators)
+                        emit!(compiler, Instruction::YieldValue { arg: 0 });
                         emit!(
                             compiler,
                             Instruction::Resume {
@@ -6165,13 +6205,7 @@ impl Compiler {
                     false,         // no lasti
                 )?;
                 self.emit_load_const(ConstantData::None);
-                emit!(self, Instruction::YieldFrom);
-                emit!(
-                    self,
-                    Instruction::Resume {
-                        arg: bytecode::ResumeType::AfterAwait as u32
-                    }
-                );
+                self.compile_yield_from_sequence(true)?;
                 self.compile_store(&generator.target)?;
                 // No PopBlock emit - exception table handles this
                 self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
@@ -6240,13 +6274,7 @@ impl Compiler {
             // that evaluates to the list/set/dict, so here we add an await
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::YieldFrom);
-            emit!(
-                self,
-                Instruction::Resume {
-                    arg: bytecode::ResumeType::AfterAwait as u32
-                }
-            );
+            self.compile_yield_from_sequence(true)?;
         }
 
         Ok(())
@@ -6412,7 +6440,7 @@ impl Compiler {
                     if is_async {
                         emit!(self, Instruction::GetAwaitable);
                         self.emit_load_const(ConstantData::None);
-                        emit!(self, Instruction::YieldFrom);
+                        self.compile_yield_from_sequence(true)?;
                     }
 
                     emit!(self, Instruction::PopTop);

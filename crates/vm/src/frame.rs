@@ -441,19 +441,48 @@ impl ExecutingFrame<'_> {
     }
 
     fn yield_from_target(&self) -> Option<&PyObject> {
-        if let Some(bytecode::CodeUnit {
-            op: bytecode::Instruction::YieldFrom,
-            ..
-        }) = self.code.instructions.get(self.lasti() as usize)
-        {
-            Some(self.top_value())
-        } else {
-            None
+        // CPython: checks gi_frame_state == FRAME_SUSPENDED_YIELD_FROM
+        // which is set when YIELD_VALUE with oparg >= 1 is executed.
+        // In RustPython, we check:
+        // 1. lasti points to RESUME (after YIELD_VALUE)
+        // 2. The previous instruction was YIELD_VALUE with arg >= 1
+        // 3. Stack top is the delegate (receiver)
+        //
+        // Or alternatively, lasti points to SEND/YieldFrom (legacy)
+        //
+        // First check if stack is empty - if so, we can't be in yield-from
+        if self.state.stack.is_empty() {
+            return None;
         }
+        let lasti = self.lasti() as usize;
+        if let Some(unit) = self.code.instructions.get(lasti) {
+            match &unit.op {
+                bytecode::Instruction::YieldFrom => return Some(self.top_value()),
+                bytecode::Instruction::Send { .. } => return Some(self.top_value()),
+                bytecode::Instruction::Resume { .. } => {
+                    // Check if previous instruction was YIELD_VALUE with arg >= 1
+                    // This indicates yield-from/await context
+                    if lasti > 0 {
+                        if let Some(prev_unit) = self.code.instructions.get(lasti - 1) {
+                            if let bytecode::Instruction::YieldValue { .. } = &prev_unit.op {
+                                // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
+                                // OpArgByte.0 is the raw byte value
+                                if prev_unit.arg.0 >= 1 {
+                                    // In yield-from/await context, delegate is on top of stack
+                                    return Some(self.top_value());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
-    /// Ok(Err(e)) means that an error occurred while calling throw() and the generator should try
-    /// sending it
+    /// CPython genobject.c: _gen_throw
+    /// Handle throw() on a generator/coroutine.
     fn gen_throw(
         &mut self,
         vm: &VirtualMachine,
@@ -474,24 +503,36 @@ impl ExecutingFrame<'_> {
                 let ret = match thrower {
                     Either::A(coro) => coro
                         .throw(jen, exc_type, exc_val, exc_tb, vm)
-                        .to_pyresult(vm), // FIXME:
+                        .to_pyresult(vm),
                     Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
-                    self.pop_value();
-                    self.update_lasti(|i| *i += 1);
-                    if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
-                        let val = vm.unwrap_or_none(err.get_arg(0));
-                        self.push_value(val);
-                        self.run(vm)
-                    } else {
-                        let (ty, val, tb) = vm.split_exception(err);
-                        self.gen_throw(vm, ty, val, tb)
+                    // CPython genobject.c:498-501: when delegate raises, call gen_send_ex with exc=1
+                    // This pushes Py_None to stack and restarts evalloop in exception mode.
+                    // Stack before throw: [receiver] (YIELD_VALUE already popped yielded value)
+                    // After pushing None: [receiver, None]
+                    // Exception handler will push exc: [receiver, None, exc]
+                    // CLEANUP_THROW expects: [sub_iter, last_sent_val, exc]
+                    self.push_value(vm.ctx.none());
+
+                    // Use unwind_blocks to let exception table route to CLEANUP_THROW
+                    match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                        Ok(None) => self.run(vm),
+                        Ok(Some(result)) => Ok(result),
+                        Err(exception) => Err(exception),
                     }
                 });
             }
         }
+        // throw_here: no delegate has throw method, or not in yield-from
+        // CPython genobject.c:504-557: normalize exception, then call gen_send_ex with exc=1
+        // gen_send_ex pushes Py_None to stack and restarts evalloop in exception mode
         let exception = vm.normalize_exception(exc_type, exc_val, exc_tb)?;
+
+        // CPython always pushes Py_None before calling gen_send_ex with exc=1
+        // This is needed for exception handler to have correct stack state
+        self.push_value(vm.ctx.none());
+
         match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
             Ok(None) => self.run(vm),
             Ok(Some(result)) => Ok(result),
@@ -1610,14 +1651,86 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
-            bytecode::Instruction::YieldValue => {
+            bytecode::Instruction::YieldValue { arg: oparg } => {
                 let value = self.pop_value();
-                let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
+                // arg=0: direct yield (wrapped for async generators)
+                // arg=1: yield from await/yield-from (NOT wrapped)
+                let wrap = oparg.get(arg) == 0;
+                let value = if wrap
+                    && self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE)
+                {
                     PyAsyncGenWrappedValue(value).into_pyobject(vm)
                 } else {
                     value
                 };
                 Ok(Some(ExecutionResult::Yield(value)))
+            }
+            bytecode::Instruction::Send { target } => {
+                // CPython: SEND instruction
+                // Stack: (receiver, value) -> (receiver, retval)
+                // On StopIteration: replace value with stop value and jump to target
+                let exit_label = target.get(arg);
+                let val = self.pop_value();
+                let receiver = self.top_value();
+
+                match self._send(receiver, val, vm)? {
+                    PyIterReturn::Return(value) => {
+                        // Value yielded, push it back for YIELD_VALUE
+                        // Stack: (receiver, retval)
+                        self.push_value(value);
+                        Ok(None)
+                    }
+                    PyIterReturn::StopIteration(value) => {
+                        // StopIteration: replace top with stop value, jump to exit
+                        // Stack: (receiver, value) - receiver stays, v replaced
+                        let value = vm.unwrap_or_none(value);
+                        self.push_value(value);
+                        self.jump(exit_label);
+                        Ok(None)
+                    }
+                }
+            }
+            bytecode::Instruction::EndSend => {
+                // CPython: END_SEND instruction
+                // Stack: (receiver, value) -> (value)
+                // Pops receiver, leaves value
+                let value = self.pop_value();
+                self.pop_value(); // discard receiver
+                self.push_value(value);
+                Ok(None)
+            }
+            bytecode::Instruction::CleanupThrow => {
+                // CPython: CLEANUP_THROW instruction
+                // Stack: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
+                // If StopIteration: pop all 3, extract value, push (None, value)
+                // Otherwise: DON'T pop, just re-raise - let exception_unwind handle stack
+
+                // First peek at exc_value (top of stack) without popping
+                let exc = self.top_value();
+
+                // Check if it's a StopIteration
+                if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
+                    if exc_ref.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+                        // Extract value from StopIteration
+                        let value = exc_ref.get_arg(0).unwrap_or_else(|| vm.ctx.none());
+                        // Now pop all three
+                        self.pop_value(); // exc
+                        self.pop_value(); // last_sent_val
+                        self.pop_value(); // sub_iter
+                        self.push_value(vm.ctx.none());
+                        self.push_value(value);
+                        return Ok(None);
+                    }
+                }
+
+                // Re-raise other exceptions - DON'T pop from stack!
+                // CPython: goto exception_unwind with stack unchanged
+                // exception_unwind will handle stack cleanup to handler's level
+                let exc = exc
+                    .to_owned()
+                    .downcast::<PyBaseException>()
+                    .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
+                Err(exc)
             }
         }
     }

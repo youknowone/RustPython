@@ -1026,7 +1026,27 @@ pub enum Instruction {
     },
     WithExceptStart,
     YieldFrom,
-    YieldValue,
+    /// YIELD_VALUE: Yield a value from generator/coroutine
+    /// arg=0: direct yield (from `yield` expression) - wrapped for async generators
+    /// arg=1: yield from subgenerator (from `yield from` or `await`) - NOT wrapped
+    YieldValue {
+        arg: Arg<u32>,
+    },
+    /// SEND: Send value to subgenerator, jump to target on StopIteration
+    /// Stack: (receiver, value) -> (receiver, retval)
+    /// On StopIteration, replaces value with StopIteration.value and jumps to target
+    Send {
+        target: Arg<Label>,
+    },
+    /// END_SEND: Clean up after send loop completes
+    /// Stack: (receiver, value) -> (value)
+    /// Pops receiver, leaves value on stack
+    EndSend,
+    /// CLEANUP_THROW: Handle exception during throw to subgenerator
+    /// Stack: (sub_iter, last_sent_val, exc) -> (None, value)
+    /// If StopIteration: extracts value, pushes (None, value)
+    /// Otherwise: re-raises the exception
+    CleanupThrow,
     /// Set the current exception to TOS (for except* handlers).
     /// Does not pop the value.
     SetExcInfo,
@@ -1808,7 +1828,8 @@ impl Instruction {
             | SetupFinally { handler: l }
             | SetupExcept { handler: l }
             | Break { target: l }
-            | Continue { target: l } => Some(*l),
+            | Continue { target: l }
+            | Send { target: l } => Some(*l),
             _ => None,
         }
     }
@@ -1918,8 +1939,14 @@ impl Instruction {
             ReturnValue => -1,
             ReturnConst { .. } => 0,
             Resume { .. } => 0,
-            YieldValue => 0,
+            YieldValue { .. } => 0,
             YieldFrom => -1,
+            // SEND: (receiver, val) -> (receiver, retval) - no change, both paths keep same depth
+            Send { .. } => 0,
+            // END_SEND: (receiver, value) -> (value)
+            EndSend => -1,
+            // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) = 3 pop, 2 push = -1
+            CleanupThrow => -1,
             SetExcInfo => 0,
             PushExcInfo => 1,    // [exc] -> [prev_exc, exc]
             CheckExcMatch => 0,  // [exc, type] -> [exc, bool] (pops type, pushes bool)
@@ -2162,7 +2189,10 @@ impl Instruction {
             UnpackSequence { size } => w!(UNPACK_SEQUENCE, size),
             WithExceptStart => w!(WITH_EXCEPT_START),
             YieldFrom => w!(YIELD_FROM),
-            YieldValue => w!(YIELD_VALUE),
+            YieldValue { arg } => w!(YIELD_VALUE, arg),
+            Send { target } => w!(SEND, target),
+            EndSend => w!(END_SEND),
+            CleanupThrow => w!(CLEANUP_THROW),
         }
     }
 }

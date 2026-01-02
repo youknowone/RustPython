@@ -171,6 +171,12 @@ impl Coro {
         if self.closed.load() {
             return Ok(());
         }
+        // CPython: If generator hasn't started (FRAME_CREATED), just mark as closed
+        // See genobject.c:gen_close lines 367-370
+        if self.frame.lasti() == 0 {
+            self.closed.store(true);
+            return Ok(());
+        }
         let result = self.run_with_context(jen, vm, |f| {
             f.gen_throw(
                 vm,
