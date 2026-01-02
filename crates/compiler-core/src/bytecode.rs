@@ -940,6 +940,9 @@ pub enum Instruction {
     },
     LoadDeref(Arg<NameIdx>),
     LoadFast(Arg<NameIdx>),
+    /// Load local variable and set it to unbound (for inlined comprehensions)
+    /// Used to save the iteration variable before the comprehension
+    LoadFastAndClear(Arg<NameIdx>),
     LoadGlobal(Arg<NameIdx>),
     LoadMethod {
         idx: Arg<NameIdx>,
@@ -1007,6 +1010,12 @@ pub enum Instruction {
     },
     StoreDeref(Arg<NameIdx>),
     StoreFast(Arg<NameIdx>),
+    /// Store to local and load from local in one operation (for inlined comprehensions)
+    /// Often store_idx == load_idx (e.g., for iteration variable binding)
+    StoreFastLoadFast {
+        store_idx: Arg<NameIdx>,
+        load_idx: Arg<NameIdx>,
+    },
     StoreGlobal(Arg<NameIdx>),
     StoreLocal(Arg<NameIdx>),
     StoreSubscript,
@@ -1875,8 +1884,9 @@ impl Instruction {
             Nop => 0,
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
-            LoadFast(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
+            LoadFast(_) | LoadFastAndClear(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
+            StoreFastLoadFast { .. } => 0, // pop 1, push 1
             DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
             LoadClosure(_) => 1,
             Subscript => -1,
@@ -2144,6 +2154,7 @@ impl Instruction {
             LoadConst { idx } => fmt_const("LOAD_CONST", arg, f, idx),
             LoadDeref(idx) => w!(LOAD_DEREF, cell_name = idx),
             LoadFast(idx) => w!(LOAD_FAST, varname = idx),
+            LoadFastAndClear(idx) => w!(LOAD_FAST_AND_CLEAR, varname = idx),
             LoadGlobal(idx) => w!(LOAD_GLOBAL, name = idx),
             LoadMethod { idx } => w!(LOAD_METHOD, name = idx),
             LoadNameAny(idx) => w!(LOAD_NAME_ANY, name = idx),
@@ -2178,6 +2189,10 @@ impl Instruction {
             CheckExcMatch => w!(CHECK_EXC_MATCH),
             Reraise { depth } => w!(RERAISE, depth),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
+            StoreFastLoadFast { store_idx, load_idx } => {
+                write!(f, "STORE_FAST_LOAD_FAST")?;
+                write!(f, " ({}, {})", store_idx.get(arg), load_idx.get(arg))
+            }
             StoreGlobal(idx) => w!(STORE_GLOBAL, name = idx),
             StoreLocal(idx) => w!(STORE_LOCAL, name = idx),
             StoreSubscript => w!(STORE_SUBSCRIPT),

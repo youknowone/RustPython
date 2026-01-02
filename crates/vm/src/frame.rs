@@ -1139,6 +1139,14 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
+            bytecode::Instruction::LoadFastAndClear(idx) => {
+                // Load value and clear the slot (for inlined comprehensions)
+                // If slot is empty, push None (not an error - variable may not exist yet)
+                let idx = idx.get(arg) as usize;
+                let x = self.fastlocals.lock()[idx].take().unwrap_or_else(|| vm.ctx.none());
+                self.push_value(x);
+                Ok(None)
+            }
             bytecode::Instruction::LoadGlobal(idx) => {
                 let name = &self.code.names[idx.get(arg) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -1589,6 +1597,18 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::StoreFast(idx) => {
                 let value = self.pop_value();
                 self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
+                Ok(None)
+            }
+            bytecode::Instruction::StoreFastLoadFast { store_idx, load_idx } => {
+                // Store to one slot and load from another (often the same) - for inlined comprehensions
+                let value = self.pop_value();
+                let mut locals = self.fastlocals.lock();
+                locals[store_idx.get(arg) as usize] = Some(value);
+                let load_value = locals[load_idx.get(arg) as usize]
+                    .clone()
+                    .expect("StoreFastLoadFast: load slot should have value after store");
+                drop(locals);
+                self.push_value(load_value);
                 Ok(None)
             }
             bytecode::Instruction::StoreGlobal(idx) => {
