@@ -154,6 +154,8 @@ struct CompileContext {
     loop_data: Option<(BlockIdx, BlockIdx)>,
     in_class: bool,
     func: FunctionContext,
+    /// True if we're anywhere inside an async function (even inside nested comprehensions)
+    in_async_scope: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -417,6 +419,7 @@ impl Compiler {
                 loop_data: None,
                 in_class: false,
                 func: FunctionContext::NoFunction,
+                in_async_scope: false,
             },
             opts,
             in_annotation: false,
@@ -2779,6 +2782,11 @@ impl Compiler {
             // Stack: [prev_exc, orig, list, new_rest, match]
             let handler_except_block = self.new_block();
 
+            // Set matched exception as current exception (for __context__ in handler body)
+            // This ensures that exceptions raised in the handler get the matched part
+            // as their __context__, not the original full exception group
+            emit!(self, Instruction::SetExcInfo);
+
             // CPython compile.c:3725-3731: Store match to name or pop
             if let Some(alias) = name {
                 self.store_name(alias.as_str())?;
@@ -3059,6 +3067,8 @@ impl Compiler {
             } else {
                 FunctionContext::Function
             },
+            // A function starts a new async scope only if it's async
+            in_async_scope: is_async,
         };
 
         // Set qualname
@@ -3621,6 +3631,7 @@ impl Compiler {
             func: FunctionContext::NoFunction,
             in_class: true,
             loop_data: None,
+            in_async_scope: false,
         };
         let class_code = self.compile_class_body(name, body, type_params, firstlineno)?;
         self.ctx = prev_ctx;
@@ -3801,6 +3812,9 @@ impl Compiler {
         self.set_source_range(with_range);
 
         if is_async {
+            if self.ctx.func != FunctionContext::AsyncFunction {
+                return Err(self.error(CodegenErrorType::InvalidAsyncWith));
+            }
             emit!(self, Instruction::BeforeAsyncWith);
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
@@ -3985,6 +3999,9 @@ impl Compiler {
         self.compile_expression(iter)?;
 
         if is_async {
+            if self.ctx.func != FunctionContext::AsyncFunction {
+                return Err(self.error(CodegenErrorType::InvalidAsyncFor));
+            }
             emit!(self, Instruction::GetAIter);
 
             self.switch_to_block(for_block);
@@ -5759,6 +5776,8 @@ impl Compiler {
                     loop_data: Option::None,
                     in_class: prev_ctx.in_class,
                     func: FunctionContext::Function,
+                    // Lambda is never async, so new scope is not async
+                    in_async_scope: false,
                 };
 
                 self.current_code_info()
@@ -5856,12 +5875,20 @@ impl Compiler {
             Expr::Generator(ExprGenerator {
                 elt, generators, ..
             }) => {
+                // Check if element or generators contain async content
+                // This makes the generator expression into an async generator
+                let element_contains_await =
+                    Self::contains_await(elt) || Self::generators_contain_await(generators);
                 self.compile_comprehension(
                     "<genexpr>",
                     None,
                     generators,
                     &|compiler| {
+                        // Compile the element expression
+                        // Note: if element is an async comprehension, compile_expression
+                        // already handles awaiting it, so we don't need to await again here
                         compiler.compile_comprehension_element(elt)?;
+
                         compiler.mark_generator();
                         // arg=0: direct yield (wrapped for async generators)
                         emit!(compiler, Instruction::YieldValue { arg: 0 });
@@ -5876,7 +5903,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Generator,
-                    Self::contains_await(elt) || Self::generators_contain_await(generators),
+                    element_contains_await,
                 )?;
             }
             Expr::Starred(ExprStarred { value, .. }) => {
@@ -6178,16 +6205,25 @@ impl Compiler {
         let prev_ctx = self.ctx;
         let has_an_async_gen = generators.iter().any(|g| g.is_async);
 
+        // Check for async comprehension outside async function (list/set/dict only, not generator expressions)
+        // Use in_async_scope to allow nested async comprehensions inside an async function
+        if comprehension_type != ComprehensionType::Generator
+            && (has_an_async_gen || element_contains_await)
+            && !prev_ctx.in_async_scope
+        {
+            return Err(self.error(CodegenErrorType::InvalidAsyncComprehension));
+        }
+
         // Check if this comprehension should be inlined (PEP 709)
         let is_inlined = self.is_inlined_comprehension_context(comprehension_type);
 
         // async comprehensions are allowed in various contexts:
-        // - list/set/dict comprehensions in async functions
+        // - list/set/dict comprehensions in async functions (or nested within)
         // - always for generator expressions
         let is_async_list_set_dict_comprehension = comprehension_type
             != ComprehensionType::Generator
             && (has_an_async_gen || element_contains_await)
-            && prev_ctx.func == FunctionContext::AsyncFunction;
+            && prev_ctx.in_async_scope;
 
         let is_async_generator_comprehension = comprehension_type == ComprehensionType::Generator
             && (has_an_async_gen || element_contains_await);
@@ -6218,6 +6254,9 @@ impl Compiler {
             } else {
                 FunctionContext::Function
             },
+            // Inherit in_async_scope from parent - nested async comprehensions are allowed
+            // if we're anywhere inside an async function
+            in_async_scope: prev_ctx.in_async_scope || is_async,
         };
 
         let flags = bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED;
@@ -6328,7 +6367,8 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        if has_an_async_gen {
+        // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
+        if generators[0].is_async {
             emit!(self, Instruction::GetAIter);
         } else {
             emit!(self, Instruction::GetIter);
@@ -6401,7 +6441,8 @@ impl Compiler {
 
         // Step 1: Compile the outermost iterator
         self.compile_expression(&generators[0].iter)?;
-        if has_an_async_gen {
+        // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
+        if generators[0].is_async {
             emit!(self, Instruction::GetAIter);
         } else {
             emit!(self, Instruction::GetIter);
@@ -6850,6 +6891,11 @@ impl Compiler {
 
                 match expr {
                     Expr::Await(_) => self.found = true,
+                    // Note: We do NOT check for async comprehensions here.
+                    // Async list/set/dict comprehensions are handled by compile_comprehension
+                    // which already awaits the result. A generator expression containing
+                    // an async comprehension as its element does NOT become an async generator,
+                    // because the async comprehension is awaited when evaluating the element.
                     _ => walk_expr(self, expr),
                 }
             }

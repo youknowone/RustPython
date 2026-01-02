@@ -1147,7 +1147,9 @@ impl ExecutingFrame<'_> {
                 // Load value and clear the slot (for inlined comprehensions)
                 // If slot is empty, push None (not an error - variable may not exist yet)
                 let idx = idx.get(arg) as usize;
-                let x = self.fastlocals.lock()[idx].take().unwrap_or_else(|| vm.ctx.none());
+                let x = self.fastlocals.lock()[idx]
+                    .take()
+                    .unwrap_or_else(|| vm.ctx.none());
                 self.push_value(x);
                 Ok(None)
             }
@@ -1595,7 +1597,10 @@ impl ExecutingFrame<'_> {
                 self.fastlocals.lock()[idx.get(arg) as usize] = Some(value);
                 Ok(None)
             }
-            bytecode::Instruction::StoreFastLoadFast { store_idx, load_idx } => {
+            bytecode::Instruction::StoreFastLoadFast {
+                store_idx,
+                load_idx,
+            } => {
                 // Store to one slot and load from another (often the same) - for inlined comprehensions
                 let value = self.pop_value();
                 let mut locals = self.fastlocals.lock();
@@ -1679,9 +1684,7 @@ impl ExecutingFrame<'_> {
                 // arg=0: direct yield (wrapped for async generators)
                 // arg=1: yield from await/yield-from (NOT wrapped)
                 let wrap = oparg.get(arg) == 0;
-                let value = if wrap
-                    && self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE)
-                {
+                let value = if wrap && self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {
                     PyAsyncGenWrappedValue(value).into_pyobject(vm)
                 } else {
                     value

@@ -8,10 +8,11 @@ mod _overlapped {
     // straight-forward port of Modules/overlapped.c
 
     use crate::vm::{
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyType},
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
+        function::OptionalArg,
         protocol::PyBuffer,
         types::Constructor,
     };
@@ -258,6 +259,113 @@ mod _overlapped {
                 return Err(vm.new_last_os_error());
             }
             Ok(())
+        }
+
+        #[pymethod]
+        fn getresult(zelf: &Py<Self>, wait: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
+            use windows_sys::Win32::Foundation::{
+                ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
+            };
+            use windows_sys::Win32::System::IO::GetOverlappedResult;
+
+            let mut inner = zelf.inner.lock();
+            let wait = wait.unwrap_or(false);
+
+            // Check operation state
+            if matches!(inner.data, OverlappedData::None) {
+                return Err(vm.new_value_error("operation not yet attempted".to_owned()));
+            }
+            if matches!(inner.data, OverlappedData::NotStarted) {
+                return Err(vm.new_value_error("operation failed to start".to_owned()));
+            }
+
+            // Get the result
+            let mut transferred: u32 = 0;
+            let ret = unsafe {
+                GetOverlappedResult(
+                    inner.handle,
+                    &inner.overlapped,
+                    &mut transferred,
+                    if wait { 1 } else { 0 },
+                )
+            };
+
+            let err = if ret != 0 {
+                ERROR_SUCCESS
+            } else {
+                unsafe { GetLastError() }
+            };
+            inner.error = err;
+
+            // Handle errors
+            match err {
+                ERROR_SUCCESS | ERROR_MORE_DATA => {}
+                ERROR_BROKEN_PIPE => {
+                    // For read operations, broken pipe is acceptable
+                    match &inner.data {
+                        OverlappedData::Read(_) | OverlappedData::ReadInto(_) => {}
+                        OverlappedData::ReadFrom(rf)
+                            if rf.result.is(&vm.ctx.none())
+                                || rf.allocated_buffer.is(&vm.ctx.none()) =>
+                        {
+                            return Err(from_windows_err(err, vm));
+                        }
+                        OverlappedData::ReadFrom(_) => {}
+                        OverlappedData::ReadFromInto(rfi) if rfi.result.is(&vm.ctx.none()) => {
+                            return Err(from_windows_err(err, vm));
+                        }
+                        OverlappedData::ReadFromInto(_) => {}
+                        _ => return Err(from_windows_err(err, vm)),
+                    }
+                }
+                ERROR_IO_PENDING => {
+                    return Err(from_windows_err(err, vm));
+                }
+                _ => return Err(from_windows_err(err, vm)),
+            }
+
+            // Return result based on operation type
+            match &inner.data {
+                OverlappedData::Read(buf) => {
+                    // Resize buffer to actual bytes read
+                    let bytes = buf.as_bytes();
+                    let result = if transferred as usize != bytes.len() {
+                        vm.ctx.new_bytes(bytes[..transferred as usize].to_vec())
+                    } else {
+                        buf.clone()
+                    };
+                    Ok(result.into())
+                }
+                OverlappedData::ReadInto(_) => {
+                    // Return number of bytes read
+                    Ok(vm.ctx.new_int(transferred).into())
+                }
+                OverlappedData::Write(_) => {
+                    // Return number of bytes written
+                    Ok(vm.ctx.new_int(transferred).into())
+                }
+                OverlappedData::Accept(_) => {
+                    // Return None for accept
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::Connect => {
+                    // Return None for connect
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::Disconnect => {
+                    // Return None for disconnect
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::ConnectNamedPipe => {
+                    // Return None for connect named pipe
+                    Ok(vm.ctx.none())
+                }
+                OverlappedData::WaitNamedPipeAndConnect => {
+                    // Return None
+                    Ok(vm.ctx.none())
+                }
+                _ => Ok(vm.ctx.none()),
+            }
         }
     }
 

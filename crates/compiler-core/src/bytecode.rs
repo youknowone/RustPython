@@ -1884,7 +1884,8 @@ impl Instruction {
             Nop => 0,
             ImportName { .. } => -1,
             ImportFrom { .. } => 1,
-            LoadFast(_) | LoadFastAndClear(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_) | LoadClassDeref(_) => 1,
+            LoadFast(_) | LoadFastAndClear(_) | LoadNameAny(_) | LoadGlobal(_) | LoadDeref(_)
+            | LoadClassDeref(_) => 1,
             StoreFast(_) | StoreLocal(_) | StoreGlobal(_) | StoreDeref(_) => -1,
             StoreFastLoadFast { .. } => 0, // pop 1, push 1
             DeleteFast(_) | DeleteLocal(_) | DeleteGlobal(_) | DeleteDeref(_) => 0,
@@ -2189,7 +2190,10 @@ impl Instruction {
             CheckExcMatch => w!(CHECK_EXC_MATCH),
             Reraise { depth } => w!(RERAISE, depth),
             StoreFast(idx) => w!(STORE_FAST, varname = idx),
-            StoreFastLoadFast { store_idx, load_idx } => {
+            StoreFastLoadFast {
+                store_idx,
+                load_idx,
+            } => {
                 write!(f, "STORE_FAST_LOAD_FAST")?;
                 write!(f, " ({}, {})", store_idx.get(arg), load_idx.get(arg))
             }
