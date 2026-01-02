@@ -52,10 +52,6 @@ class OpenDiskTests(FilesTests, unittest.TestCase):
     def setUp(self):
         self.data = data01
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    def test_read_bytes(self):
-        super().test_read_bytes()
-
 
 class OpenZipTests(FilesTests, util.ZipSetup, unittest.TestCase):
     pass
@@ -67,9 +63,6 @@ class OpenNamespaceTests(FilesTests, unittest.TestCase):
 
         self.data = namespacedata01
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    def test_read_bytes(self):
-        super().test_read_bytes()
 
 class SiteDir:
     def setUp(self):

@@ -1160,6 +1160,10 @@ class TestExitStack(TestBaseExitStack, unittest.TestCase):
         ('__exit__', 'if cb(*exc_details):'),
     ]
 
+    # TODO: RUSTPYTHON; sync version works correctly
+    def test_exit_exception_traceback(self):
+        return super().test_exit_exception_traceback()
+
 
 class TestRedirectStream:
 

@@ -362,35 +362,21 @@ impl ExecutingFrame<'_> {
                         // RERAISE instructions should not add traceback entries - they're just
                         // re-raising an already-processed exception (CPython behavior)
                         if !is_reraise {
+                            // CPython's PyTraceBack_Here always adds a new entry without
+                            // checking for duplicates. Each time an exception passes through
+                            // a frame (e.g., in a loop with repeated raise statements),
+                            // a new traceback entry is added.
                             let (loc, _end_loc) = frame.code.locations[idx];
                             let next = exception.__traceback__();
 
-                            // Check if traceback already has an entry for this frame at this location
-                            // This prevents duplicate entries
-                            let should_add_traceback = match &next {
-                                Some(tb) => {
-                                    // Only add if this is a different frame or different location
-                                    !core::ptr::eq::<Py<Frame>>(&*tb.frame, frame.object)
-                                        || tb.lineno != loc.line
-                                }
-                                None => true,
-                            };
-
-                            if should_add_traceback {
-                                let new_traceback = PyTraceback::new(
-                                    next,
-                                    frame.object.to_owned(),
-                                    idx as u32 * 2,
-                                    loc.line,
-                                );
-                                vm_trace!(
-                                    "Adding to traceback: {:?} {:?}",
-                                    new_traceback,
-                                    loc.line
-                                );
-                                exception
-                                    .set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
-                            }
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                frame.object.to_owned(),
+                                idx as u32 * 2,
+                                loc.line,
+                            );
+                            vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
+                            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
                         // Only contextualize exception for new raises, not re-raises
@@ -407,11 +393,15 @@ impl ExecutingFrame<'_> {
                     }
 
                     // Check if this is a RERAISE instruction
+                    // Both Instruction::Raise { kind: Reraise/ReraiseFromStack } and
+                    // Instruction::Reraise are reraise operations that should not add
+                    // new traceback entries
                     let is_reraise = match op {
                         bytecode::Instruction::Raise { kind } => matches!(
                             kind.get(arg),
                             bytecode::RaiseKind::Reraise | bytecode::RaiseKind::ReraiseFromStack
                         ),
+                        bytecode::Instruction::Reraise { .. } => true,
                         _ => false,
                     };
 

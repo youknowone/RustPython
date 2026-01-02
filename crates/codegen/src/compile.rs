@@ -4043,12 +4043,15 @@ impl Compiler {
         // COPY 3: copy prev_exc to TOS
         // POP_EXCEPT: restore exception state
         // RERAISE 1: re-raise with lasti
+        //
+        // NOTE: We DON'T clear the fblock stack here because we want
+        // outer exception handlers (e.g., try-except wrapping this with statement)
+        // to be in the exception table for these instructions.
+        // If we cleared fblock, exceptions here would propagate uncaught.
         self.switch_to_block(cleanup_block);
-        let saved_fblock = std::mem::take(&mut self.current_code_info().fblock);
         emit!(self, Instruction::CopyItem { index: 3 });
         emit!(self, Instruction::PopException);
         emit!(self, Instruction::Reraise { depth: 1 });
-        self.current_code_info().fblock = saved_fblock;
 
         // ===== After block =====
         self.switch_to_block(after_block);

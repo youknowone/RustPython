@@ -2558,7 +2558,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_finally_except, 4)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_lineno_after_with(self):
         class Noop:
             def __enter__(self):
