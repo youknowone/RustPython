@@ -574,51 +574,72 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     )?;
 
     const ALLOWED_TRAVERSE_OPTS: &[&str] = &["manual"];
-    // try to know if it have a `#[pyclass(trace)]` exist on this struct
-    // TODO(discord9): rethink on auto detect `#[Derive(PyTrace)]`
+    // Generate MaybeTraverse impl with both traverse and pop_edges support
+    //
+    // For traverse:
+    // 1. no `traverse` at all: IS_TRACE = false, try_traverse does nothing
+    // 2. `traverse = "manual"`: IS_TRACE = true, but no #[derive(Traverse)]
+    // 3. `traverse`: IS_TRACE = true, and #[derive(Traverse)]
+    //
+    // For pop_edges:
+    // 1. no `pop_edges`: HAS_POP_EDGES = false, try_pop_edges does nothing
+    // 2. `pop_edges`: HAS_POP_EDGES = true, try_pop_edges calls Traverse::pop_edges
+    let has_traverse = class_meta.inner()._has_key("traverse")?;
+    let has_pop_edges = class_meta.inner()._has_key("pop_edges")?;
 
-    // 1. no `traverse` at all: generate a dummy try_traverse
-    // 2. `traverse = "manual"`: generate a try_traverse, but not #[derive(Traverse)]
-    // 3. `traverse`: generate a try_traverse, and #[derive(Traverse)]
-    let (maybe_trace_code, derive_trace) = {
-        if class_meta.inner()._has_key("traverse")? {
-            let maybe_trace_code = quote! {
-                impl ::rustpython_vm::object::MaybeTraverse for #ident {
-                    const IS_TRACE: bool = true;
-                    fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
-                        ::rustpython_vm::object::Traverse::traverse(self, tracer_fn);
-                    }
-                }
-            };
-            // if the key `traverse` exist but not as key-value, _optional_str return Err(...)
-            // so we need to check if it is Ok(Some(...))
-            let value = class_meta.inner()._optional_str("traverse");
-            let derive_trace = if let Ok(Some(s)) = value {
-                if !ALLOWED_TRAVERSE_OPTS.contains(&s.as_str()) {
-                    bail_span!(
-                        item,
-                        "traverse attribute only accept {ALLOWED_TRAVERSE_OPTS:?} as value or no value at all",
-                    );
-                }
-                assert_eq!(s, "manual");
-                quote! {}
-            } else {
-                quote! {#[derive(Traverse)]}
-            };
-            (maybe_trace_code, derive_trace)
+    let derive_trace = if has_traverse {
+        let value = class_meta.inner()._optional_str("traverse");
+        if let Ok(Some(s)) = value {
+            if !ALLOWED_TRAVERSE_OPTS.contains(&s.as_str()) {
+                bail_span!(
+                    item,
+                    "traverse attribute only accept {ALLOWED_TRAVERSE_OPTS:?} as value or no value at all",
+                );
+            }
+            assert_eq!(s, "manual");
+            quote! {}
         } else {
-            (
-                // a dummy impl, which do nothing
-                // #attrs
-                quote! {
-                    impl ::rustpython_vm::object::MaybeTraverse for #ident {
-                        fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
-                            // do nothing
-                        }
-                    }
-                },
-                quote! {},
-            )
+            quote! {#[derive(Traverse)]}
+        }
+    } else {
+        quote! {}
+    };
+
+    let maybe_traverse_code = {
+        let is_trace = has_traverse;
+        let try_traverse_body = if has_traverse {
+            quote! {
+                ::rustpython_vm::object::Traverse::traverse(self, tracer_fn);
+            }
+        } else {
+            quote! {
+                // do nothing
+            }
+        };
+
+        let try_pop_edges_body = if has_pop_edges {
+            quote! {
+                ::rustpython_vm::object::Traverse::pop_edges(self, out);
+            }
+        } else {
+            quote! {
+                // do nothing
+            }
+        };
+
+        quote! {
+            impl ::rustpython_vm::object::MaybeTraverse for #ident {
+                const IS_TRACE: bool = #is_trace;
+                const HAS_POP_EDGES: bool = #has_pop_edges;
+
+                fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
+                    #try_traverse_body
+                }
+
+                fn try_pop_edges(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
+                    #try_pop_edges_body
+                }
+            }
         }
     };
 
@@ -678,7 +699,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let ret = quote! {
         #derive_trace
         #item
-        #maybe_trace_code
+        #maybe_traverse_code
         #class_def
         #impl_payload
         #empty_impl

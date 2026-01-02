@@ -1924,8 +1924,15 @@ impl fmt::Display for PyUtf8Str {
 }
 
 impl MaybeTraverse for PyUtf8Str {
+    const IS_TRACE: bool = true;
+    const HAS_POP_EDGES: bool = false;
+
     fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         self.0.try_traverse(traverse_fn);
+    }
+
+    fn try_pop_edges(&mut self, _out: &mut Vec<PyObjectRef>) {
+        // No pop_edges needed for PyUtf8Str
     }
 }
 

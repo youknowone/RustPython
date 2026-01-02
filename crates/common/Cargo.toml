@@ -31,6 +31,12 @@ parking_lot = { workspace = true, optional = true }
 unicode_names2 = { workspace = true }
 radium = { workspace = true }
 
+# EBR dependencies
+crossbeam-utils = { workspace = true }
+memoffset = { workspace = true }
+scopeguard = { workspace = true }
+atomic = { workspace = true }
+
 lock_api = "0.4"
 siphasher = "1"
 num-complex.workspace = true

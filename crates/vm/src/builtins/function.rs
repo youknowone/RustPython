@@ -25,7 +25,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function", traverse = "manual")]
+#[pyclass(module = false, name = "function", traverse = "manual", pop_edges)]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyMutex<PyRef<PyCode>>,
@@ -50,6 +50,49 @@ unsafe impl Traverse for PyFunction {
             closure.as_untyped().traverse(tracer_fn);
         }
         self.defaults_and_kwdefaults.traverse(tracer_fn);
+        // Traverse additional fields that may contain references
+        self.type_params.lock().traverse(tracer_fn);
+        self.annotations.lock().traverse(tracer_fn);
+        self.module.lock().traverse(tracer_fn);
+        self.doc.lock().traverse(tracer_fn);
+    }
+
+    fn pop_edges(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+        // Pop closure if present (equivalent to Py_CLEAR(func_closure))
+        if let Some(closure) = self.closure.take() {
+            out.push(closure.into());
+        }
+
+        // Pop defaults and kwdefaults
+        if let Some(mut guard) = self.defaults_and_kwdefaults.try_lock() {
+            if let Some(defaults) = guard.0.take() {
+                out.push(defaults.into());
+            }
+            if let Some(kwdefaults) = guard.1.take() {
+                out.push(kwdefaults.into());
+            }
+        }
+
+        // Note: We do NOT clear annotations here.
+        // Unlike CPython which can set func_annotations to NULL, RustPython always
+        // has a dict reference. Clearing the dict in-place would affect all functions
+        // that share the same annotations dict (e.g., via functools.update_wrapper).
+        // The annotations dict typically doesn't create cycles, so skipping it is safe.
+
+        // Replace name and qualname with empty string to break potential str subclass cycles
+        // This matches CPython's func_clear behavior: "name and qualname could be str
+        // subclasses, so they could have reference cycles"
+        if let Some(mut guard) = self.name.try_lock() {
+            let old_name = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+            out.push(old_name.into());
+        }
+        if let Some(mut guard) = self.qualname.try_lock() {
+            let old_qualname = std::mem::replace(&mut *guard, Context::genesis().empty_str.to_owned());
+            out.push(old_qualname.into());
+        }
+
+        // Note: globals, builtins, code are NOT cleared
+        // as per CPython's func_clear behavior (they're required to be non-NULL)
     }
 }
 

@@ -99,6 +99,12 @@ pub(super) unsafe fn try_trace_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mut T
     payload.try_traverse(tracer_fn)
 }
 
+/// Call `try_pop_edges` on payload to extract child references
+pub(super) unsafe fn try_pop_edges_obj<T: PyPayload>(x: *mut PyObject, out: &mut Vec<PyObjectRef>) {
+    let x = unsafe { &mut *(x as *mut PyInner<T>) };
+    x.payload.try_pop_edges(out);
+}
+
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
@@ -195,6 +201,11 @@ impl WeakRefList {
             }))
         });
         let mut inner = unsafe { inner_ptr.as_ref().lock() };
+        // If obj was cleared by GC but object is still alive (e.g., new weakref
+        // created during __del__), restore the obj pointer
+        if inner.obj.is_none() {
+            inner.obj = Some(NonNull::from(obj));
+        }
         if is_generic && let Some(generic_weakref) = inner.generic_weakref {
             let generic_weakref = unsafe { generic_weakref.as_ref() };
             if generic_weakref.0.ref_count.get() != 0 {
@@ -218,14 +229,33 @@ impl WeakRefList {
         weak
     }
 
+    /// Clear all weakrefs and call their callbacks.
+    /// This is the main clear function called when the owner object is being dropped.
+    /// It decrements ref_count and deallocates if needed.
     fn clear(&self) {
+        self.clear_inner(true)
+    }
+
+    /// Clear all weakrefs and call their callbacks, but don't decrement ref_count.
+    /// Used by GC when clearing weakrefs before pop_edges.
+    /// The owner object is not being dropped yet, so we shouldn't decrement ref_count.
+    fn clear_for_gc(&self) {
+        self.clear_inner(false)
+    }
+
+    fn clear_inner(&self, decrement_ref_count: bool) {
         let to_dealloc = {
             let ptr = match self.inner.get() {
                 Some(ptr) => ptr,
                 None => return,
             };
             let mut inner = unsafe { ptr.as_ref().lock() };
+
+            // If already cleared (obj is None), skip the ref_count decrement
+            // to avoid double decrement when called by both GC and drop_slow_inner
+            let already_cleared = inner.obj.is_none();
             inner.obj = None;
+
             // TODO: can be an arrayvec
             let mut v = Vec::with_capacity(16);
             loop {
@@ -265,8 +295,14 @@ impl WeakRefList {
                     }
                 })
             }
-            inner.ref_count -= 1;
-            (inner.ref_count == 0).then_some(ptr)
+
+            // Only decrement ref_count if requested AND not already cleared
+            if decrement_ref_count && !already_cleared {
+                inner.ref_count -= 1;
+                (inner.ref_count == 0).then_some(ptr)
+            } else {
+                None
+            }
         };
         if let Some(ptr) = to_dealloc {
             unsafe { Self::dealloc(ptr) }
@@ -793,15 +829,34 @@ impl PyObject {
             slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
         ) -> Result<(), ()> {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
+                // Note: inc() from 0 does a double increment (0→2) for thread safety.
+                // This gives us "permission" to decrement twice.
                 zelf.0.ref_count.inc();
+                let after_inc = zelf.strong_count(); // Should be 2
+
                 if let Err(e) = slot_del(zelf, vm) {
                     let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
+
+                let after_del = zelf.strong_count();
+
+                // First decrement
+                zelf.0.ref_count.dec();
+
+                // Check for resurrection: if ref_count increased beyond our expected 2,
+                // then __del__ created new references (resurrection occurred).
+                if after_del > after_inc {
+                    // Resurrected - don't do second decrement, leave object alive
+                    return false;
+                }
+
+                // No resurrection - do second decrement to get back to 0
+                // This matches the double increment from inc()
                 zelf.0.ref_count.dec()
             });
             match ret {
-                // the decref right above set ref_count back to 0
+                // the decref set ref_count back to 0
                 Some(true) => Ok(()),
                 // we've been resurrected by __del__
                 Some(false) => Err(()),
@@ -812,28 +867,76 @@ impl PyObject {
             }
         }
 
+        // Clear weak refs FIRST (before __del__), consistent with GC behavior.
+        // GC clears weakrefs before calling finalizers (gc_state.rs:554-559).
+        // This ensures weakref holders are notified even if __del__ causes resurrection.
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear();
+        }
+
         // CPython-compatible drop implementation
         let del = self.class().slots.del.load();
         if let Some(slot_del) = del {
-            call_slot_del(self, slot_del)?;
-        }
-        if let Some(wrl) = self.weak_ref_list() {
-            wrl.clear();
+            // Check if already finalized by GC (prevents double __del__ calls)
+            let ptr = core::ptr::NonNull::from(self);
+            let gc = crate::gc_state::gc_state();
+            if !gc.is_finalized(ptr) {
+                // Mark as finalized BEFORE calling __del__
+                // This ensures is_finalized() returns True even if object is resurrected
+                gc.mark_finalized(ptr);
+                call_slot_del(self, slot_del)?;
+            }
         }
 
         Ok(())
     }
 
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
+    ///
+    /// This implements immediate recursive destruction for circular reference resolution:
+    /// 1. Call __del__ if present
+    /// 2. Extract child references via pop_edges()
+    /// 3. Deallocate the object
+    /// 4. Drop child references (may trigger recursive destruction)
     #[inline(never)]
     unsafe fn drop_slow(ptr: NonNull<Self>) {
         if let Err(()) = unsafe { ptr.as_ref().drop_slow_inner() } {
-            // abort drop for whatever reason
+            // abort drop for whatever reason (e.g., resurrection in __del__)
             return;
         }
-        let drop_dealloc = unsafe { ptr.as_ref().0.vtable.drop_dealloc };
+
+        let vtable = unsafe { ptr.as_ref().0.vtable };
+        let has_dict = unsafe { ptr.as_ref().0.dict.is_some() };
+
+        // Untrack object from GC BEFORE deallocation.
+        // This ensures the object is not in generation_objects when we free its memory.
+        // Must match the condition in PyRef::new_ref: IS_TRACE || has_dict
+        if vtable.trace.is_some() || has_dict {
+            // Try to untrack immediately. If we can't acquire the lock (e.g., GC is running),
+            // defer the untrack operation.
+            rustpython_common::refcount::try_defer_drop(move || {
+                // SAFETY: untrack_object only removes the pointer address from a HashSet.
+                // It does NOT dereference the pointer, so it's safe even after deallocation.
+                unsafe {
+                    crate::gc_state::gc_state().untrack_object(ptr);
+                }
+            });
+        }
+
+        // Extract child references before deallocation to break circular refs
+        let mut edges = Vec::new();
+        if let Some(pop_edges_fn) = vtable.pop_edges {
+            unsafe { pop_edges_fn(ptr.as_ptr(), &mut edges) };
+        }
+
+        // Deallocate the object
+        let drop_dealloc = vtable.drop_dealloc;
         // call drop only when there are no references in scope - stacked borrows stuff
         unsafe { drop_dealloc(ptr.as_ptr()) }
+
+        // Now drop child references - this may trigger recursive destruction
+        // The object is already deallocated, so circular refs are broken
+        drop(edges);
     }
 
     /// # Safety
@@ -852,6 +955,122 @@ impl PyObject {
 
     pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
         *self.0.slots[offset].write() = value;
+    }
+
+    /// Check if this object is tracked by the garbage collector.
+    /// Returns true if the object has IS_TRACE = true (has a trace function)
+    /// or has an instance dict (user-defined class instances).
+    pub fn is_gc_tracked(&self) -> bool {
+        // Objects with trace function are tracked
+        if self.0.vtable.trace.is_some() {
+            return true;
+        }
+        // Objects with instance dict are also tracked (user-defined class instances)
+        self.0.dict.is_some()
+    }
+
+    /// Call __del__ if present, without triggering object deallocation.
+    /// Used by GC to call finalizers before breaking cycles.
+    /// This allows proper resurrection detection.
+    pub fn try_call_finalizer(&self) {
+        let del = self.class().slots.del.load();
+        if let Some(slot_del) = del {
+            crate::vm::thread::with_vm(self, |vm| {
+                if let Err(e) = slot_del(self, vm) {
+                    if let Some(del_method) = self.get_class_attr(identifier!(vm, __del__)) {
+                        vm.run_unraisable(e, None, del_method);
+                    }
+                }
+            });
+        }
+    }
+
+    /// Clear weakrefs to this object, calling their callbacks.
+    /// Used by GC to notify weakref holders before object is collected.
+    /// Clear weakrefs for GC collection.
+    /// This calls weakref callbacks but doesn't decrement ref_count,
+    /// because the owner object is not being dropped yet.
+    pub fn gc_clear_weakrefs(&self) {
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear_for_gc();
+        }
+    }
+
+    /// Get the referents (objects directly referenced) of this object.
+    /// Uses the full traverse including dict and slots.
+    pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
+        let mut result = Vec::new();
+        // Traverse the entire object including dict and slots
+        self.0.traverse(&mut |child: &PyObject| {
+            result.push(child.to_owned());
+        });
+        result
+    }
+
+    /// Get raw pointers to referents without incrementing reference counts.
+    /// This is used during GC to avoid reference count manipulation.
+    ///
+    /// # Safety
+    /// The returned pointers are only valid as long as the object is alive
+    /// and its contents haven't been modified.
+    pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<PyObject>> {
+        let mut result = Vec::new();
+        // Traverse the entire object including dict and slots
+        self.0.traverse(&mut |child: &PyObject| {
+            result.push(NonNull::from(child));
+        });
+        result
+    }
+
+    /// This is an internal method for type-specific payload traversal only.
+    /// Most code should use gc_get_referent_ptrs instead.
+    #[allow(dead_code)]
+    pub unsafe fn gc_get_referent_ptrs_payload_only(&self) -> Vec<NonNull<PyObject>> {
+        let mut result = Vec::new();
+        if let Some(trace_fn) = self.0.vtable.trace {
+            unsafe {
+                trace_fn(self, &mut |child: &PyObject| {
+                    result.push(NonNull::from(child));
+                });
+            }
+        }
+        result
+    }
+
+    /// Pop edges from this object for cycle breaking.
+    /// Returns extracted child references that were removed from this object.
+    /// This is used during garbage collection to break circular references.
+    ///
+    /// # Safety
+    /// - ptr must be a valid pointer to a PyObject
+    /// - The caller must have exclusive access (no other references exist)
+    /// - This is only safe during GC when the object is unreachable
+    pub unsafe fn gc_pop_edges_raw(ptr: *mut PyObject) -> Vec<PyObjectRef> {
+        let mut result = Vec::new();
+        let obj = unsafe { &*ptr };
+        if let Some(pop_edges_fn) = obj.0.vtable.pop_edges {
+            unsafe { pop_edges_fn(ptr, &mut result) };
+        }
+        result
+    }
+
+    /// Pop edges from this object for cycle breaking.
+    /// This version takes &self but should only be called during GC
+    /// when exclusive access is guaranteed.
+    ///
+    /// # Safety
+    /// - The caller must guarantee exclusive access (no other references exist)
+    /// - This is only safe during GC when the object is unreachable
+    pub unsafe fn gc_pop_edges(&self) -> Vec<PyObjectRef> {
+        // SAFETY: During GC collection, this object is unreachable (gc_refs == 0),
+        // meaning no other code has a reference to it. The only references are
+        // internal cycle references which we're about to break.
+        unsafe { Self::gc_pop_edges_raw(self as *const _ as *mut PyObject) }
+    }
+
+    /// Check if this object has pop_edges capability
+    pub fn gc_has_pop_edges(&self) -> bool {
+        self.0.vtable.pop_edges.is_some()
     }
 }
 
@@ -1069,10 +1288,22 @@ impl<T: PyPayload> PyRef<T> {
 impl<T: PyPayload + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
+        let has_dict = dict.is_some();
         let inner = Box::into_raw(PyInner::new(payload, typ, dict));
-        Self {
-            ptr: unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) },
+        let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+
+        // Track object if IS_TRACE is true OR has instance dict
+        // (user-defined class instances have dict but may not have IS_TRACE)
+        if T::IS_TRACE || has_dict {
+            let gc = crate::gc_state::gc_state();
+            unsafe {
+                gc.track_object(ptr.cast());
+            }
+            // Check if automatic GC should run
+            gc.maybe_collect();
         }
+
+        Self { ptr }
     }
 }
 

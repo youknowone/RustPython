@@ -13,8 +13,12 @@ pub type TraverseFn<'a> = dyn FnMut(&PyObject) + 'a;
 pub trait MaybeTraverse {
     /// if is traceable, will be used by vtable to determine
     const IS_TRACE: bool = false;
+    /// if has pop_edges implementation for circular reference resolution
+    const HAS_POP_EDGES: bool = false;
     // if this type is traceable, then call with tracer_fn, default to do nothing
     fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>);
+    // if this type has pop_edges, extract child refs for circular reference resolution
+    fn try_pop_edges(&mut self, _out: &mut Vec<PyObjectRef>) {}
 }
 
 /// Type that need traverse it's children should impl [`Traverse`] (not [`MaybeTraverse`])
@@ -28,6 +32,11 @@ pub unsafe trait Traverse {
     ///
     /// - _**DO NOT**_ clone a [`PyObjectRef`] or [`PyRef<T>`] in [`Traverse::traverse()`]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>);
+
+    /// Extract all owned child PyObjectRefs for circular reference resolution.
+    /// Called just before object deallocation to break circular references.
+    /// Default implementation does nothing.
+    fn pop_edges(&mut self, _out: &mut Vec<PyObjectRef>) {}
 }
 
 unsafe impl Traverse for PyObjectRef {

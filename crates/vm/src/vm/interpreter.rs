@@ -110,11 +110,14 @@ impl Interpreter {
 
     /// Finalize vm and turns an exception to exit code.
     ///
-    /// Finalization steps including 4 steps:
+    /// Finalization steps:
     /// 1. Flush stdout and stderr.
-    /// 1. Handle exit exception and turn it to exit code.
-    /// 1. Run atexit exit functions.
-    /// 1. Mark vm as finalized.
+    /// 2. Handle exit exception and turn it to exit code.
+    /// 3. Set finalizing flag (suppresses unraisable exceptions).
+    /// 4. Call threading._shutdown() to join non-daemon threads.
+    /// 5. Run atexit exit functions.
+    /// 6. GC pass and module cleanup.
+    /// 7. Final GC pass.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
@@ -128,9 +131,31 @@ impl Interpreter {
                 0
             };
 
+            // Set finalizing flag early to suppress unraisable exceptions from
+            // daemon threads and __del__ methods during shutdown.
+            vm.state.finalizing.store(true, Ordering::Release);
+
+            // Call threading._shutdown() to properly join non-daemon threads.
+            // This must happen before module cleanup to ensure threads can
+            // finish cleanly while modules are still available.
+            if let Ok(threading) = vm.import("threading", 0) {
+                if let Ok(shutdown) = threading.get_attr("_shutdown", vm) {
+                    let _ = shutdown.call((), vm);
+                }
+            }
+
             atexit::_run_exitfuncs(vm);
 
-            vm.state.finalizing.store(true, Ordering::Release);
+            // First GC pass - collect cycles before module cleanup
+            crate::gc_state::gc_state().collect_force(2);
+
+            // Clear modules to break references to objects in module namespaces.
+            // This allows cyclic garbage created in modules to be collected.
+            vm.finalize_modules();
+
+            // Second GC pass - now cyclic garbage in modules can be collected
+            // and __del__ methods will be called
+            crate::gc_state::gc_state().collect_force(2);
 
             vm.flush_std();
 

@@ -609,8 +609,15 @@ pub(crate) fn impl_pystruct_sequence(
 
         // MaybeTraverse - delegate to inner PyTuple
         impl ::rustpython_vm::object::MaybeTraverse for #pytype_ident {
+            const IS_TRACE: bool = true;
+            const HAS_POP_EDGES: bool = false;
+
             fn try_traverse(&self, traverse_fn: &mut ::rustpython_vm::object::TraverseFn<'_>) {
                 self.0.try_traverse(traverse_fn)
+            }
+
+            fn try_pop_edges(&mut self, _out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
+                // Struct sequences don't need pop_edges
             }
         }
 
