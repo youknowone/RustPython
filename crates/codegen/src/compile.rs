@@ -1039,12 +1039,14 @@ impl Compiler {
                 // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
                 // Need to call __exit__(None, None, None)
 
+                emit!(self, Instruction::PopBlock);
+
                 // If preserving return value, swap it below __exit__
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
 
-                // Call __exit__(None, None, None)
+                // Call __exit__(None, None, None) - compiler_call_exit_with_nones
                 // Stack: [..., __exit__] or [..., return_value, __exit__]
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
@@ -3989,14 +3991,15 @@ impl Compiler {
 
             // Push fblock for async for loop with exception handler info
             // Note: SetupExcept is no longer emitted (exception table handles StopAsyncIteration)
-            // Stack at this point: [async_iterator]
-            // We need depth=1 to keep async_iterator on stack when exception occurs
+            // Stack at this point: [..., async_iterator]
+            // We need handler_stack_depth() + 1 to keep parent items + async_iterator on stack when exception occurs
+            let async_for_depth = self.handler_stack_depth() + 1;
             self.push_fblock_with_handler(
                 FBlockType::ForLoop,
                 for_block,
                 after_block,
                 Some(else_block), // Handler for StopAsyncIteration
-                1,                // stack depth: keep async_iterator
+                async_for_depth,  // stack depth: keep async_iterator and parent items
                 false,            // no lasti needed
             )?;
 
@@ -5792,7 +5795,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::List,
-                    Self::contains_await(elt),
+                    Self::contains_await(elt) || Self::generators_contain_await(generators),
                 )?;
             }
             Expr::SetComp(ExprSetComp {
@@ -5815,7 +5818,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Set,
-                    Self::contains_await(elt),
+                    Self::contains_await(elt) || Self::generators_contain_await(generators),
                 )?;
             }
             Expr::DictComp(ExprDictComp {
@@ -5845,7 +5848,9 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Dict,
-                    Self::contains_await(key) || Self::contains_await(value),
+                    Self::contains_await(key)
+                        || Self::contains_await(value)
+                        || Self::generators_contain_await(generators),
                 )?;
             }
             Expr::Generator(ExprGenerator {
@@ -5871,7 +5876,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Generator,
-                    Self::contains_await(elt),
+                    Self::contains_await(elt) || Self::generators_contain_await(generators),
                 )?;
             }
             Expr::Starred(ExprStarred { value, .. }) => {
@@ -6765,6 +6770,9 @@ impl Compiler {
                 // FBlockType::HandlerCleanup => depth += 1,
                 // CPython: inside exception handler, prev_exc is on stack
                 FBlockType::ExceptionHandler => depth += 1,
+                // ExceptionGroupHandler: inside except* handler path
+                // Stack has [prev_exc, orig, list, rest] - add 4 for these
+                FBlockType::ExceptionGroupHandler => depth += 4,
                 // FinallyEnd: inside finally exception path
                 // Stack has [lasti, prev_exc, exc] - add 3 for these
                 FBlockType::FinallyEnd => depth += 3,
@@ -6850,6 +6858,24 @@ impl Compiler {
         let mut visitor = AwaitVisitor::default();
         visitor.visit_expr(expression);
         visitor.found
+    }
+
+    /// Check if any of the generators (except the first one's iter) contains an await expression.
+    /// The first generator's iter is evaluated outside the comprehension scope.
+    fn generators_contain_await(generators: &[Comprehension]) -> bool {
+        for (i, generator) in generators.iter().enumerate() {
+            // First generator's iter is evaluated outside the comprehension
+            if i > 0 && Self::contains_await(&generator.iter) {
+                return true;
+            }
+            // Check ifs in all generators
+            for if_expr in &generator.ifs {
+                if Self::contains_await(if_expr) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn compile_expr_fstring(&mut self, fstring: &ExprFString) -> CompileResult<()> {

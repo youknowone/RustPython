@@ -1411,9 +1411,6 @@ impl ExecutingFrame<'_> {
             // PopBlock is now a pseudo-instruction - exception table handles this
             bytecode::Instruction::PopBlock => Ok(None),
             bytecode::Instruction::PopException => {
-                // Get current exception BEFORE restoring
-                let current_exc = vm.current_exception();
-
                 // Pop prev_exc from value stack and restore it
                 let prev_exc = self.pop_value();
                 if vm.is_none(&prev_exc) {
@@ -1422,17 +1419,12 @@ impl ExecutingFrame<'_> {
                     vm.set_exception(Some(exc));
                 }
 
-                // Clear traceback of exception that is no longer active
-                // This breaks the reference cycle: Exception → Traceback → Frame → locals
-                // RustPython doesn't have a tracing GC, so we must break cycles manually.
-                if let Some(exc) = current_exc {
-                    // Only clear if it's different from the restored exception
-                    // (handles nested handlers where same exception is restored)
-                    let restored = vm.current_exception();
-                    if restored.as_ref().map_or(true, |r| !r.is(&exc)) {
-                        exc.set_traceback_typed(None);
-                    }
-                }
+                // NOTE: We do NOT clear the traceback of the exception that was just handled.
+                // CPython preserves exception tracebacks even after the exception is no longer
+                // the "current exception". This is important for code that catches an exception,
+                // stores it, and later inspects its traceback.
+                // Reference cycles (Exception → Traceback → Frame → locals) are handled by
+                // Python's garbage collector which can detect and break cycles.
 
                 Ok(None)
             }
