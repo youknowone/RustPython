@@ -1008,33 +1008,26 @@ impl Compiler {
             }
 
             FBlockType::FinallyTry => {
-                // CPython compile.c:1540-1556
-                // Compile the finally body inline
-                if preserve_tos {
-                    // Push a POP_VALUE fblock to handle nested returns in finally
-                    self.push_fblock(FBlockType::PopValue, info.fb_block, info.fb_block)?;
-                }
-
-                // Get the finally body from fb_datum and compile it
-                if let FBlockDatum::FinallyBody(ref body) = info.fb_datum {
-                    self.compile_statements(body)?;
-                }
-
-                if preserve_tos {
-                    self.pop_fblock(FBlockType::PopValue);
-                }
+                // FinallyTry is now handled specially in compiler_unwind_fblock_stack
+                // to avoid infinite recursion when the finally body contains return/break/continue.
+                // This branch should not be reached.
+                unreachable!("FinallyTry should be handled by compiler_unwind_fblock_stack");
             }
 
             FBlockType::FinallyEnd => {
                 // CPython compile.c:1558-1568
+                // Stack when in FinallyEnd: [..., prev_exc, exc] or
+                // [..., prev_exc, exc, return_value] if preserve_tos
+                // Note: No lasti here - it's only pushed for cleanup handler exceptions
+                // We need to pop: exc, prev_exc (via PopException)
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopTop); // exc_value
+                emit!(self, Instruction::PopTop); // exc
                 if preserve_tos {
                     emit!(self, Instruction::Swap { index: 2 });
                 }
-                emit!(self, Instruction::PopException);
+                emit!(self, Instruction::PopException); // prev_exc is restored
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
@@ -1102,31 +1095,77 @@ impl Compiler {
         preserve_tos: bool,
         stop_at_loop: bool,
     ) -> CompileResult<()> {
-        // Get a copy of the fblock stack to iterate over
-        // We need to temporarily pop each block, unwind it, then restore
-        let fblocks: Vec<FBlockInfo> = {
-            let code = self.current_code_info();
-            code.fblock.clone()
-        };
+        // Collect the info we need, with indices for FinallyTry blocks
+        #[derive(Clone)]
+        enum UnwindInfo {
+            Normal(FBlockInfo),
+            FinallyTry { body: Vec<ruff_python_ast::Stmt>, fblock_idx: usize },
+        }
+        let mut unwind_infos = Vec::new();
 
-        if fblocks.is_empty() {
-            return Ok(());
+        {
+            let code = self.current_code_info();
+            for i in (0..code.fblock.len()).rev() {
+                // Check for exception group handler (forbidden)
+                if matches!(code.fblock[i].fb_type, FBlockType::ExceptionGroupHandler) {
+                    return Err(self.error(CodegenErrorType::BreakContinueReturnInExceptStar));
+                }
+
+                // Stop at loop if requested
+                if stop_at_loop
+                    && matches!(
+                        code.fblock[i].fb_type,
+                        FBlockType::WhileLoop | FBlockType::ForLoop
+                    )
+                {
+                    break;
+                }
+
+                if matches!(code.fblock[i].fb_type, FBlockType::FinallyTry) {
+                    if let FBlockDatum::FinallyBody(ref body) = code.fblock[i].fb_datum {
+                        unwind_infos.push(UnwindInfo::FinallyTry {
+                            body: body.clone(),
+                            fblock_idx: i,
+                        });
+                    }
+                } else {
+                    unwind_infos.push(UnwindInfo::Normal(code.fblock[i].clone()));
+                }
+            }
         }
 
-        // Process from top of stack
-        for info in fblocks.iter().rev() {
-            // Check for exception group handler (forbidden)
-            if matches!(info.fb_type, FBlockType::ExceptionGroupHandler) {
-                return Err(self.error(CodegenErrorType::BreakContinueReturnInExceptStar));
-            }
+        // Process each fblock
+        for info in unwind_infos {
+            match info {
+                UnwindInfo::Normal(fblock_info) => {
+                    self.compiler_unwind_fblock(&fblock_info, preserve_tos)?;
+                }
+                UnwindInfo::FinallyTry { body, fblock_idx } => {
+                    // Temporarily remove the FinallyTry fblock so nested return/break/continue
+                    // in the finally body won't see it again
+                    let code = self.current_code_info();
+                    let saved_fblock = code.fblock.remove(fblock_idx);
 
-            // Stop at loop if requested
-            if stop_at_loop && matches!(info.fb_type, FBlockType::WhileLoop | FBlockType::ForLoop) {
-                break;
-            }
+                    // Push PopValue fblock if preserving tos
+                    if preserve_tos {
+                        self.push_fblock(
+                            FBlockType::PopValue,
+                            saved_fblock.fb_block,
+                            saved_fblock.fb_block,
+                        )?;
+                    }
 
-            // Unwind this fblock
-            self.compiler_unwind_fblock(info, preserve_tos)?;
+                    self.compile_statements(&body)?;
+
+                    if preserve_tos {
+                        self.pop_fblock(FBlockType::PopValue);
+                    }
+
+                    // Restore the fblock
+                    let code = self.current_code_info();
+                    code.fblock.insert(fblock_idx, saved_fblock);
+                }
+            }
         }
 
         Ok(())
@@ -2250,13 +2289,15 @@ impl Compiler {
         if !finalbody.is_empty() {
             // No SetupFinally emit - exception table handles this
             // Store finally body in fb_datum for compiler_unwind_fblock to compile inline
+            // CPython compile.c: SETUP_FINALLY doesn't push lasti for try body handler
+            // Exception table: L1 to L2 -> L4 [1] (no lasti)
             self.push_fblock_full(
                 FBlockType::FinallyTry,
                 finally_block,
                 finally_block,
                 finally_except_block, // Exception path goes to finally_except_block
                 current_depth,
-                true,
+                false, // No lasti for first finally handler
                 FBlockDatum::FinallyBody(finalbody.to_vec()), // Clone finally body for unwind
             )?;
         }
@@ -2309,19 +2350,20 @@ impl Compiler {
 
                 self.switch_to_block(finally_except);
                 // PUSH_EXC_INFO first, THEN push FinallyEnd fblock
-                // Stack after unwind_blocks: [lasti, exc] (depth = current_depth + 2)
-                // Stack after PUSH_EXC_INFO: [lasti, prev_exc, exc] (depth = current_depth + 3)
+                // Stack after unwind (no lasti): [exc] (depth = current_depth + 1)
+                // Stack after PUSH_EXC_INFO: [prev_exc, exc] (depth = current_depth + 2)
                 emit!(self, Instruction::PushExcInfo);
                 if let Some(cleanup) = finally_cleanup_block {
                     // FinallyEnd fblock must be pushed AFTER PUSH_EXC_INFO
-                    // Depth = current_depth + 2 (lasti + prev_exc remain after RERAISE pops exc)
+                    // Depth = current_depth + 1 (only prev_exc remains after RERAISE pops exc)
+                    // Exception table: L4 to L5 -> L6 [2] lasti (cleanup handler DOES push lasti)
                     self.push_fblock_with_handler(
                         FBlockType::FinallyEnd,
                         cleanup,
                         cleanup,
                         Some(cleanup),
-                        current_depth + 2,
-                        true,
+                        current_depth + 1,
+                        true, // Cleanup handler pushes lasti
                     )?;
                 }
                 self.compile_statements(finalbody)?;
@@ -6694,19 +6736,62 @@ impl Compiler {
         is_break: bool,
     ) -> CompileResult<()> {
         // CPython compile.c:1619 compiler_unwind_fblock_stack
-        // Collect the fblocks we need to unwind through
+        // We need to unwind fblocks and compile cleanup code. For FinallyTry blocks,
+        // we need to compile the finally body inline, but we must temporarily pop
+        // the fblock so that nested break/continue in the finally body don't see it.
+
+        // First, find the loop
+        let code = self.current_code_info();
+        let mut loop_idx = None;
+        let mut is_for_loop = false;
+
+        for i in (0..code.fblock.len()).rev() {
+            match code.fblock[i].fb_type {
+                FBlockType::WhileLoop => {
+                    loop_idx = Some(i);
+                    is_for_loop = false;
+                    break;
+                }
+                FBlockType::ForLoop => {
+                    loop_idx = Some(i);
+                    is_for_loop = true;
+                    break;
+                }
+                FBlockType::ExceptionGroupHandler => {
+                    return Err(self.error_ranged(
+                        CodegenErrorType::BreakContinueReturnInExceptStar,
+                        range,
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        let Some(loop_idx) = loop_idx else {
+            if is_break {
+                return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
+            } else {
+                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
+            }
+        };
+
+        let loop_block = code.fblock[loop_idx].fb_block;
+        let exit_block = code.fblock[loop_idx].fb_exit;
+
+        // Collect the fblocks we need to unwind through, from top down to (but not including) the loop
         #[derive(Clone)]
         enum UnwindAction {
             With { is_async: bool },
             HandlerCleanup,
-            FinallyTry { body: Vec<ruff_python_ast::Stmt> },
+            FinallyTry { body: Vec<ruff_python_ast::Stmt>, fblock_idx: usize },
+            FinallyEnd,
+            PopValue, // Pop return value when continue/break cancels a return
         }
         let mut unwind_actions = Vec::new();
-        let mut loop_info = None;
 
         {
             let code = self.current_code_info();
-            for i in (0..code.fblock.len()).rev() {
+            for i in (loop_idx + 1..code.fblock.len()).rev() {
                 match code.fblock[i].fb_type {
                     FBlockType::With => {
                         unwind_actions.push(UnwindAction::With { is_async: false });
@@ -6720,35 +6805,24 @@ impl Compiler {
                     FBlockType::FinallyTry => {
                         // Need to execute finally body before break/continue
                         if let FBlockDatum::FinallyBody(ref body) = code.fblock[i].fb_datum {
-                            unwind_actions.push(UnwindAction::FinallyTry { body: body.clone() });
+                            unwind_actions.push(UnwindAction::FinallyTry {
+                                body: body.clone(),
+                                fblock_idx: i,
+                            });
                         }
                     }
-                    FBlockType::WhileLoop => {
-                        loop_info = Some((code.fblock[i].fb_block, code.fblock[i].fb_exit, false));
-                        break;
+                    FBlockType::FinallyEnd => {
+                        // Inside finally block reached via exception - need to pop exception
+                        unwind_actions.push(UnwindAction::FinallyEnd);
                     }
-                    FBlockType::ForLoop => {
-                        loop_info = Some((code.fblock[i].fb_block, code.fblock[i].fb_exit, true));
-                        break;
+                    FBlockType::PopValue => {
+                        // Pop the return value that was saved on stack
+                        unwind_actions.push(UnwindAction::PopValue);
                     }
-                    FBlockType::ExceptionGroupHandler => {
-                        return Err(self.error_ranged(
-                            CodegenErrorType::BreakContinueReturnInExceptStar,
-                            range,
-                        ));
-                    }
-                    _ => continue,
+                    _ => {}
                 }
             }
         }
-
-        let Some((loop_block, exit_block, is_for_loop)) = loop_info else {
-            if is_break {
-                return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-            } else {
-                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
-            }
-        };
 
         // Emit cleanup for each fblock
         for action in unwind_actions {
@@ -6771,9 +6845,31 @@ impl Compiler {
                 UnwindAction::HandlerCleanup => {
                     emit!(self, Instruction::PopException);
                 }
-                UnwindAction::FinallyTry { body } => {
+                UnwindAction::FinallyTry { body, fblock_idx } => {
                     // CPython compile.c:1540-1556 - compile finally body inline
+                    // Temporarily pop the FinallyTry fblock so nested break/continue
+                    // in the finally body won't see it again.
+                    let code = self.current_code_info();
+                    let saved_fblock = code.fblock.remove(fblock_idx);
+
                     self.compile_statements(&body)?;
+
+                    // Restore the fblock (though this break/continue will jump away,
+                    // this keeps the fblock stack consistent for error checking)
+                    let code = self.current_code_info();
+                    code.fblock.insert(fblock_idx, saved_fblock);
+                }
+                UnwindAction::FinallyEnd => {
+                    // CPython compile.c:1558-1568
+                    // Stack when in FinallyEnd: [..., prev_exc, exc]
+                    // Note: No lasti here - it's only pushed for cleanup handler exceptions
+                    // We need to pop: exc, prev_exc (via PopException)
+                    emit!(self, Instruction::PopTop); // exc
+                    emit!(self, Instruction::PopException); // prev_exc is restored
+                }
+                UnwindAction::PopValue => {
+                    // Pop the return value - continue/break cancels the pending return
+                    emit!(self, Instruction::PopTop);
                 }
             }
         }
@@ -6815,8 +6911,8 @@ impl Compiler {
                 // Stack has [prev_exc, orig, list, rest] - add 4 for these
                 FBlockType::ExceptionGroupHandler => depth += 4,
                 // FinallyEnd: inside finally exception path
-                // Stack has [lasti, prev_exc, exc] - add 3 for these
-                FBlockType::FinallyEnd => depth += 3,
+                // Stack has [prev_exc, exc] - add 2 for these (no lasti at this level)
+                FBlockType::FinallyEnd => depth += 2,
                 _ => {}
             }
         }
