@@ -1099,7 +1099,10 @@ impl Compiler {
         #[derive(Clone)]
         enum UnwindInfo {
             Normal(FBlockInfo),
-            FinallyTry { body: Vec<ruff_python_ast::Stmt>, fblock_idx: usize },
+            FinallyTry {
+                body: Vec<ruff_python_ast::Stmt>,
+                fblock_idx: usize,
+            },
         }
         let mut unwind_infos = Vec::new();
 
@@ -1147,11 +1150,40 @@ impl Compiler {
                     let saved_fblock = code.fblock.remove(fblock_idx);
 
                     // Push PopValue fblock if preserving tos
+                    // IMPORTANT: When preserving TOS (return value), we need to update the
+                    // exception handler's stack_depth to account for the return value on stack.
+                    // Otherwise, if an exception occurs during the finally body, the stack
+                    // will be unwound to the wrong depth and the return value will be lost.
                     if preserve_tos {
-                        self.push_fblock(
+                        // Get the handler info from the saved fblock (or current handler)
+                        // and create a new handler with stack_depth + 1
+                        let (handler, stack_depth, preserve_lasti) =
+                            if let Some(handler) = saved_fblock.fb_handler {
+                                (
+                                    Some(handler),
+                                    saved_fblock.fb_stack_depth + 1, // +1 for return value
+                                    saved_fblock.fb_preserve_lasti,
+                                )
+                            } else {
+                                // No handler in saved_fblock, check current handler
+                                if let Some(current_handler) = self.current_except_handler() {
+                                    (
+                                        Some(current_handler.handler_block),
+                                        current_handler.stack_depth + 1, // +1 for return value
+                                        current_handler.preserve_lasti,
+                                    )
+                                } else {
+                                    (None, 1, false) // No handler, but still track the return value
+                                }
+                            };
+
+                        self.push_fblock_with_handler(
                             FBlockType::PopValue,
                             saved_fblock.fb_block,
                             saved_fblock.fb_block,
+                            handler,
+                            stack_depth,
+                            preserve_lasti,
                         )?;
                     }
 
@@ -6758,10 +6790,9 @@ impl Compiler {
                     break;
                 }
                 FBlockType::ExceptionGroupHandler => {
-                    return Err(self.error_ranged(
-                        CodegenErrorType::BreakContinueReturnInExceptStar,
-                        range,
-                    ));
+                    return Err(
+                        self.error_ranged(CodegenErrorType::BreakContinueReturnInExceptStar, range)
+                    );
                 }
                 _ => {}
             }
@@ -6781,9 +6812,14 @@ impl Compiler {
         // Collect the fblocks we need to unwind through, from top down to (but not including) the loop
         #[derive(Clone)]
         enum UnwindAction {
-            With { is_async: bool },
+            With {
+                is_async: bool,
+            },
             HandlerCleanup,
-            FinallyTry { body: Vec<ruff_python_ast::Stmt>, fblock_idx: usize },
+            FinallyTry {
+                body: Vec<ruff_python_ast::Stmt>,
+                fblock_idx: usize,
+            },
             FinallyEnd,
             PopValue, // Pop return value when continue/break cancels a return
         }
@@ -6913,6 +6949,9 @@ impl Compiler {
                 // FinallyEnd: inside finally exception path
                 // Stack has [prev_exc, exc] - add 2 for these (no lasti at this level)
                 FBlockType::FinallyEnd => depth += 2,
+                // PopValue: preserving a return value on stack during inline finally
+                // The return value adds 1 to the stack depth
+                FBlockType::PopValue => depth += 1,
                 _ => {}
             }
         }

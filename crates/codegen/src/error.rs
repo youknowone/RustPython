@@ -119,7 +119,10 @@ impl fmt::Display for CodegenErrorType {
             InvalidAsyncFor => write!(f, "'async for' outside async function"),
             InvalidAsyncWith => write!(f, "'async with' outside async function"),
             InvalidAsyncComprehension => {
-                write!(f, "asynchronous comprehension outside of an asynchronous function")
+                write!(
+                    f,
+                    "asynchronous comprehension outside of an asynchronous function"
+                )
             }
             AsyncYieldFrom => write!(f, "'yield from' inside async function"),
             AsyncReturnValue => {

@@ -368,15 +368,8 @@ impl CodeInfo {
                 if new_depth > maxdepth {
                     maxdepth = new_depth
                 }
-                // we don't want to worry about Break/Continue, they use unwinding to jump to
-                // their targets and as such the stack size is taken care of in frame.rs by setting
-                // it back to the level it was at when SetupLoop was run
-                if ins.target != BlockIdx::NULL
-                    && !matches!(
-                        instr,
-                        Instruction::Continue { .. } | Instruction::Break { .. }
-                    )
-                {
+                // Process target blocks for branching instructions
+                if ins.target != BlockIdx::NULL {
                     let effect = instr.stack_effect(ins.arg, true);
                     let target_depth = depth.checked_add_signed(effect).ok_or({
                         if effect < 0 {
@@ -391,9 +384,24 @@ impl CodeInfo {
                     stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
                 }
                 // Process exception handler blocks
-                // When exception occurs, stack is unwound to handler.stack_depth and exception is pushed (+1)
+                // When exception occurs, stack is unwound to handler.stack_depth, then:
+                // - If preserve_lasti: push lasti (+1)
+                // - Push exception (+1)
+                // - Handler block starts with PUSH_EXC_INFO as its first instruction
+                // So the starting depth for the handler block (BEFORE PUSH_EXC_INFO) is:
+                // handler.stack_depth + preserve_lasti + 1 (exc)
+                // PUSH_EXC_INFO will then add +1 when the block is processed
                 if let Some(ref handler) = ins.except_handler {
                     let handler_depth = handler.stack_depth + 1 + (handler.preserve_lasti as u32); // +1 for exception, +1 for lasti if preserve_lasti
+                    if DEBUG {
+                        eprintln!(
+                            "  HANDLER: block={} depth={} (base={} lasti={})",
+                            handler.handler_block.0,
+                            handler_depth,
+                            handler.stack_depth,
+                            handler.preserve_lasti
+                        );
+                    }
                     if handler_depth > maxdepth {
                         maxdepth = handler_depth;
                     }
