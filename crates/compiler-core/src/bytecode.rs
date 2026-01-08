@@ -1740,6 +1740,9 @@ impl Instruction {
     pub const fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
+            | JumpBackward { target: l }
+            | JumpBackwardNoInterrupt { target: l }
+            | JumpForward { target: l }
             | JumpIfNotExcMatch(l)
             | PopJumpIfTrue { target: l }
             | PopJumpIfFalse { target: l }
@@ -2060,11 +2063,29 @@ impl Instruction {
             ImportName { idx } => w!(IMPORT_NAME, name = idx),
             IsOp(inv) => w!(IS_OP, ?inv),
             Jump { target } => w!(JUMP, target),
+            JumpBackward { target } => w!(JUMP_BACKWARD, target),
+            JumpBackwardNoInterrupt { target } => w!(JUMP_BACKWARD_NO_INTERRUPT, target),
+            JumpForward { target } => w!(JUMP_FORWARD, target),
             JumpIfFalseOrPop { target } => w!(JUMP_IF_FALSE_OR_POP, target),
             JumpIfNotExcMatch(target) => w!(JUMP_IF_NOT_EXC_MATCH, target),
             JumpIfTrueOrPop { target } => w!(JUMP_IF_TRUE_OR_POP, target),
             ListAppend { i } => w!(LIST_APPEND, i),
-            LoadAttr { idx } => w!(LOAD_ATTR, name = idx),
+            LoadAttr { idx } => {
+                // oparg encoding: bit 0 = method flag, bits 1+ = name index
+                let encoded = idx.get(arg);
+                let is_method = (encoded & 1) == 1;
+                let name_idx = encoded >> 1;
+                let attr_name = name(name_idx);
+                if is_method {
+                    write!(
+                        f,
+                        "{:pad$}({}, {}, method=true)",
+                        "LOAD_ATTR", encoded, attr_name
+                    )
+                } else {
+                    write!(f, "{:pad$}({}, {})", "LOAD_ATTR", encoded, attr_name)
+                }
+            }
             LoadAttrMethod { idx } => w!(LOAD_ATTR_METHOD, name = idx),
             LoadBuildClass => w!(LOAD_BUILD_CLASS),
             LoadClassDeref(idx) => w!(LOAD_CLASSDEREF, cell_name = idx),

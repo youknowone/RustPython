@@ -212,7 +212,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             match instruction {
                 Instruction::ReturnValue
                 | Instruction::ReturnConst { .. }
-                | Instruction::Jump { .. } => {
+                | Instruction::Jump { .. }
+                | Instruction::JumpBackward { .. }
+                | Instruction::JumpForward { .. } => {
                     in_unreachable_code = true;
                 }
                 _ => {}
@@ -558,7 +560,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::ExtendedArg => Ok(()),
 
-            Instruction::Jump { target } => {
+            Instruction::Jump { target }
+            | Instruction::JumpBackward { target }
+            | Instruction::JumpForward { target } => {
                 let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
