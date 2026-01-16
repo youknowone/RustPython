@@ -4324,13 +4324,13 @@ mod _io {
             let pos: u64 = state[1].clone().try_into_value(vm)?;
             let dict = &state[2];
 
-            // Set content
-            *zelf.buffer.write() = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
-
-            // Set position
-            zelf.buffer(vm)?
+            // Check exports and set content (like CHECK_EXPORTS)
+            let mut buffer = zelf.try_resizable(vm)?;
+            *buffer = BufferedIO::new(Cursor::new(content.as_bytes().to_vec()));
+            buffer
                 .seek(SeekFrom::Start(pos))
                 .map_err(|err| os_err(vm, err))?;
+            drop(buffer);
 
             // Set __dict__ if provided
             if !vm.is_none(dict) {
