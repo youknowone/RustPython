@@ -162,11 +162,9 @@ mod sys {
 
     #[pyattr]
     fn builtin_module_names(vm: &VirtualMachine) -> PyTupleRef {
-        let mut module_names: Vec<_> = vm.state.module_inits.keys().cloned().collect();
-        // Also include multi-phase init modules
-        module_names.extend(vm.state.module_defs.keys().cloned());
-        module_names.push("sys".into());
-        module_names.push("builtins".into());
+        let mut module_names: Vec<&str> = vm.state.module_defs.keys().copied().collect();
+        module_names.push("sys");
+        module_names.push("builtins");
         module_names.sort();
         vm.ctx.new_tuple(
             module_names
@@ -1579,6 +1577,7 @@ mod sys {
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
+    module.__init_methods(vm).unwrap();
     sys::module_exec(vm, module).unwrap();
 
     let modules = vm.ctx.new_dict();
@@ -1590,7 +1589,8 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
         .unwrap();
 
     // Create sys._jit submodule
-    let jit_module = sys_jit::make_module(vm);
+    let jit_def = sys_jit::module_def(&vm.ctx);
+    let jit_module = jit_def.create_module(vm).unwrap();
 
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().to_pyobject(vm),

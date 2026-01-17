@@ -1,122 +1,26 @@
-use rustpython_vm::{
-    Interpreter, PyRef, Settings, VirtualMachine, builtins::PyModule, stdlib::StdlibDefFunc,
-};
+use rustpython_vm::{InterpreterBuilder, VirtualMachine};
 
-pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
-
-/// The convenient way to create [rustpython_vm::Interpreter] with stdlib and other stuffs.
-///
-/// Basic usage:
-/// ```
-/// let interpreter = rustpython::InterpreterConfig::new()
-///     .init_stdlib()
-///     .interpreter();
-/// ```
-///
-/// To override [rustpython_vm::Settings]:
-/// ```
-/// use rustpython_vm::Settings;
-/// // Override your settings here.
-/// let mut settings = Settings::default();
-/// settings.debug = 1;
-/// // You may want to add paths to `rustpython_vm::Settings::path_list` to allow import python libraries.
-/// settings.path_list.push("Lib".to_owned());  // add standard library directory
-/// settings.path_list.push("".to_owned());  // add current working directory
-/// let interpreter = rustpython::InterpreterConfig::new()
-///     .settings(settings)
-///     .interpreter();
-/// ```
-///
-/// To add native modules:
-/// ```
-/// use rustpython_vm::pymodule;
-///
-/// #[pymodule]
-/// mod your_module {}
-///
-/// let interpreter = rustpython::InterpreterConfig::new()
-///     .init_stdlib()
-///     .add_native_module_def(
-///         "your_module_name".to_owned(),
-///         your_module::module_def,
-///     )
-///     .interpreter();
-/// ```
-#[derive(Default)]
-pub struct InterpreterConfig {
-    settings: Option<Settings>,
-    init_hooks: Vec<InitHook>,
-}
-
-impl InterpreterConfig {
-    /// Creates a new interpreter configuration with default settings.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Builds the interpreter with the current configuration.
-    pub fn interpreter(self) -> Interpreter {
-        let settings = self.settings.unwrap_or_default();
-        Interpreter::with_init(settings, |vm| {
-            for hook in self.init_hooks {
-                hook(vm);
-            }
-        })
-    }
-
-    /// Sets custom settings for the interpreter.
-    ///
-    /// If called multiple times, only the last settings will be used.
-    pub fn settings(mut self, settings: Settings) -> Self {
-        self.settings = Some(settings);
-        self
-    }
-
-    /// Adds a custom initialization hook.
-    ///
-    /// Hooks are executed in the order they are added during interpreter creation.
-    pub fn init_hook(mut self, hook: InitHook) -> Self {
-        self.init_hooks.push(hook);
-        self
-    }
-
-    /// Adds a native module definition to the interpreter.
-    pub fn add_native_module_def(self, name: String, def_func: StdlibDefFunc) -> Self {
-        self.init_hook(Box::new(move |vm| vm.add_native_module_def(name, def_func)))
-    }
-
-    /// Adds a native module to the interpreter.
-    #[deprecated(note = "use add_native_module_def with multi-phase module initialization")]
-    #[allow(deprecated)]
-    pub fn add_native_module(
-        self,
-        name: String,
-        make_module: fn(&VirtualMachine) -> PyRef<PyModule>,
-    ) -> Self {
-        self.init_hook(Box::new(move |vm| {
-            vm.add_native_module(name, Box::new(make_module))
-        }))
-    }
-
-    /// Initializes the Python standard library.
+/// Extension trait for InterpreterBuilder to add rustpython-specific functionality.
+pub trait InterpreterBuilderExt {
+    /// Initialize the Python standard library.
     ///
     /// Requires the `stdlib` feature to be enabled.
     #[cfg(feature = "stdlib")]
-    pub fn init_stdlib(self) -> Self {
-        self.init_hook(Box::new(init_stdlib))
-    }
+    fn init_stdlib(self) -> Self;
 }
 
-/// Initializes all standard library modules for the given VM.
-#[cfg(feature = "stdlib")]
-pub fn init_stdlib(vm: &mut VirtualMachine) {
-    vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
+impl InterpreterBuilderExt for InterpreterBuilder {
+    #[cfg(feature = "stdlib")]
+    fn init_stdlib(self) -> Self {
+        let defs = rustpython_stdlib::stdlib_module_defs(&self.ctx);
+        self.add_native_modules(&defs).init_hook(|vm| {
+            #[cfg(feature = "freeze-stdlib")]
+            setup_frozen_stdlib(vm);
 
-    #[cfg(feature = "freeze-stdlib")]
-    setup_frozen_stdlib(vm);
-
-    #[cfg(not(feature = "freeze-stdlib"))]
-    setup_dynamic_stdlib(vm);
+            #[cfg(not(feature = "freeze-stdlib"))]
+            setup_dynamic_stdlib(vm);
+        })
+    }
 }
 
 /// Setup frozen standard library (compiled into the binary)

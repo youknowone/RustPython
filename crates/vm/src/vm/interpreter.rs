@@ -1,6 +1,153 @@
 use super::{Context, PyConfig, VirtualMachine, setting::Settings, thread};
-use crate::{PyResult, getpath, stdlib::atexit, vm::PyBaseExceptionRef};
+use crate::{
+    PyResult, builtins, common::rc::PyRc, getpath, stdlib::atexit, vm::PyBaseExceptionRef,
+};
 use core::sync::atomic::Ordering;
+
+type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
+
+/// Configuration builder for constructing an Interpreter.
+///
+/// This is the preferred way to configure and create an interpreter with custom modules.
+/// Modules must be registered before the interpreter is built,
+/// similar to CPython's `PyImport_AppendInittab` which must be called before `Py_Initialize`.
+///
+/// # Example
+/// ```
+/// use rustpython_vm::Interpreter;
+///
+/// let interp = Interpreter::builder()
+///     .settings(Default::default())
+///     .add_modules(rustpython_stdlib::stdlib_module_defs())
+///     .build();
+/// ```
+pub struct InterpreterBuilder {
+    settings: Settings,
+    pub ctx: PyRc<Context>,
+    module_defs: Vec<&'static builtins::PyModuleDef>,
+    init_hooks: Vec<InitFunc>,
+}
+
+impl InterpreterBuilder {
+    /// Create a new interpreter configuration with default settings.
+    pub fn new() -> Self {
+        Self {
+            settings: Settings::default(),
+            ctx: Context::genesis().clone(),
+            module_defs: Vec::new(),
+            init_hooks: Vec::new(),
+        }
+    }
+
+    /// Set custom settings for the interpreter.
+    ///
+    /// If called multiple times, only the last settings will be used.
+    pub fn settings(mut self, settings: Settings) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    /// Add a single native module definition.
+    ///
+    /// # Example
+    /// ```
+    /// use rustpython_vm::Interpreter;
+    ///
+    /// let interp = Interpreter::builder()
+    ///     .init_hook(|vm| {
+    ///         let def = mymodule::module_def(&vm.ctx);
+    ///         rustpython_vm::common::rc::PyRc::get_mut(&mut vm.state)
+    ///             .unwrap()
+    ///             .module_defs
+    ///             .insert(def.name.as_str(), def);
+    ///     })
+    ///     .build();
+    /// ```
+    pub fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
+        self.add_native_modules(&[def])
+    }
+
+    /// Add multiple native module definitions.
+    ///
+    /// # Example
+    /// ```
+    /// use rustpython_vm::Interpreter;
+    ///
+    /// let builder = Interpreter::builder();
+    /// let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+    /// let interp = builder.add_native_modules(&defs).build();
+    /// ```
+    pub fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
+        self.module_defs.extend_from_slice(defs);
+        self
+    }
+
+    /// Add a custom initialization hook.
+    ///
+    /// Hooks are executed in the order they are added during interpreter creation.
+    /// This function will be called after modules are registered but before
+    /// the VM is initialized, allowing for additional customization.
+    ///
+    /// # Example
+    /// ```
+    /// use rustpython_vm::Interpreter;
+    ///
+    /// let interp = Interpreter::builder()
+    ///     .init_hook(|vm| {
+    ///         // Custom initialization
+    ///     })
+    ///     .build();
+    /// ```
+    pub fn init_hook<F>(mut self, init: F) -> Self
+    where
+        F: FnOnce(&mut VirtualMachine) + 'static,
+    {
+        self.init_hooks.push(Box::new(init));
+        self
+    }
+
+    /// Build the interpreter.
+    ///
+    /// This consumes the configuration and returns a fully initialized Interpreter.
+    pub fn build(self) -> Interpreter {
+        let paths = getpath::init_path_config(&self.settings);
+        let config = PyConfig::new(self.settings, paths);
+
+        let ctx = self.ctx;
+        crate::types::TypeZoo::extend(&ctx);
+        crate::exceptions::ExceptionZoo::extend(&ctx);
+
+        let mut vm = VirtualMachine::new(config, ctx);
+
+        // Add custom module definitions
+        for def in self.module_defs {
+            PyRc::get_mut(&mut vm.state)
+                .expect("there should not be multiple threads during initialization")
+                .module_defs
+                .insert(def.name.as_str(), def);
+        }
+
+        // Call init hooks in order
+        for hook in self.init_hooks {
+            hook(&mut vm);
+        }
+
+        vm.initialize();
+
+        Interpreter { vm }
+    }
+
+    /// Alias for `build()` for compatibility with the `interpreter()` pattern.
+    pub fn interpreter(self) -> Interpreter {
+        self.build()
+    }
+}
+
+impl Default for InterpreterBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// The general interface for the VM
 ///
@@ -25,10 +172,24 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
+    /// Create a new interpreter configuration builder.
+    ///
+    /// # Example
+    /// ```
+    /// use rustpython_vm::Interpreter;
+    ///
+    /// let interp = Interpreter::builder(Default::default())
+    ///     .add_native_modules(rustpython_stdlib::stdlib_module_defs())
+    ///     .build();
+    /// ```
+    pub fn builder(settings: Settings) -> InterpreterBuilder {
+        InterpreterBuilder::new().settings(settings)
+    }
+
     /// This is a bare unit to build up an interpreter without the standard library.
-    /// To create an interpreter with the standard library with the `rustpython` crate, use `rustpython::InterpreterConfig`.
+    /// To create an interpreter with the standard library with the `rustpython` crate, use `rustpython::InterpreterBuilder`.
     /// To create an interpreter without the `rustpython` crate, but only with `rustpython-vm`,
-    /// try to build one from the source code of `InterpreterConfig`. It will not be a one-liner but it also will not be too hard.
+    /// try to build one from the source code of `InterpreterBuilder`. It will not be a one-liner but it also will not be too hard.
     pub fn without_stdlib(settings: Settings) -> Self {
         Self::with_init(settings, |_| {})
     }
@@ -38,7 +199,7 @@ impl Interpreter {
     /// use rustpython_vm::Interpreter;
     /// Interpreter::with_init(Default::default(), |vm| {
     ///     // put this line to add stdlib to the vm
-    ///     // vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
+    ///     // vm.add_native_module_defs(rustpython_stdlib::stdlib_module_defs());
     /// }).enter(|vm| {
     ///     vm.run_code_string(vm.new_scope_with_builtins(), "print(1)", "<...>".to_owned());
     /// });

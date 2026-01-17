@@ -1,5 +1,5 @@
 // spell-checker:ignore aheui
-/// Setting up a project with a frozen stdlib can be done *either* by using `rustpython::InterpreterConfig` or `rustpython_vm::Interpreter::with_init`.
+/// Setting up a project with a frozen stdlib can be done *either* by using `rustpython::InterpreterBuilder` or `rustpython_vm::Interpreter::with_init`.
 /// See each function for example.
 /// 
 /// See also: `aheui-rust.md` for freezing your own package.
@@ -17,11 +17,11 @@ fn run(keyword: &str, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 fn interpreter_with_config() {
-    let interpreter = rustpython::InterpreterConfig::new()
+    let interpreter = rustpython::InterpreterBuilder::new()
         .init_stdlib()
         .interpreter();
     // Use interpreter.enter to reuse the same interpreter later
-    interpreter.run(|vm| run("rustpython::InterpreterConfig", vm));
+    interpreter.run(|vm| run("rustpython::InterpreterBuilder", vm));
 }
 
 fn interpreter_with_vm() {

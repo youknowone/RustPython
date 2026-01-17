@@ -16,10 +16,10 @@ pub fn sys_stdout_write_console(data: &str, _vm: &VirtualMachine) -> PyResult<()
     Ok(())
 }
 
-pub fn make_stdout_object(
-    vm: &VirtualMachine,
-    write_f: impl Fn(&str, &VirtualMachine) -> PyResult<()> + 'static,
-) -> PyObjectRef {
+pub fn make_stdout_object<F>(vm: &VirtualMachine, write_f: F) -> PyObjectRef
+where
+    F: Fn(&str, &VirtualMachine) -> PyResult<()> + 'static,
+{
     let ctx = &vm.ctx;
     // there's not really any point to storing this class so that there's a consistent type object,
     // we just want a half-decent repr() output

@@ -1,5 +1,5 @@
 use crate::{
-    browser_module::setup_browser_module,
+    browser_module,
     convert::{self, PyResultExt},
     js_module, wasm_builtins,
 };
@@ -37,36 +37,53 @@ mod _window {
 
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
-        let mut scope = None;
         let mut settings = Settings::default();
         settings.allow_external_library = false;
-        let interp = Interpreter::with_init(settings, |vm| {
-            #[cfg(feature = "freeze-stdlib")]
-            vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
 
-            #[cfg(feature = "freeze-stdlib")]
-            vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
+        let mut builder = Interpreter::builder(settings);
 
-            vm.wasm_id = Some(id);
+        #[cfg(feature = "freeze-stdlib")]
+        {
+            let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+            builder = builder.add_native_modules(&defs);
+        }
 
-            js_module::setup_js_module(vm);
-            if inject_browser_module {
-                vm.add_native_module_def("_window".to_owned(), _window::module_def);
-                setup_browser_module(vm);
-            }
+        // Add wasm-specific modules
+        let js_def = js_module::module_def(&builder.ctx);
+        builder = builder.add_native_module(js_def);
 
-            VM_INIT_FUNCS.with_borrow(|funcs| {
-                for f in funcs {
-                    f(vm)
+        if inject_browser_module {
+            let window_def = _window::module_def(&builder.ctx);
+            let browser_def = browser_module::module_def(&builder.ctx);
+            builder = builder
+                .add_native_module(window_def)
+                .add_native_module(browser_def);
+        }
+
+        let interp = builder
+            .init_hook(move |vm| {
+                #[cfg(feature = "freeze-stdlib")]
+                vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
+
+                if inject_browser_module {
+                    browser_module::add_frozen_browser_lib(vm);
                 }
-            });
 
-            scope = Some(vm.new_scope_with_builtins());
-        });
+                vm.wasm_id = Some(id);
+
+                VM_INIT_FUNCS.with_borrow(|funcs| {
+                    for f in funcs {
+                        f(vm)
+                    }
+                });
+            })
+            .build();
+
+        let scope = interp.enter(|vm| vm.new_scope_with_builtins());
 
         StoredVirtualMachine {
             interp,
-            scope: scope.unwrap(),
+            scope,
             held_objects: RefCell::new(Vec::new()),
         }
     }

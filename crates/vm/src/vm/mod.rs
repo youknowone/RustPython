@@ -19,7 +19,7 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
+        self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
         PyStrRef, PyTypeRef,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
@@ -56,7 +56,7 @@ use std::{
 };
 
 pub use context::Context;
-pub use interpreter::Interpreter;
+pub use interpreter::{Interpreter, InterpreterBuilder};
 pub(crate) use method::PyMethod;
 pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
@@ -102,8 +102,7 @@ struct ExceptionStack {
 
 pub struct PyGlobalState {
     pub config: PyConfig,
-    pub module_inits: stdlib::StdlibMap,
-    pub module_defs: stdlib::StdlibDefMap,
+    pub module_defs: std::collections::BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -170,8 +169,11 @@ impl VirtualMachine {
             const { RefCell::new([const { None }; signal::NSIG]) },
         ));
 
-        let module_inits = stdlib::get_module_inits();
-        let module_defs = stdlib::get_module_defs();
+        let module_defs: std::collections::BTreeMap<&'static str, &'static builtins::PyModuleDef> =
+            stdlib::builtin_module_defs(&ctx)
+                .into_iter()
+                .map(|def| (def.name.as_str(), def))
+                .collect();
 
         let seed = match config.settings.hash_seed {
             Some(seed) => seed,
@@ -204,7 +206,6 @@ impl VirtualMachine {
             repr_guards: RefCell::default(),
             state: PyRc::new(PyGlobalState {
                 config,
-                module_inits,
                 module_defs,
                 frozen: HashMap::default(),
                 stacksize: AtomicCell::new(0),
@@ -278,7 +279,7 @@ impl VirtualMachine {
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
-                "`rustpython_pylib` maybe not set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterConfig::init_stdlib` or manually call `vm.add_frozen(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::with_init`."
+                "`rustpython_pylib` maybe not set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `vm.add_frozen(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::with_init`."
             } else if !env_set {
                 "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
             } else if path_contains_env {
@@ -476,40 +477,6 @@ impl VirtualMachine {
     fn state_mut(&mut self) -> &mut PyGlobalState {
         PyRc::get_mut(&mut self.state)
             .expect("there should not be multiple threads while a user has a mut ref to a vm")
-    }
-
-    /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
-    #[deprecated(note = "use add_native_module_def(s) with multi-phase module initialization")]
-    pub fn add_native_module<S>(&mut self, name: S, module: stdlib::StdlibInitFunc)
-    where
-        S: Into<Cow<'static, str>>,
-    {
-        self.state_mut().module_inits.insert(name.into(), module);
-    }
-
-    #[deprecated(note = "use add_native_module_defs with multi-phase module initialization")]
-    pub fn add_native_modules<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibInitFunc)>,
-    {
-        self.state_mut().module_inits.extend(iter);
-    }
-
-    /// Add a module definition for multi-phase initialization.
-    /// These modules are added to sys.modules BEFORE their exec function runs,
-    /// allowing safe circular imports.
-    pub fn add_native_module_def<S>(&mut self, name: S, def_func: stdlib::StdlibDefFunc)
-    where
-        S: Into<Cow<'static, str>>,
-    {
-        self.state_mut().module_defs.insert(name.into(), def_func);
-    }
-
-    pub fn add_native_module_defs<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = (Cow<'static, str>, stdlib::StdlibDefFunc)>,
-    {
-        self.state_mut().module_defs.extend(iter);
     }
 
     /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
@@ -1430,7 +1397,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // core stdlib Python modules that the vm calls into, but are still used in Python
     // application code, e.g. copyreg
     // FIXME: Initializing core_modules here results duplicated frozen module generation for core_modules.
-    // We need a way to initialize this modules for both `Interpreter::without_stdlib()` and `InterpreterConfig::new().init_stdlib().interpreter()`
+    // We need a way to initialize this modules for both `Interpreter::without_stdlib()` and `InterpreterBuilder::new().init_stdlib().interpreter()`
     // #[cfg(not(feature = "freeze-stdlib"))]
     ext_modules!(
         iter,
@@ -1446,7 +1413,7 @@ fn test_nested_frozen() {
     use rustpython_vm as vm;
 
     vm::Interpreter::with_init(Default::default(), |vm| {
-        // vm.add_native_module_defs(rustpython_stdlib::get_module_defs());
+        // vm.add_native_module_defs(rustpython_stdlib::stdlib_module_defs());
         vm.add_frozen(rustpython_vm::py_freeze!(
             dir = "../../extra_tests/snippets"
         ));

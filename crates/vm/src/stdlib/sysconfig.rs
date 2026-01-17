@@ -1,4 +1,4 @@
-pub(crate) use sysconfig::make_module;
+pub(crate) use sysconfig::module_def;
 
 #[pymodule(name = "_sysconfig")]
 pub(crate) mod sysconfig {

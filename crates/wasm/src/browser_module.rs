@@ -1,6 +1,10 @@
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{VirtualMachine, py_freeze};
 
 pub(crate) use _browser::module_def;
+
+pub fn add_frozen_browser_lib(vm: &mut VirtualMachine) {
+    vm.add_frozen(py_freeze!(dir = "Lib"));
+}
 
 #[pymodule]
 mod _browser {
@@ -256,9 +260,4 @@ mod _browser {
 
         Ok(PyPromise::from_future(future).into_pyobject(vm))
     }
-}
-
-pub fn setup_browser_module(vm: &mut VirtualMachine) {
-    vm.add_native_module_def("_browser".to_owned(), module_def);
-    vm.add_frozen(py_freeze!(dir = "Lib"));
 }

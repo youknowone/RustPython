@@ -1,4 +1,4 @@
-pub(crate) use symtable::make_module;
+pub(crate) use symtable::module_def;
 
 #[pymodule]
 mod symtable {

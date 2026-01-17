@@ -1,4 +1,4 @@
-use crate::{PyRef, VirtualMachine, builtins::PyModule};
+pub(crate) use stat::module_def;
 
 #[pymodule]
 mod stat {
@@ -521,8 +521,4 @@ mod stat {
 
         result
     }
-}
-
-pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    stat::make_module(vm)
 }

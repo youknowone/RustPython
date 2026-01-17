@@ -3,9 +3,7 @@
 
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
-    winreg::make_module(vm)
-}
+pub(crate) use winreg::module_def;
 
 #[pymodule]
 mod winreg {
