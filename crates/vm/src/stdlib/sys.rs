@@ -862,7 +862,7 @@ mod sys {
 
         for (thread_id, frame) in frames {
             let key = vm.ctx.new_int(thread_id);
-            dict.set_item(key.as_object(), frame.into(), vm)?;
+            dict.set_item(key.as_object(), frame.as_object().to_owned(), vm)?;
         }
 
         Ok(dict)
