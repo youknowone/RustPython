@@ -249,19 +249,7 @@ pub enum Instruction {
     Break {
         target: Arg<Label>,
     } = 119,
-    BuildListFromTuples {
-        size: Arg<u32>,
-    } = 120,
-    BuildMapForCall {
-        size: Arg<u32>,
-    } = 121,
-    BuildSetFromTuples {
-        size: Arg<u32>,
-    } = 122,
     BuildTupleFromIter = 123,
-    BuildTupleFromTuples {
-        size: Arg<u32>,
-    } = 124,
     /// Build a Template from strings tuple and interpolations tuple on stack.
     /// Stack: [strings_tuple, interpolations_tuple] -> [template]
     BuildTemplate = 125,
@@ -418,19 +406,7 @@ impl TryFrom<u8> for Instruction {
             u8::from(Self::Break {
                 target: Arg::marker(),
             }),
-            u8::from(Self::BuildListFromTuples {
-                size: Arg::marker(),
-            }),
-            u8::from(Self::BuildMapForCall {
-                size: Arg::marker(),
-            }),
-            u8::from(Self::BuildSetFromTuples {
-                size: Arg::marker(),
-            }),
             u8::from(Self::BuildTupleFromIter),
-            u8::from(Self::BuildTupleFromTuples {
-                size: Arg::marker(),
-            }),
             u8::from(Self::BuildTemplate),
             u8::from(Self::BuildInterpolation {
                 oparg: Arg::marker(),
@@ -615,18 +591,11 @@ impl InstructionMetadata for Instruction {
             }
             Self::BuildString { size } => -(size.get(arg) as i32) + 1,
             Self::BuildTuple { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildTupleFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
             Self::BuildList { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildListFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
             Self::BuildSet { size, .. } => -(size.get(arg) as i32) + 1,
-            Self::BuildSetFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
             Self::BuildTupleFromIter => 0,
             Self::BuildMap { size } => {
                 let nargs = size.get(arg) * 2;
-                -(nargs as i32) + 1
-            }
-            Self::BuildMapForCall { size } => {
-                let nargs = size.get(arg);
                 -(nargs as i32) + 1
             }
             Self::DictUpdate { .. } => -1,
@@ -860,16 +829,12 @@ impl InstructionMetadata for Instruction {
             Self::BinarySubscr => w!(BINARY_SUBSCR),
             Self::Break { target } => w!(BREAK, target),
             Self::BuildList { size } => w!(BUILD_LIST, size),
-            Self::BuildListFromTuples { size } => w!(BUILD_LIST_FROM_TUPLES, size),
             Self::BuildMap { size } => w!(BUILD_MAP, size),
-            Self::BuildMapForCall { size } => w!(BUILD_MAP_FOR_CALL, size),
             Self::BuildSet { size } => w!(BUILD_SET, size),
-            Self::BuildSetFromTuples { size } => w!(BUILD_SET_FROM_TUPLES, size),
             Self::BuildSlice { argc } => w!(BUILD_SLICE, ?argc),
             Self::BuildString { size } => w!(BUILD_STRING, size),
             Self::BuildTuple { size } => w!(BUILD_TUPLE, size),
             Self::BuildTupleFromIter => w!(BUILD_TUPLE_FROM_ITER),
-            Self::BuildTupleFromTuples { size } => w!(BUILD_TUPLE_FROM_TUPLES, size),
             Self::Call { nargs } => w!(CALL, nargs),
             Self::CallFunctionEx => w!(CALL_FUNCTION_EX),
             Self::CallKw { nargs } => w!(CALL_KW, nargs),

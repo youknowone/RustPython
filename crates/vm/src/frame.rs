@@ -664,35 +664,13 @@ impl ExecutingFrame<'_> {
                     target: target.get(arg),
                 },
             ),
-            Instruction::BuildListFromTuples { size } => {
-                // SAFETY: compiler guarantees `size` tuples are on the stack
-                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
-                let list_obj = vm.ctx.new_list(elements);
-                self.push_value(list_obj.into());
-                Ok(None)
-            }
             Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize).collect();
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            Instruction::BuildMapForCall { size } => {
-                self.execute_build_map_for_call(vm, size.get(arg))
-            }
             Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
-            Instruction::BuildSetFromTuples { size } => {
-                let set = PySet::default().into_ref(&vm.ctx);
-                for element in self.pop_multiple(size.get(arg) as usize) {
-                    // SAFETY: trust compiler
-                    let tup = unsafe { element.downcast_unchecked::<PyTuple>() };
-                    for item in tup.iter() {
-                        set.add(item.clone(), vm)?;
-                    }
-                }
-                self.push_value(set.into());
-                Ok(None)
-            }
             Instruction::BuildSet { size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
@@ -726,13 +704,6 @@ impl ExecutingFrame<'_> {
                     let list_obj = vm.ctx.new_tuple(elements);
                     self.push_value(list_obj.into());
                 }
-                Ok(None)
-            }
-            Instruction::BuildTupleFromTuples { size } => {
-                // SAFETY: compiler guarantees `size` tuples are on the stack
-                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
-                let list_obj = vm.ctx.new_tuple(elements);
-                self.push_value(list_obj.into());
                 Ok(None)
             }
             Instruction::BuildTuple { size } => {
@@ -945,6 +916,46 @@ impl ExecutingFrame<'_> {
                 }
 
                 dict.merge_object(source, vm)?;
+                Ok(None)
+            }
+            Instruction::DictMerge { index } => {
+                let source = self.pop_value();
+                let obj = self.nth_value(index.get(arg));
+                let dict: &Py<PyDict> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
+
+                // DICT_MERGE checks for duplicate keys (used for **kwargs in function calls)
+                // Check if source has keys method (is a mapping)
+                if vm
+                    .get_method(source.clone(), vm.ctx.intern_str("keys"))
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object is not a mapping",
+                        source.class().name()
+                    )));
+                }
+
+                // Get keys from source and check for duplicates
+                let keys_iter = vm.call_method(&source, "keys", ())?;
+                for key in keys_iter.try_to_value::<Vec<PyObjectRef>>(vm)? {
+                    // Check if keyword argument is a string
+                    if key.downcast_ref::<PyStr>().is_none() {
+                        return Err(vm.new_type_error("keywords must be strings".to_owned()));
+                    }
+                    // Check for duplicate keyword arguments
+                    if dict.contains_key(&*key, vm) {
+                        let key_repr = key.repr(vm)?;
+                        return Err(vm.new_type_error(format!(
+                            "got multiple values for keyword argument {}",
+                            key_repr.as_str()
+                        )));
+                    }
+                    let value = vm.call_method(&source, "__getitem__", (key.clone(),))?;
+                    dict.set_item(&*key, value, vm)?;
+                }
                 Ok(None)
             }
             Instruction::EndAsyncFor => {
@@ -1182,6 +1193,16 @@ impl ExecutingFrame<'_> {
                     obj.downcast_unchecked_ref()
                 };
                 list.append(item);
+                Ok(None)
+            }
+            Instruction::ListExtend { i } => {
+                let iterable = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let list: &Py<PyList> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
+                list.extend(iterable, vm)?;
                 Ok(None)
             }
             Instruction::LoadAttr { idx } => self.load_attr(vm, idx.get(arg)),
@@ -1570,6 +1591,20 @@ impl ExecutingFrame<'_> {
                 set.add(item, vm)?;
                 Ok(None)
             }
+            Instruction::SetUpdate { i } => {
+                let iterable = self.pop_value();
+                let obj = self.nth_value(i.get(arg));
+                let set: &Py<PySet> = unsafe {
+                    // SAFETY: trust compiler
+                    obj.downcast_unchecked_ref()
+                };
+                // Iterate and add each item to the set
+                let iter = PyIter::try_from_object(vm, iterable)?;
+                while let PyIterReturn::Return(item) = iter.next(vm)? {
+                    set.add(item, vm)?;
+                }
+                Ok(None)
+            }
             Instruction::SetExcInfo => {
                 // Set the current exception to TOS (for except* handlers)
                 // This updates sys.exc_info() so bare 'raise' will reraise the matched exception
@@ -1872,16 +1907,6 @@ impl ExecutingFrame<'_> {
             })
     }
 
-    unsafe fn flatten_tuples(&mut self, size: usize) -> Vec<PyObjectRef> {
-        let mut elements = Vec::new();
-        for tup in self.pop_multiple(size) {
-            // SAFETY: caller ensures that the elements are tuples
-            let tup = unsafe { tup.downcast_unchecked::<PyTuple>() };
-            elements.extend(tup.iter().cloned());
-        }
-        elements
-    }
-
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
         let module_name = module_name.unwrap_or(vm.ctx.empty_str);
@@ -2083,35 +2108,6 @@ impl ExecutingFrame<'_> {
         let map_obj = vm.ctx.new_dict();
         for (key, value) in self.pop_multiple(2 * size).tuples() {
             map_obj.set_item(&*key, value, vm)?;
-        }
-
-        self.push_value(map_obj.into());
-        Ok(None)
-    }
-
-    fn execute_build_map_for_call(&mut self, vm: &VirtualMachine, size: u32) -> FrameResult {
-        let size = size as usize;
-        let map_obj = vm.ctx.new_dict();
-        for obj in self.pop_multiple(size) {
-            // Use keys() method for all mapping objects to preserve order
-            Self::iterate_mapping_keys(vm, &obj, "keyword argument", |key| {
-                // Check for keyword argument restrictions
-                if key.downcast_ref::<PyStr>().is_none() {
-                    return Err(vm.new_type_error("keywords must be strings"));
-                }
-                if map_obj.contains_key(&*key, vm) {
-                    let key_repr = &key.repr(vm)?;
-                    let msg = format!(
-                        "got multiple values for keyword argument {}",
-                        key_repr.as_str()
-                    );
-                    return Err(vm.new_type_error(msg));
-                }
-
-                let value = obj.get_item(&*key, vm)?;
-                map_obj.set_item(&*key, value, vm)?;
-                Ok(())
-            })?;
         }
 
         self.push_value(map_obj.into());

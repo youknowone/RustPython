@@ -536,18 +536,39 @@ impl Compiler {
 
         if unpack {
             // Has starred elements
+            // Stack has `size` tuples: [tuple1, tuple2, ..., tupleN] (bottom to top)
+            // We need to unpack from bottom to top
             match collection_type {
                 CollectionType::Tuple => {
                     if size > 1 || pushed > 0 {
-                        emit!(self, Instruction::BuildTupleFromTuples { size });
+                        // BUILD_LIST + LIST_EXTEND for each tuple + LIST_TO_TUPLE
+                        // Each tuple on stack will be popped and extended into the list
+                        emit!(self, Instruction::BuildList { size: 0 });
+                        for _ in 0..size {
+                            emit!(self, Instruction::ListExtend { i: 0 });
+                        }
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic1 {
+                                func: bytecode::IntrinsicFunction1::ListToTuple
+                            }
+                        );
                     }
                     // If size == 1 and pushed == 0, the single tuple is already on the stack
                 }
                 CollectionType::List => {
-                    emit!(self, Instruction::BuildListFromTuples { size });
+                    // BUILD_LIST + LIST_EXTEND for each tuple
+                    emit!(self, Instruction::BuildList { size: 0 });
+                    for _ in 0..size {
+                        emit!(self, Instruction::ListExtend { i: 0 });
+                    }
                 }
                 CollectionType::Set => {
-                    emit!(self, Instruction::BuildSetFromTuples { size });
+                    // BUILD_SET + SET_UPDATE for each tuple
+                    emit!(self, Instruction::BuildSet { size: 0 });
+                    for _ in 0..size {
+                        emit!(self, Instruction::SetUpdate { i: 0 });
+                    }
                 }
             }
         } else {
@@ -4415,7 +4436,17 @@ impl Compiler {
                 if unpack {
                     // Starred: gather_elements produced tuples on stack
                     emit!(self, Instruction::BuildTuple { size: 1 }); // (.generic_base,)
-                    emit!(self, Instruction::BuildTupleFromTuples { size: size + 1 });
+                    // BUILD_LIST + LIST_EXTEND for each tuple + LIST_TO_TUPLE
+                    emit!(self, Instruction::BuildList { size: 0 });
+                    for _ in 0..(size + 1) {
+                        emit!(self, Instruction::ListExtend { i: 0 });
+                    }
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::ListToTuple
+                        }
+                    );
                 } else {
                     // No starred: individual elements on stack
                     // size includes class_func + name + bases count, +1 for .generic_base
@@ -6895,7 +6926,12 @@ impl Compiler {
             }
         }
         if size > 1 {
-            emit!(self, Instruction::BuildMapForCall { size });
+            // Merge all dicts: first dict is accumulator, merge rest into it
+            // Stack: [dict1] [dict2] [dict3] ... [dict_size]
+            // After each DICT_MERGE 1: merge TOS into dict below it
+            for _ in 1..size {
+                emit!(self, Instruction::DictMerge { index: 1 });
+            }
         }
         Ok(())
     }
@@ -6956,7 +6992,17 @@ impl Compiler {
         if unpack || has_double_star {
             // Create a tuple with positional args:
             if unpack {
-                emit!(self, Instruction::BuildTupleFromTuples { size });
+                // BUILD_LIST + LIST_EXTEND for each tuple + LIST_TO_TUPLE
+                emit!(self, Instruction::BuildList { size: 0 });
+                for _ in 0..size {
+                    emit!(self, Instruction::ListExtend { i: 0 });
+                }
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: bytecode::IntrinsicFunction1::ListToTuple
+                    }
+                );
             } else {
                 emit!(self, Instruction::BuildTuple { size });
             }
