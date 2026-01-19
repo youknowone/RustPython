@@ -166,7 +166,13 @@ def get_cpython_version(cpython_dir: pathlib.Path) -> str:
     return result.stdout.strip()
 
 
-def git_commit(name: str, lib_path: pathlib.Path, test_path: pathlib.Path, cpython_dir: pathlib.Path, verbose: bool = True) -> bool:
+def git_commit(
+    name: str,
+    lib_path: pathlib.Path,
+    test_path: pathlib.Path,
+    cpython_dir: pathlib.Path,
+    verbose: bool = True,
+) -> bool:
     """Commit changes with CPython author.
 
     Args:
@@ -209,9 +215,12 @@ def git_commit(name: str, lib_path: pathlib.Path, test_path: pathlib.Path, cpyth
     message = f"Update {name} from {version}"
     subprocess.run(
         [
-            "git", "commit",
-            "--author", "CPython Developers <>",
-            "-m", message,
+            "git",
+            "commit",
+            "--author",
+            "CPython Developers <>",
+            "-m",
+            message,
         ],
         check=True,
     )
