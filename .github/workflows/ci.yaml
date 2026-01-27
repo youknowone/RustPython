@@ -450,7 +450,7 @@ jobs:
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: Ensure docs generate no warnings
-        run: cargo doc
+        run: cargo doc --locked
 
       - uses: actions/setup-python@v6.2.0
         with:
@@ -460,6 +460,9 @@ jobs:
         run: |
           python scripts/generate_opcode_metadata.py
           if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Lib/_opcode_metadata.py is out of date. Please run: python scripts/generate_opcode_metadata.py"
+            git status
+            git diff
             exit 1
           fi
 
