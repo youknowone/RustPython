@@ -129,7 +129,13 @@ impl TryFromObject for core::time::Duration {
             if f < 0.0 {
                 return Err(vm.new_value_error("negative duration"));
             }
-            Ok(Self::from_secs_f64(f))
+            // Convert float to Duration using floor rounding (matching CPython's _PyTime_ROUND_FLOOR)
+            // This ensures that float timestamps are converted consistently with CPython
+            let secs = f.trunc() as u64;
+            let frac = f.fract();
+            // Use floor to round down the nanoseconds (matching CPython's behavior)
+            let nanos = (frac * 1_000_000_000.0).floor() as u32;
+            Ok(Self::new(secs, nanos))
         } else if let Some(int) = obj.try_index_opt(vm) {
             let int = int?;
             let bigint = int.as_bigint();
