@@ -2518,7 +2518,6 @@ class TestInvalidFD(unittest.TestCase):
                 with self.assertRaises(RuntimeWarning):
                     f(fd, *args, **kwargs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not raised
     def test_fdopen(self):
         self.check(os.fdopen, encoding="utf-8")
         self.check_bool(os.fdopen, encoding="utf-8")
@@ -2641,8 +2640,6 @@ class TestInvalidFD(unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; OSError: [Errno 9] Bad file descriptor
     def test_fsync(self):
         return super().test_fsync()
-
-
 
 
 @unittest.skipUnless(hasattr(os, 'link'), 'requires os.link')
