@@ -5091,6 +5091,15 @@ mod fileio {
         fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
             let fd = self.fd.load();
             if fd >= 0 {
+                // Verify the fd is actually valid by checking with fcntl
+                #[cfg(unix)]
+                {
+                    let result = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+                    if result < 0 {
+                        let err = std::io::Error::last_os_error();
+                        return Err(err.to_pyexception(vm));
+                    }
+                }
                 Ok(fd)
             } else {
                 Err(io_closed_error(vm))
