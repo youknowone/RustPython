@@ -2293,11 +2293,7 @@ impl ExecutingFrame<'_> {
             Instruction::RaiseVarargs { kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } => {
                 // Lazy quickening: initialize adaptive counters on first execution
-                if !self
-                    .code
-                    .quickened
-                    .swap(true, atomic::Ordering::Relaxed)
-                {
+                if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
                     self.code.instructions.quicken();
                 }
                 // Check if bytecode needs re-instrumentation
