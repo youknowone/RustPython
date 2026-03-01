@@ -4,8 +4,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyTupleRef,
-        PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
+        PyBaseObject, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
@@ -564,15 +564,14 @@ impl PyObject {
         if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
-            if !retval {
-                // Check __class__ attribute, only masking AttributeError
-                if let Some(i_cls) =
+            if !retval
+                && self.may_have_custom_class(vm)
+                && let Some(i_cls) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
-                    && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
-                    && !i_cls_type.is(self.class())
-                {
-                    retval = i_cls_type.is_subtype(cls);
-                }
+                && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
+                && !i_cls_type.is(self.class())
+            {
+                retval = i_cls_type.is_subtype(cls);
             }
             Ok(retval)
         } else {
@@ -584,14 +583,15 @@ impl PyObject {
                 )
             })?;
 
-            // Get __class__ attribute and check, only masking AttributeError
-            if let Some(i_cls) =
-                vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
-            {
-                i_cls.abstract_issubclass(cls, vm)
+            let i_cls: PyObjectRef = if !self.may_have_custom_class(vm) {
+                self.class().to_owned().into()
             } else {
-                Ok(false)
-            }
+                match vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))? {
+                    Some(cls) => cls,
+                    None => return Ok(false),
+                }
+            };
+            i_cls.abstract_issubclass(cls, vm)
         }
     }
 
@@ -767,6 +767,24 @@ impl PyObject {
         }
 
         Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
+    }
+
+    /// Returns true if `__class__` attribute may differ from `self.class()`.
+    /// This happens when the type uses a custom `__getattribute__` or when
+    /// any class in the MRO (other than `object`) defines `__class__`.
+    fn may_have_custom_class(&self, vm: &VirtualMachine) -> bool {
+        let cls = self.class();
+        let getattro = cls.slots.getattro.load().unwrap();
+        if getattro as usize != PyBaseObject::getattro as *const () as usize {
+            return true;
+        }
+        // Check if any class in MRO (except object) overrides __class__
+        let mro = cls.mro.read();
+        let __class__ = identifier!(vm, __class__);
+        // Skip last element (object) where __class__ is normally defined
+        mro[..mro.len().saturating_sub(1)]
+            .iter()
+            .any(|base| base.attributes.read().contains_key(__class__))
     }
 
     /// Equivalent to CPython's _PyObject_LookupSpecial
