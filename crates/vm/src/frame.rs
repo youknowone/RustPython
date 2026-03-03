@@ -380,6 +380,14 @@ impl LocalsPlus {
         data.swap(base + a, base + b);
     }
 
+    /// Truncate the stack to `new_len` elements, dropping excess values.
+    fn stack_truncate(&mut self, new_len: usize) {
+        debug_assert!(new_len <= self.stack_top as usize);
+        while self.stack_top as usize > new_len {
+            let _ = self.stack_pop();
+        }
+    }
+
     /// Clear the stack, dropping all values.
     fn stack_clear(&mut self) {
         while self.stack_top > 0 {
@@ -5985,13 +5993,15 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn execute_call_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
         let nargs_usize = nargs as usize;
-        let stack_len = self.stack.len();
+        let stack_len = self.localsplus.stack_len();
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
 
         // Check if callable has vectorcall slot
-        let has_vectorcall = self.stack[callable_idx]
+        let has_vectorcall = self
+            .localsplus
+            .stack_index(callable_idx)
             .as_ref()
             .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
 
@@ -6002,7 +6012,9 @@ impl ExecutingFrame<'_> {
         }
 
         // Build args slice: [self_or_null?, arg1, ..., argN]
-        let self_or_null = self.stack[self_or_null_idx]
+        let self_or_null = self
+            .localsplus
+            .stack_index_mut(self_or_null_idx)
             .take()
             .map(|sr| sr.to_pyobj());
         let has_self = self_or_null.is_some();
@@ -6017,12 +6029,12 @@ impl ExecutingFrame<'_> {
             args_vec.push(self_val);
         }
         for stack_idx in args_start..stack_len {
-            let val = self.stack[stack_idx].take().unwrap().to_pyobj();
+            let val = self.localsplus.stack_index_mut(stack_idx).take().unwrap().to_pyobj();
             args_vec.push(val);
         }
 
-        let callable_obj = self.stack[callable_idx].take().unwrap().to_pyobj();
-        self.stack.truncate(callable_idx);
+        let callable_obj = self.localsplus.stack_index_mut(callable_idx).take().unwrap().to_pyobj();
+        self.localsplus.stack_truncate(callable_idx);
 
         let result = callable_obj.vectorcall(args_vec, effective_nargs, None, vm)?;
         self.push_value(result);
@@ -6041,13 +6053,15 @@ impl ExecutingFrame<'_> {
             .expect("kwarg names should be tuple");
         let kw_count = kwarg_names_tuple.len();
 
-        let stack_len = self.stack.len();
+        let stack_len = self.localsplus.stack_len();
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
 
         // Check if callable has vectorcall slot
-        let has_vectorcall = self.stack[callable_idx]
+        let has_vectorcall = self
+            .localsplus
+            .stack_index(callable_idx)
             .as_ref()
             .is_some_and(|sr| sr.as_object().class().slots.vectorcall.load().is_some());
 
@@ -6078,7 +6092,9 @@ impl ExecutingFrame<'_> {
         }
 
         // Build args: [self?, pos_arg1, ..., pos_argM, kw_val1, ..., kw_valK]
-        let self_or_null = self.stack[self_or_null_idx]
+        let self_or_null = self
+            .localsplus
+            .stack_index_mut(self_or_null_idx)
             .take()
             .map(|sr| sr.to_pyobj());
         let has_self = self_or_null.is_some();
@@ -6093,12 +6109,12 @@ impl ExecutingFrame<'_> {
             args_vec.push(self_val);
         }
         for stack_idx in args_start..stack_len {
-            let val = self.stack[stack_idx].take().unwrap().to_pyobj();
+            let val = self.localsplus.stack_index_mut(stack_idx).take().unwrap().to_pyobj();
             args_vec.push(val);
         }
 
-        let callable_obj = self.stack[callable_idx].take().unwrap().to_pyobj();
-        self.stack.truncate(callable_idx);
+        let callable_obj = self.localsplus.stack_index_mut(callable_idx).take().unwrap().to_pyobj();
+        self.localsplus.stack_truncate(callable_idx);
 
         let kwnames = kwarg_names_tuple.as_slice();
         let result = callable_obj.vectorcall(args_vec, effective_nargs, Some(kwnames), vm)?;
