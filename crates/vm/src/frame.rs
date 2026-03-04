@@ -163,10 +163,14 @@ const _: () = {
 impl LocalsPlus {
     /// Create a new heap-backed LocalsPlus.  All slots start as None (0).
     fn new(nlocalsplus: usize, stacksize: usize) -> Self {
-        let capacity = nlocalsplus + stacksize;
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+        let nlocalsplus_u32 =
+            u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
         Self {
             data: LocalsPlusData::Heap(vec![0usize; capacity].into_boxed_slice()),
-            nlocalsplus: nlocalsplus as u32,
+            nlocalsplus: nlocalsplus_u32,
             stack_top: 0,
         }
     }
@@ -177,14 +181,20 @@ impl LocalsPlus {
     /// The caller must call `materialize_localsplus()` when the frame finishes
     /// to migrate data to the heap, then `datastack_pop()` to free the memory.
     fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
-        let capacity = nlocalsplus + stacksize;
-        let byte_size = capacity * core::mem::size_of::<usize>();
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+        let byte_size = capacity
+            .checked_mul(core::mem::size_of::<usize>())
+            .expect("LocalsPlus byte size overflow");
+        let nlocalsplus_u32 =
+            u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
         let ptr = vm.datastack_push(byte_size) as *mut usize;
         // Zero-initialize all slots (0 = None for both PyObjectRef and PyStackRef).
         unsafe { core::ptr::write_bytes(ptr, 0, capacity) };
         Self {
             data: LocalsPlusData::DataStack { ptr, capacity },
-            nlocalsplus: nlocalsplus as u32,
+            nlocalsplus: nlocalsplus_u32,
             stack_top: 0,
         }
     }
