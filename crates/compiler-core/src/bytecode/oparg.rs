@@ -1,4 +1,4 @@
-use bitflags::bitflags;
+use bitflagset::BitFlag;
 
 use core::fmt;
 
@@ -423,18 +423,21 @@ oparg_enum!(
     }
 );
 
-bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
-    pub struct MakeFunctionFlags: u8 {
-        const CLOSURE = 0x01;
-        const ANNOTATIONS = 0x02;
-        const KW_ONLY_DEFAULTS = 0x04;
-        const DEFAULTS = 0x08;
-        const TYPE_PARAMS = 0x10;
+bitflagset::bitflag! {
+    #[derive(Debug, Hash)]
+    #[repr(u8)]
+    pub enum MakeFunctionFlag {
+        Closure = 0,
+        Annotations = 1,
+        KwOnlyDefaults = 2,
+        Defaults = 3,
+        TypeParams = 4,
         /// PEP 649: __annotate__ function closure (instead of __annotations__ dict)
-        const ANNOTATE = 0x20;
+        Annotate = 5,
     }
 }
+
+bitflagset::bitflagset!(pub struct MakeFunctionFlags(u8): MakeFunctionFlag);
 
 impl TryFrom<u32> for MakeFunctionFlags {
     type Error = MarshalError;
@@ -446,11 +449,31 @@ impl TryFrom<u32> for MakeFunctionFlags {
 
 impl From<MakeFunctionFlags> for u32 {
     fn from(value: MakeFunctionFlags) -> Self {
-        value.bits().into()
+        value.bits() as u32
     }
 }
 
 impl OpArgType for MakeFunctionFlags {}
+
+impl TryFrom<u32> for MakeFunctionFlag {
+    type Error = MarshalError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        let mask = value as u8;
+        if mask == 0 || mask & (mask - 1) != 0 {
+            return Err(MarshalError::InvalidBytecode);
+        }
+        Self::try_from(mask.trailing_zeros() as u8).map_err(|_| MarshalError::InvalidBytecode)
+    }
+}
+
+impl From<MakeFunctionFlag> for u32 {
+    fn from(flag: MakeFunctionFlag) -> Self {
+        flag.mask() as u32
+    }
+}
+
+impl OpArgType for MakeFunctionFlag {}
 
 oparg_enum!(
     /// The possible comparison operators.
