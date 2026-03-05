@@ -49,9 +49,8 @@ mod lock {
             // Held by a dead thread — reset to unlocked.
             // Same pattern as RLock::_at_fork_reinit in thread.rs.
             unsafe {
-                let old: &crossbeam_utils::atomic::AtomicCell<RawRMutex> =
-                    core::mem::transmute(&IMP_LOCK);
-                old.swap(RawRMutex::INIT);
+                let raw = &IMP_LOCK as *const RawRMutex as *mut u8;
+                core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRMutex>());
             }
         }
     }

@@ -23,7 +23,6 @@ pub(crate) mod _thread {
         sync::{Arc, Weak},
     };
     use core::{cell::RefCell, time::Duration};
-    use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -152,13 +151,12 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            // Reset the mutex to unlocked by directly writing the INIT value.
+            // Like CPython (`self->lock = ...INIT`), overwrite lock state to unlocked.
             // Do NOT call unlock() here — after fork(), unlock_slow() would
             // try to unpark stale waiters from dead parent threads.
-            let new_mut = RawMutex::INIT;
             unsafe {
-                let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
-                old_mutex.swap(new_mut);
+                let raw = &self.mu as *const RawMutex as *mut u8;
+                core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawMutex>());
             }
 
             Ok(())
@@ -252,14 +250,13 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            // Reset the reentrant mutex to unlocked by directly writing INIT.
+            // Like CPython (`self->lock = ...INIT`), overwrite lock state to unlocked.
             // Do NOT call unlock() — after fork(), the slow path would try
             // to unpark stale waiters from dead parent threads.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
-            let new_mut = RawRMutex::INIT;
             unsafe {
-                let old_mutex: &AtomicCell<RawRMutex> = core::mem::transmute(&self.mu);
-                old_mutex.swap(new_mut);
+                let raw = &self.mu as *const RawRMutex as *mut u8;
+                core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRMutex>());
             }
 
             Ok(())
