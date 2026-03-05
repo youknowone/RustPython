@@ -151,14 +151,9 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            // Like CPython (`self->lock = ...INIT`), overwrite lock state to unlocked.
-            // Do NOT call unlock() here — after fork(), unlock_slow() would
-            // try to unpark stale waiters from dead parent threads.
-            unsafe {
-                let raw = &self.mu as *const RawMutex as *mut u8;
-                core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawMutex>());
-            }
-
+            // Overwrite lock state to unlocked. Do NOT call unlock() here —
+            // after fork(), unlock_slow() would try to unpark stale waiters.
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
             Ok(())
         }
 
@@ -250,15 +245,10 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            // Like CPython (`self->lock = ...INIT`), overwrite lock state to unlocked.
-            // Do NOT call unlock() — after fork(), the slow path would try
-            // to unpark stale waiters from dead parent threads.
+            // Overwrite lock state to unlocked. Do NOT call unlock() here —
+            // after fork(), unlock_slow() would try to unpark stale waiters.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
-            unsafe {
-                let raw = &self.mu as *const RawRMutex as *mut u8;
-                core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRMutex>());
-            }
-
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
             Ok(())
         }
 
@@ -1018,10 +1008,7 @@ pub(crate) mod _thread {
     /// Reset a parking_lot::Mutex to unlocked state after fork.
     #[cfg(unix)]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
-        unsafe {
-            let raw = mutex.raw() as *const parking_lot::RawMutex as *mut u8;
-            core::ptr::write_bytes(raw, 0, core::mem::size_of::<parking_lot::RawMutex>());
-        }
+        unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
     }
 
     // Thread handle state enum

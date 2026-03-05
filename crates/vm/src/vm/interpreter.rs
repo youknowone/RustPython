@@ -1,3 +1,5 @@
+#[cfg(all(unix, feature = "threading"))]
+use super::ForkBarrier;
 use super::{Context, PyConfig, PyGlobalState, VirtualMachine, setting::Settings, thread};
 use crate::{
     PyResult, builtins, common::rc::PyRc, frozen::FrozenModule, getpath, py_freeze, stdlib::atexit,
@@ -124,6 +126,8 @@ where
         monitoring: PyMutex::default(),
         monitoring_events: AtomicCell::new(0),
         instrumentation_version: AtomicU64::new(0),
+        #[cfg(all(unix, feature = "threading"))]
+        fork_barrier: ForkBarrier::new(),
     });
 
     // Create VM with the global state

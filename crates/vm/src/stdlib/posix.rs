@@ -908,14 +908,27 @@ pub mod module {
     fn fork(vm: &VirtualMachine) -> i32 {
         warn_if_multi_threaded("fork", vm);
 
-        let pid: i32;
         py_os_before_fork(vm);
-        unsafe {
-            pid = libc::fork();
+
+        // Suspend other Python threads so they are at bytecode boundaries,
+        // not holding internal Rust/C locks that would deadlock in the child.
+        #[cfg(feature = "threading")]
+        {
+            let mut expected = vm.state.thread_count.load();
+            if !vm.is_main_thread() {
+                expected = expected.saturating_sub(1);
+            }
+            vm.state.fork_barrier.request_stop(expected);
         }
+
+        let pid = unsafe { libc::fork() };
         if pid == 0 {
+            #[cfg(feature = "threading")]
+            vm.state.fork_barrier.reset_after_fork();
             py_os_after_fork_child(vm);
         } else {
+            #[cfg(feature = "threading")]
+            vm.state.fork_barrier.resume();
             py_os_after_fork_parent(vm);
         }
         pid

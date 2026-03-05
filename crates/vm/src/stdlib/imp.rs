@@ -47,11 +47,7 @@ mod lock {
     pub(crate) unsafe fn reinit_after_fork() {
         if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
             // Held by a dead thread — reset to unlocked.
-            // Same pattern as RLock::_at_fork_reinit in thread.rs.
-            unsafe {
-                let raw = &IMP_LOCK as *const RawRMutex as *mut u8;
-                core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRMutex>());
-            }
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
         }
     }
 }

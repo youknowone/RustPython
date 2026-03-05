@@ -43,7 +43,7 @@ use alloc::{borrow::Cow, collections::BTreeMap};
 use core::{
     cell::{Cell, OnceCell, RefCell},
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
@@ -125,6 +125,77 @@ struct ExceptionStack {
     stack: Vec<Option<PyBaseExceptionRef>>,
 }
 
+/// Pre-fork thread suspension barrier.
+///
+/// Before `fork()`, the forking thread sets `requested` and waits for all other
+/// Python threads to reach their next bytecode boundary and park themselves.
+/// This prevents forking while other threads hold internal Rust/C locks
+/// (allocator, stdio, etc.) that would cause deadlocks in the child process.
+#[cfg(all(unix, feature = "threading"))]
+pub struct ForkBarrier {
+    /// Fast-path flag: true when fork is imminent
+    requested: AtomicBool,
+    /// Number of threads currently parked in the barrier
+    parked: AtomicUsize,
+}
+
+#[cfg(all(unix, feature = "threading"))]
+impl ForkBarrier {
+    pub const fn new() -> Self {
+        Self {
+            requested: AtomicBool::new(false),
+            parked: AtomicUsize::new(0),
+        }
+    }
+
+    /// Request all other threads to pause at their next bytecode boundary.
+    /// Waits up to 500ms for `expected` threads to park.
+    pub fn request_stop(&self, expected: usize) {
+        if expected == 0 {
+            return;
+        }
+        self.requested.store(true, Ordering::Release);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        while self.parked.load(Ordering::Acquire) < expected {
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    /// Check if fork is requested, and if so, park this thread.
+    /// Called from the bytecode execution loop (via `check_signals`).
+    #[inline]
+    pub fn check_and_park(&self) {
+        if !self.requested.load(Ordering::Relaxed) {
+            return;
+        }
+        self.do_park();
+    }
+
+    #[cold]
+    fn do_park(&self) {
+        self.parked.fetch_add(1, Ordering::Release);
+        while self.requested.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        self.parked.fetch_sub(1, Ordering::Release);
+    }
+
+    /// Resume all parked threads after fork in the parent process.
+    pub fn resume(&self) {
+        self.requested.store(false, Ordering::Release);
+    }
+
+    /// Reset barrier state after fork in the child process.
+    /// No other threads exist in the child.
+    pub fn reset_after_fork(&self) {
+        self.requested.store(false, Ordering::Relaxed);
+        self.parked.store(0, Ordering::Relaxed);
+    }
+}
+
 pub struct PyGlobalState {
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
@@ -165,6 +236,9 @@ pub struct PyGlobalState {
     /// Incremented on every monitoring state change. Code objects compare their
     /// local version against this to decide whether re-instrumentation is needed.
     pub instrumentation_version: AtomicU64,
+    /// Pre-fork thread suspension barrier
+    #[cfg(all(unix, feature = "threading"))]
+    pub fork_barrier: ForkBarrier,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -1481,6 +1555,10 @@ impl VirtualMachine {
             // non-main Python threads should stop running bytecode.
             return Err(self.new_exception(self.ctx.exceptions.system_exit.to_owned(), vec![]));
         }
+
+        // Park this thread if fork() is in progress on another thread
+        #[cfg(all(unix, feature = "threading"))]
+        self.state.fork_barrier.check_and_park();
 
         #[cfg(not(target_arch = "wasm32"))]
         {
