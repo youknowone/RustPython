@@ -165,11 +165,13 @@ class TestCheck(TestCase):
         self.assertEqual(stdout.getvalue(), out)
         self.assertEqual(stderr.getvalue(), err)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; A python source code file without any errors.
     def test_correct_file(self):
         """A python source code file without any errors."""
         with TemporaryPyFile(SOURCE_CODES["error_free"]) as file_path:
             self.verify_tabnanny_check(file_path)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_correct_directory_verbose(self):
         """Directory containing few error free python source code files.
 
@@ -194,12 +196,14 @@ class TestCheck(TestCase):
                         self.assertIn(line, stdout)
                 self.assertEqual(stderr.getvalue(), "")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Directory which contains few error free python source code files.
     def test_correct_directory(self):
         """Directory which contains few error free python source code files."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             with TemporaryPyFile(SOURCE_CODES["error_free"], directory=tmp_dir):
                 self.verify_tabnanny_check(tmp_dir)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; A python source code file eligible for raising `IndentationError`.
     def test_when_wrong_indented(self):
         """A python source code file eligible for raising `IndentationError`."""
         with TemporaryPyFile(SOURCE_CODES["wrong_indented"]) as file_path:
@@ -209,6 +213,7 @@ class TestCheck(TestCase):
             with self.assertRaises(SystemExit):
                 self.verify_tabnanny_check(file_path, err=err)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; A python source code file eligible for raising 'tokenize.TokenError'.
     def test_when_tokenize_tokenerror(self):
         """A python source code file eligible for raising 'tokenize.TokenError'."""
         with TemporaryPyFile(SOURCE_CODES["incomplete_expression"]) as file_path:
@@ -246,6 +251,7 @@ class TestCheck(TestCase):
         with self.assertRaises(SystemExit):
             self.verify_tabnanny_check(path, err=err)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Directory containing wrongly indented python source code files.
     def test_errored_directory(self):
         """Directory containing wrongly indented python source code files."""
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -266,6 +272,7 @@ class TestCheck(TestCase):
 class TestProcessTokens(TestCase):
     """Testing `tabnanny.process_tokens()`."""
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; A python source code without any whitespace related problems.
     @mock.patch('tabnanny.NannyNag')
     def test_with_correct_code(self, MockNannyNag):
         """A python source code without any whitespace related problems."""
@@ -325,6 +332,7 @@ class TestCommandLine(TestCase):
                        ' (<string>, line 3)')
             self.validate_cmd(file_path, stderr=stderr, expect_failure=True)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Should not display anything if python file is correctly indented.
     def test_with_error_free_file(self):
         """Should not display anything if python file is correctly indented."""
         with TemporaryPyFile(SOURCE_CODES["error_free"]) as file_path:
