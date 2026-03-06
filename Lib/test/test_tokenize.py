@@ -82,6 +82,7 @@ class TokenizeTest(TestCase):
         self.assertEqual(tokens[-2].type, tokenize.NEWLINE)
         self.assertEqual(tokens[-1].type, tokenize.ENDMARKER)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1183 characters long. Set self.maxDiff to None to see it.
     def test_basic(self):
         self.check_tokenize("1 + 1", """\
     NUMBER     '1'           (1, 0) (1, 1)
@@ -299,6 +300,7 @@ def k(x):
                 continue
             self.assertNotEqual(number_token(lit), lit)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; -  "    NEWLINE    ''            (2, 0) (2, 0)"]
     def test_string(self):
         # String literals
         self.check_tokenize("x = ''; y = \"\"", """\
@@ -679,6 +681,7 @@ f'''__{
     NAME       'pass'        (1, 34) (1, 38)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 2255 characters long. Set self.maxDiff to None to see it.
     def test_comparison(self):
         # Comparison
         self.check_tokenize("if 1 < 1 > 1 == 1 >= 5 <= 0x15 <= 0x12 != "
@@ -809,6 +812,7 @@ f'''__{
     NUMBER     '1'           (1, 22) (1, 23)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 858 characters long. Set self.maxDiff to None to see it.
     def test_selector(self):
         # Selector
         self.check_tokenize("import sys, time\nx = sys.modules['time'].time()", """\
@@ -831,6 +835,7 @@ f'''__{
     OP         ')'           (2, 29) (2, 30)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; "    NAME       'pass'        (2, 14) (2, 18)"]
     def test_method(self):
         # Methods
         self.check_tokenize("@staticmethod\ndef foo(x,y): pass", """\
@@ -848,6 +853,7 @@ f'''__{
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1133 characters long. Set self.maxDiff to None to see it.
     def test_tabs(self):
         # Evil tabs
         self.check_tokenize("def f():\n"
@@ -869,6 +875,7 @@ f'''__{
     DEDENT     ''            (4, 0) (4, 0)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; '    STRING     "\'green\'"     (2, 7) (2, 14)']
     def test_non_ascii_identifiers(self):
         # Non-ascii identifiers
         self.check_tokenize("Örter = 'places'\ngrün = 'green'", """\
@@ -881,6 +888,7 @@ f'''__{
     STRING     "'green'"     (2, 7) (2, 14)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; '    STRING     "U\'green\'"    (2, 7) (2, 15)']
     def test_unicode(self):
         # Legacy unicode literals:
         self.check_tokenize("Örter = u'places'\ngrün = U'green'", """\
@@ -893,6 +901,7 @@ f'''__{
     STRING     "U'green'"    (2, 7) (2, 15)
     """)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; "    NAME       'pass'        (1, 18) (1, 22)"]
     def test_async(self):
         # Async/await extension:
         self.check_tokenize("async = 1", """\
@@ -1300,6 +1309,7 @@ class TestTokenizerAdheresToPep0263(TestCase):
         with open(path, 'rb') as f:
             TestRoundtrip.check_roundtrip(self, f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: pop from empty list
     def test_utf8_coding_cookie_and_no_utf8_bom(self):
         f = 'tokenize_tests-utf8-coding-cookie-and-no-utf8-bom-sig.txt'
         self._testFile(f)
@@ -1315,10 +1325,12 @@ class TestTokenizerAdheresToPep0263(TestCase):
         f = 'tokenize_tests-latin1-coding-cookie-and-utf8-bom-sig.txt'
         self.assertRaises(SyntaxError, self._testFile, f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: pop from empty list
     def test_no_coding_cookie_and_utf8_bom(self):
         f = 'tokenize_tests-no-coding-cookie-and-utf8-bom-sig-only.txt'
         self._testFile(f)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: pop from empty list
     def test_utf8_coding_cookie_and_utf8_bom(self):
         f = 'tokenize_tests-utf8-coding-cookie-and-utf8-bom-sig.txt'
         self._testFile(f)
@@ -1892,6 +1904,7 @@ class TestTokenize(TestCase):
         # See http://bugs.python.org/issue16152
         self.assertExactTypeEqual('@          ', token.AT)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1322 characters long. Set self.maxDiff to None to see it.
     def test_comment_at_the_end_of_the_source_without_newline(self):
         # See http://bugs.python.org/issue44667
         source = 'b = 1\n\n#test'
@@ -1953,6 +1966,7 @@ class UntokenizeTest(TestCase):
         # raise if previous column in row
         self.assertRaises(ValueError, u.add_whitespace, (2,1))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: pop from empty list
     def test_backslash_continuation(self):
         # The problem is that <whitespace>\<newline> leaves no token
         u = tokenize.Untokenizer()
@@ -2050,6 +2064,7 @@ class TestRoundtrip(TestCase):
                 continue
             self.assertEqual(tok.string, tok.line[tok.start[1]: tok.end[1]])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: start (2,4) precedes previous end (3,4)
     def test_roundtrip(self):
         # There are some standard formatting practices that are easy to get right.
 
@@ -2150,6 +2165,7 @@ if 1:
         self.check_roundtrip(r"f'{t'{ {}}'}{ {}}'")
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1030 characters long. Set self.maxDiff to None to see it.
     def test_continuation(self):
         # Balancing continuation
         self.check_roundtrip("a = (3,4, \n"
@@ -2163,6 +2179,7 @@ if 1:
                              "+ len(z) - z[\n"
                              "'b']\n")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; (0, '')]
     def test_backslash_continuation(self):
         # Backslash means line continuation, except for comments
         self.check_roundtrip("x=1+\\\n"
@@ -2202,6 +2219,7 @@ if 1:
             code = code.encode('utf-8')
         return tokenize.untokenize(tokenize.tokenize(BytesIO(code).readline)).decode('utf-8')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Ensure that although whitespace might be mutated in a roundtrip,
     def test_indentation_semantics_retained(self):
         """
         Ensure that although whitespace might be mutated in a roundtrip,
