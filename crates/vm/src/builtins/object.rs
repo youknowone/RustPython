@@ -43,8 +43,7 @@ impl Constructor for PyBaseObject {
                     // Type has its own __new__, so object.__new__ is being called
                     // with excess args. This is the first error case in CPython
                     return Err(vm.new_type_error(
-                        "object.__new__() takes exactly one argument (the type to instantiate)"
-                            .to_owned(),
+                        "object.__new__() takes exactly one argument (the type to instantiate)",
                     ));
                 }
 
@@ -64,19 +63,6 @@ impl Constructor for PyBaseObject {
                 // which might accept arguments, so we allow it
             }
         }
-
-        // more or less __new__ operator
-        // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
-        // or __dict__ is in __slots__)
-        let dict = if cls
-            .slots
-            .flags
-            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
-        {
-            Some(vm.ctx.new_dict())
-        } else {
-            None
-        };
 
         // Ensure that all abstract methods are implemented before instantiating instance.
         if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
@@ -110,12 +96,27 @@ impl Constructor for PyBaseObject {
             }
         }
 
-        Ok(crate::PyRef::new_ref(Self, cls, dict).into())
+        generic_alloc(cls, 0, vm)
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         unimplemented!("use slot_new")
     }
+}
+
+pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine) -> PyResult {
+    // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
+    // or __dict__ is in __slots__)
+    let dict = if cls
+        .slots
+        .flags
+        .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+    {
+        Some(vm.ctx.new_dict())
+    } else {
+        None
+    };
+    Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
 }
 
 impl Initializer for PyBaseObject {
@@ -136,8 +137,7 @@ impl Initializer for PyBaseObject {
         // if (type->tp_init != object_init) → first error
         if typ_init != object_init {
             return Err(vm.new_type_error(
-                "object.__init__() takes exactly one argument (the instance to initialize)"
-                    .to_owned(),
+                "object.__init__() takes exactly one argument (the instance to initialize)",
             ));
         }
 
@@ -250,9 +250,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
                 let borrowed_names = slot_names.borrow_vec();
                 // Check if slotnames changed during iteration
                 if borrowed_names.len() != slot_names_len {
-                    return Err(vm.new_runtime_error(
-                        "__slotnames__ changed size during iteration".to_owned(),
-                    ));
+                    return Err(vm.new_runtime_error("__slotnames__ changed size during iteration"));
                 }
                 let name = borrowed_names[i].downcast_ref::<PyStr>().unwrap();
                 let Ok(value) = obj.get_attr(name, vm) else {
@@ -464,6 +462,8 @@ impl PyBaseObject {
                 if both_mutable || both_module {
                     let has_dict =
                         |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+                    let has_weakref =
+                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
                     // Compare slots tuples
                     let slots_equal = match (
                         current_cls
@@ -484,6 +484,8 @@ impl PyBaseObject {
                     if current_cls.slots.basicsize != cls.slots.basicsize
                         || !slots_equal
                         || has_dict(current_cls) != has_dict(&cls)
+                        || has_weakref(current_cls) != has_weakref(&cls)
+                        || current_cls.slots.member_count != cls.slots.member_count
                     {
                         return Err(vm.new_type_error(format!(
                             "__class__ assignment: '{}' object layout differs from '{}'",
@@ -561,8 +563,9 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 }
 
 pub fn init(ctx: &'static Context) {
-    // Manually set init slot - derive macro doesn't generate extend_slots
+    // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
+    ctx.types.object_type.slots.alloc.store(Some(generic_alloc));
     ctx.types
         .object_type
         .slots
@@ -714,7 +717,7 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     } else {
         // args == NULL with non-empty kwargs is BadInternalCall
         let Some(args) = args else {
-            return Err(vm.new_system_error("bad internal call".to_owned()));
+            return Err(vm.new_system_error("bad internal call"));
         };
         // Use copyreg.__newobj_ex__
         let newobj = copyreg.get_attr("__newobj_ex__", vm)?;

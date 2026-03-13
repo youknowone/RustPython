@@ -479,9 +479,9 @@ impl Constructor for PyCode {
             .names
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("names must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("names must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -491,9 +491,9 @@ impl Constructor for PyCode {
             .varnames
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("varnames must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("varnames must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -503,9 +503,9 @@ impl Constructor for PyCode {
             .cellvars
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("cellvars must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("cellvars must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -515,9 +515,9 @@ impl Constructor for PyCode {
             .freevars
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("freevars must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("freevars must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -538,16 +538,14 @@ impl Constructor for PyCode {
             .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
 
         // Convert constants
-        let constants: Box<[Literal]> = args
+        let constants = args
             .consts
             .iter()
             .map(|obj| {
-                // Convert PyObject to Literal constant
-                // For now, just wrap it
+                // Convert PyObject to Literal constant. For now, just wrap it
                 Literal(obj.clone())
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect();
 
         // Create locations (start and end pairs)
         let row = if args.firstlineno > 0 {
@@ -597,7 +595,7 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(with(Representable, Constructor))]
+#[pyclass(with(Representable, Constructor), flags(HAS_WEAKREF))]
 impl PyCode {
     #[pygetset]
     const fn co_posonlyargcount(&self) -> usize {

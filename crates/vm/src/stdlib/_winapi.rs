@@ -538,7 +538,7 @@ mod _winapi {
         let ms = if ms < 0 {
             windows_sys::Win32::System::Threading::INFINITE
         } else if ms > u32::MAX as i64 {
-            return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+            return Err(vm.new_overflow_error("timeout value is too large"));
         } else {
             ms as u32
         };
@@ -567,13 +567,11 @@ mod _winapi {
             .collect();
 
         if handles.is_empty() {
-            return Err(vm.new_value_error("handle_seq must not be empty".to_owned()));
+            return Err(vm.new_value_error("handle_seq must not be empty"));
         }
 
         if handles.len() > 64 {
-            return Err(
-                vm.new_value_error("WaitForMultipleObjects supports at most 64 handles".to_owned())
-            );
+            return Err(vm.new_value_error("WaitForMultipleObjects supports at most 64 handles"));
         }
 
         let ret = unsafe {
@@ -693,7 +691,7 @@ mod _winapi {
         let src_wide = src.as_wtf8().to_wide();
 
         if src_wide.len() > i32::MAX as usize {
-            return Err(vm.new_overflow_error("input string is too long".to_string()));
+            return Err(vm.new_overflow_error("input string is too long"));
         }
 
         // First call to get required buffer size
@@ -901,8 +899,7 @@ mod _winapi {
             let inner = self.inner.lock();
             if !inner.completed {
                 return Err(vm.new_value_error(
-                    "can't get read buffer before GetOverlappedResult() signals the operation completed"
-                        .to_owned(),
+                    "can't get read buffer before GetOverlappedResult() signals the operation completed",
                 ));
             }
             Ok(inner
@@ -1100,7 +1097,7 @@ mod _winapi {
         let size = size.unwrap_or(0);
 
         if size < 0 {
-            return Err(vm.new_value_error("negative size".to_string()));
+            return Err(vm.new_value_error("negative size"));
         }
 
         let mut navail: u32 = 0;
@@ -1254,6 +1251,26 @@ mod _winapi {
 
                 err
             };
+
+            // Without GIL, the Python-level PipeConnection._send_bytes has a
+            // race on _send_ov when the caller (SimpleQueue) skips locking on
+            // Windows. Wait for completion here so the caller never sees
+            // ERROR_IO_PENDING and never blocks in WaitForMultipleObjects,
+            // keeping the _send_ov window negligibly small.
+            if err == ERROR_IO_PENDING {
+                let event = ov.inner.lock().overlapped.hEvent;
+                vm.allow_threads(|| unsafe {
+                    windows_sys::Win32::System::Threading::WaitForSingleObject(
+                        event,
+                        windows_sys::Win32::System::Threading::INFINITE,
+                    );
+                });
+                let result = vm
+                    .ctx
+                    .new_tuple(vec![ov.into_pyobject(vm), vm.ctx.new_int(0u32).into()]);
+                return Ok(result.into());
+            }
+
             let result = vm
                 .ctx
                 .new_tuple(vec![ov.into_pyobject(vm), vm.ctx.new_int(err).into()]);
@@ -1520,7 +1537,7 @@ mod _winapi {
 
         #[cfg(feature = "threading")]
         let sigint_event = {
-            let is_main = crate::stdlib::thread::get_ident() == vm.state.main_thread_ident.load();
+            let is_main = crate::stdlib::_thread::get_ident() == vm.state.main_thread_ident.load();
             if is_main {
                 let handle = crate::signal::get_sigint_event().unwrap_or_else(|| {
                     let handle = unsafe { WinCreateEventW(null(), 1, 0, null()) };
@@ -1597,7 +1614,13 @@ mod _winapi {
 
             if let Some(err) = err {
                 if err == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
-                    return Err(vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned()));
+                    return Err(vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.timeout_error.to_owned(),
+                            None,
+                            "timed out",
+                        )
+                        .upcast());
                 }
                 if err == windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT {
                     return Err(vm
@@ -1766,7 +1789,13 @@ mod _winapi {
             // Return result
             if let Some(e) = thread_err {
                 if e == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
-                    return Err(vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned()));
+                    return Err(vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.timeout_error.to_owned(),
+                            None,
+                            "timed out",
+                        )
+                        .upcast());
                 }
                 if e == windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT {
                     return Err(vm
@@ -1808,9 +1837,9 @@ mod _winapi {
         if let Some(ref n) = name
             && n.as_bytes().contains(&0)
         {
-            return Err(vm.new_value_error(
-                "CreateFileMapping: name must not contain null characters".to_owned(),
-            ));
+            return Err(
+                vm.new_value_error("CreateFileMapping: name must not contain null characters")
+            );
         }
         let name_wide = name.as_ref().map(|n| n.as_wtf8().to_wide_with_nul());
         let name_ptr = name_wide.as_ref().map_or(null(), |n| n.as_ptr());
@@ -1843,9 +1872,9 @@ mod _winapi {
         use windows_sys::Win32::System::Memory::OpenFileMappingW;
 
         if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error(
-                "OpenFileMapping: name must not contain null characters".to_owned(),
-            ));
+            return Err(
+                vm.new_value_error("OpenFileMapping: name must not contain null characters")
+            );
         }
         let name_wide = name.as_wtf8().to_wide_with_nul();
         let handle = unsafe {

@@ -151,7 +151,7 @@ pub(crate) mod _asyncio {
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // Future does not accept positional arguments
             if !args.args.is_empty() {
-                return Err(vm.new_type_error("Future() takes no positional arguments".to_string()));
+                return Err(vm.new_type_error("Future() takes no positional arguments"));
             }
             // Extract only 'loop' keyword argument
             let loop_ = args.kwargs.get("loop").cloned();
@@ -160,7 +160,7 @@ pub(crate) mod _asyncio {
     }
 
     #[pyclass(
-        flags(BASETYPE, HAS_DICT),
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
         with(Constructor, Initializer, Destructor, Representable, Iterable)
     )]
     impl PyFuture {
@@ -265,7 +265,7 @@ pub(crate) mod _asyncio {
         #[pymethod]
         fn set_result(zelf: PyRef<Self>, result: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             if zelf.fut_state.load() != FutureState::Pending {
                 return Err(new_invalid_state_error(vm, "invalid state"));
@@ -283,7 +283,7 @@ pub(crate) mod _asyncio {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if zelf.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             if zelf.fut_state.load() != FutureState::Pending {
                 return Err(new_invalid_state_error(vm, "invalid state"));
@@ -336,7 +336,7 @@ pub(crate) mod _asyncio {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if zelf.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             let ctx = match args.context.flatten() {
                 Some(c) => c,
@@ -364,7 +364,7 @@ pub(crate) mod _asyncio {
         #[pymethod]
         fn remove_done_callback(&self, func: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             let mut cleared_callback0 = 0usize;
 
@@ -461,7 +461,7 @@ pub(crate) mod _asyncio {
         #[pymethod]
         fn cancel(zelf: PyRef<Self>, args: CancelArgs, vm: &VirtualMachine) -> PyResult<bool> {
             if zelf.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             if zelf.fut_state.load() != FutureState::Pending {
                 // Clear log_tb even when cancel fails
@@ -499,7 +499,8 @@ pub(crate) mod _asyncio {
         }
 
         fn make_cancelled_error_impl(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-            if let Some(exc) = self.fut_cancelled_exc.read().clone()
+            // If a saved CancelledError exists, take it (clearing the stored reference)
+            if let Some(exc) = self.fut_cancelled_exc.write().take()
                 && let Ok(exc) = exc.downcast::<PyBaseException>()
             {
                 return exc;
@@ -508,12 +509,10 @@ pub(crate) mod _asyncio {
             let msg = self.fut_cancel_msg.read().clone();
             let args = if let Some(m) = msg { vec![m] } else { vec![] };
 
-            let exc = match get_cancelled_error_type(vm) {
+            match get_cancelled_error_type(vm) {
                 Ok(cancelled_error) => vm.new_exception(cancelled_error, args),
                 Err(_) => vm.new_runtime_error("cancelled"),
-            };
-            *self.fut_cancelled_exc.write() = Some(exc.clone().into());
-            exc
+            }
         }
 
         fn schedule_callbacks(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
@@ -598,9 +597,7 @@ pub(crate) mod _asyncio {
                     self.fut_blocking.store(v, Ordering::Relaxed);
                     Ok(())
                 }
-                PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("cannot delete attribute".to_string()))
-                }
+                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute")),
             }
         }
 
@@ -670,16 +667,12 @@ pub(crate) mod _asyncio {
             match value {
                 PySetterValue::Assign(v) => {
                     if v {
-                        return Err(vm.new_value_error(
-                            "_log_traceback can only be set to False".to_string(),
-                        ));
+                        return Err(vm.new_value_error("_log_traceback can only be set to False"));
                     }
                     self.fut_log_tb.store(false, Ordering::Relaxed);
                     Ok(())
                 }
-                PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("cannot delete attribute".to_string()))
-                }
+                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute")),
             }
         }
 
@@ -1055,7 +1048,7 @@ pub(crate) mod _asyncio {
                 // Must be a subclass of BaseException
                 if !exc_class.fast_issubclass(vm.ctx.exceptions.base_exception_type) {
                     return Err(vm.new_type_error(
-                        "exceptions must be classes or instances deriving from BaseException, not type".to_string()
+                        "exceptions must be classes or instances deriving from BaseException, not type"
                     ));
                 }
 
@@ -1072,9 +1065,9 @@ pub(crate) mod _asyncio {
                 if let OptionalArg::Present(ref val) = exc_val
                     && !vm.is_none(val)
                 {
-                    return Err(vm.new_type_error(
-                        "instance exception may not have a separate value".to_string(),
-                    ));
+                    return Err(
+                        vm.new_type_error("instance exception may not have a separate value")
+                    );
                 }
                 exc_type
             } else {
@@ -1169,7 +1162,7 @@ pub(crate) mod _asyncio {
     }
 
     #[pyclass(
-        flags(BASETYPE, HAS_DICT),
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
         with(Constructor, Initializer, Destructor, Representable, Iterable)
     )]
     impl PyTask {
@@ -1315,7 +1308,8 @@ pub(crate) mod _asyncio {
         }
 
         fn make_cancelled_error_impl(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-            if let Some(exc) = self.base.fut_cancelled_exc.read().clone()
+            // If a saved CancelledError exists, take it (clearing the stored reference)
+            if let Some(exc) = self.base.fut_cancelled_exc.write().take()
                 && let Ok(exc) = exc.downcast::<PyBaseException>()
             {
                 return exc;
@@ -1324,12 +1318,10 @@ pub(crate) mod _asyncio {
             let msg = self.base.fut_cancel_msg.read().clone();
             let args = if let Some(m) = msg { vec![m] } else { vec![] };
 
-            let exc = match get_cancelled_error_type(vm) {
+            match get_cancelled_error_type(vm) {
                 Ok(cancelled_error) => vm.new_exception(cancelled_error, args),
                 Err(_) => vm.new_runtime_error("cancelled"),
-            };
-            *self.base.fut_cancelled_exc.write() = Some(exc.clone().into());
-            exc
+            }
         }
 
         #[pymethod]
@@ -1339,7 +1331,7 @@ pub(crate) mod _asyncio {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             if zelf.base.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             let ctx = match args.context.flatten() {
                 Some(c) => c,
@@ -1367,7 +1359,7 @@ pub(crate) mod _asyncio {
         #[pymethod]
         fn remove_done_callback(&self, func: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.base.fut_loop.read().is_none() {
-                return Err(vm.new_runtime_error("Future object is not initialized.".to_string()));
+                return Err(vm.new_runtime_error("Future object is not initialized."));
             }
             let mut cleared_callback0 = 0usize;
 
@@ -1686,9 +1678,7 @@ pub(crate) mod _asyncio {
                     self.base.fut_blocking.store(v, Ordering::Relaxed);
                     Ok(())
                 }
-                PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("cannot delete attribute".to_string()))
-                }
+                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute")),
             }
         }
 
@@ -1718,7 +1708,7 @@ pub(crate) mod _asyncio {
                     Ok(())
                 }
                 PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("can't delete _log_destroy_pending".to_owned()))
+                    Err(vm.new_attribute_error("can't delete _log_destroy_pending"))
                 }
             }
         }
@@ -1737,16 +1727,12 @@ pub(crate) mod _asyncio {
             match value {
                 PySetterValue::Assign(v) => {
                     if v {
-                        return Err(vm.new_value_error(
-                            "_log_traceback can only be set to False".to_string(),
-                        ));
+                        return Err(vm.new_value_error("_log_traceback can only be set to False"));
                     }
                     self.base.fut_log_tb.store(false, Ordering::Relaxed);
                     Ok(())
                 }
-                PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("cannot delete attribute".to_string()))
-                }
+                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute")),
             }
         }
 
@@ -2532,14 +2518,10 @@ pub(crate) mod _asyncio {
             let running_task = vm.asyncio_running_task.borrow();
             match running_task.as_ref() {
                 None => {
-                    return Err(vm.new_runtime_error(
-                        "_leave_task: task is not the current task".to_owned(),
-                    ));
+                    return Err(vm.new_runtime_error("_leave_task: task is not the current task"));
                 }
                 Some(current) if !current.is(&task) => {
-                    return Err(vm.new_runtime_error(
-                        "_leave_task: task is not the current task".to_owned(),
-                    ));
+                    return Err(vm.new_runtime_error("_leave_task: task is not the current task"));
                 }
                 _ => {}
             }
@@ -2777,7 +2759,7 @@ pub(crate) mod _asyncio {
             .ok_or_else(|| vm.new_attribute_error("CancelledError not found"))?;
         exc_type
             .downcast()
-            .map_err(|_| vm.new_type_error("CancelledError is not a type".to_string()))
+            .map_err(|_| vm.new_type_error("CancelledError is not a type"))
     }
 
     fn is_cancelled_error(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {

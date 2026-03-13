@@ -5,7 +5,9 @@ biguint
 bindgen
 bitand
 bitflags
+bitflagset
 bitor
+bitvec
 bitxor
 bstr
 byteorder
@@ -58,6 +60,7 @@ powi
 prepended
 punct
 replacen
+retag
 rmatch
 rposition
 rsplitn
@@ -89,5 +92,3 @@ widestring
 winapi
 winresource
 winsock
-bitvec
-Bitvec

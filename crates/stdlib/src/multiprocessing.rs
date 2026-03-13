@@ -154,7 +154,7 @@ mod _multiprocessing {
                 if timeout < 0.0 {
                     0
                 } else if timeout >= 0.5 * INFINITE as f64 {
-                    return Err(vm.new_overflow_error("timeout is too large".to_owned()));
+                    return Err(vm.new_overflow_error("timeout is too large"));
                 } else {
                     (timeout + 0.5) as u32
                 }
@@ -236,9 +236,7 @@ mod _multiprocessing {
             if unsafe { ReleaseSemaphore(self.handle.as_raw(), 1, core::ptr::null_mut()) } == 0 {
                 let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
                 if err == ERROR_TOO_MANY_POSTS {
-                    return Err(
-                        vm.new_value_error("semaphore or lock released too many times".to_owned())
-                    );
+                    return Err(vm.new_value_error("semaphore or lock released too many times"));
                 }
                 return Err(vm.new_last_os_error());
             }
@@ -294,7 +292,7 @@ mod _multiprocessing {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'SemLock' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'SemLock' object"))
         }
 
         #[pymethod]
@@ -338,13 +336,13 @@ mod _multiprocessing {
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             if args.kind != RECURSIVE_MUTEX && args.kind != SEMAPHORE {
-                return Err(vm.new_value_error("unrecognized kind".to_owned()));
+                return Err(vm.new_value_error("unrecognized kind"));
             }
             if args.maxvalue <= 0 {
-                return Err(vm.new_value_error("maxvalue must be positive".to_owned()));
+                return Err(vm.new_value_error("maxvalue must be positive"));
             }
             if args.value < 0 || args.value > args.maxvalue {
-                return Err(vm.new_value_error("invalid value".to_owned()));
+                return Err(vm.new_value_error("invalid value"));
             }
 
             let handle = SemHandle::create(args.value, args.maxvalue, vm)?;
@@ -486,7 +484,7 @@ mod _multiprocessing {
                 tv_sec: (delay / 1_000_000) as _,
                 tv_usec: (delay % 1_000_000) as _,
             };
-            unsafe {
+            vm.allow_threads(|| unsafe {
                 libc::select(
                     0,
                     core::ptr::null_mut(),
@@ -494,7 +492,7 @@ mod _multiprocessing {
                     core::ptr::null_mut(),
                     &mut tv_delay,
                 )
-            };
+            });
 
             // check for signals - preserve the exception (e.g., KeyboardInterrupt)
             if let Err(exc) = vm.check_signals() {
@@ -708,27 +706,57 @@ mod _multiprocessing {
 
             // if (res < 0 && errno == EAGAIN && blocking)
             if res < 0 && Errno::last() == Errno::EAGAIN && blocking {
-                // Couldn't acquire immediately, need to block
+                // Couldn't acquire immediately, need to block.
+                //
+                // Save errno inside the allow_threads closure, before
+                // attach_thread() runs — matches CPython which saves
+                // `err = errno` before Py_END_ALLOW_THREADS.
+
                 #[cfg(not(target_vendor = "apple"))]
                 {
+                    let mut saved_errno;
                     loop {
+                        let sem_ptr = self.handle.as_ptr();
                         // Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS
-                        // RustPython doesn't have GIL, so we just do the wait
-                        if let Some(ref dl) = deadline {
-                            res = unsafe { libc::sem_timedwait(self.handle.as_ptr(), dl) };
+                        let (r, e) = if let Some(ref dl) = deadline {
+                            vm.allow_threads(|| {
+                                let r = unsafe { libc::sem_timedwait(sem_ptr, dl) };
+                                (
+                                    r,
+                                    if r < 0 {
+                                        Errno::last()
+                                    } else {
+                                        Errno::from_raw(0)
+                                    },
+                                )
+                            })
                         } else {
-                            res = unsafe { libc::sem_wait(self.handle.as_ptr()) };
-                        }
+                            vm.allow_threads(|| {
+                                let r = unsafe { libc::sem_wait(sem_ptr) };
+                                (
+                                    r,
+                                    if r < 0 {
+                                        Errno::last()
+                                    } else {
+                                        Errno::from_raw(0)
+                                    },
+                                )
+                            })
+                        };
+                        res = r;
+                        saved_errno = e;
 
                         if res >= 0 {
                             break;
                         }
-                        let err = Errno::last();
-                        if err == Errno::EINTR {
+                        if saved_errno == Errno::EINTR {
                             vm.check_signals()?;
                             continue;
                         }
                         break;
+                    }
+                    if res < 0 {
+                        return handle_wait_error(vm, saved_errno);
                     }
                 }
                 #[cfg(target_vendor = "apple")]
@@ -736,13 +764,11 @@ mod _multiprocessing {
                     // macOS: use polled fallback since sem_timedwait is not available
                     if let Some(ref dl) = deadline {
                         match sem_timedwait_polled(self.handle.as_ptr(), dl, vm) {
-                            Ok(()) => res = 0,
+                            Ok(()) => {}
                             Err(SemWaitError::Timeout) => {
-                                // Timeout occurred - return false directly
                                 return Ok(false);
                             }
                             Err(SemWaitError::SignalException(exc)) => {
-                                // Propagate the original exception (e.g., KeyboardInterrupt)
                                 return Err(exc);
                             }
                             Err(SemWaitError::OsError(e)) => {
@@ -751,30 +777,42 @@ mod _multiprocessing {
                         }
                     } else {
                         // No timeout: use sem_wait (available on macOS)
+                        let mut saved_errno;
                         loop {
-                            res = unsafe { libc::sem_wait(self.handle.as_ptr()) };
+                            let sem_ptr = self.handle.as_ptr();
+                            let (r, e) = vm.allow_threads(|| {
+                                let r = unsafe { libc::sem_wait(sem_ptr) };
+                                (
+                                    r,
+                                    if r < 0 {
+                                        Errno::last()
+                                    } else {
+                                        Errno::from_raw(0)
+                                    },
+                                )
+                            });
+                            res = r;
+                            saved_errno = e;
                             if res >= 0 {
                                 break;
                             }
-                            let err = Errno::last();
-                            if err == Errno::EINTR {
+                            if saved_errno == Errno::EINTR {
                                 vm.check_signals()?;
                                 continue;
                             }
                             break;
                         }
+                        if res < 0 {
+                            return handle_wait_error(vm, saved_errno);
+                        }
                     }
                 }
-            }
-
-            // result handling:
-            if res < 0 {
+            } else if res < 0 {
+                // Non-blocking path failed, or blocking=false
                 let err = Errno::last();
                 match err {
                     Errno::EAGAIN | Errno::ETIMEDOUT => return Ok(false),
                     Errno::EINTR => {
-                        // EINTR should be handled by the check_signals() loop above
-                        // If we reach here, check signals again and propagate any exception
                         return vm.check_signals().map(|_| false);
                     }
                     _ => return Err(os_error(vm, err)),
@@ -816,9 +854,7 @@ mod _multiprocessing {
                         return Err(os_error(vm, Errno::last()));
                     }
                     if sval >= self.maxvalue {
-                        return Err(vm.new_value_error(
-                            "semaphore or lock released too many times".to_owned(),
-                        ));
+                        return Err(vm.new_value_error("semaphore or lock released too many times"));
                     }
                 }
                 #[cfg(target_vendor = "apple")]
@@ -837,9 +873,9 @@ mod _multiprocessing {
                             if unsafe { libc::sem_post(self.handle.as_ptr()) } < 0 {
                                 return Err(os_error(vm, Errno::last()));
                             }
-                            return Err(vm.new_value_error(
-                                "semaphore or lock released too many times".to_owned(),
-                            ));
+                            return Err(
+                                vm.new_value_error("semaphore or lock released too many times")
+                            );
                         }
                     }
                 }
@@ -887,7 +923,7 @@ mod _multiprocessing {
             vm: &VirtualMachine,
         ) -> PyResult {
             let Some(ref name_str) = name else {
-                return Err(vm.new_value_error("cannot rebuild SemLock without name".to_owned()));
+                return Err(vm.new_value_error("cannot rebuild SemLock without name"));
             };
             let handle = SemHandle::open_existing(name_str, vm)?;
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
@@ -915,7 +951,7 @@ mod _multiprocessing {
         /// Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'SemLock' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'SemLock' object"))
         }
 
         /// Num of `acquire()`s minus num of `release()`s for this process.
@@ -1012,11 +1048,11 @@ mod _multiprocessing {
         // _multiprocessing_SemLock_impl
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             if args.kind != RECURSIVE_MUTEX && args.kind != SEMAPHORE {
-                return Err(vm.new_value_error("unrecognized kind".to_owned()));
+                return Err(vm.new_value_error("unrecognized kind"));
             }
             // Value validation
             if args.value < 0 || args.value > args.maxvalue {
-                return Err(vm.new_value_error("invalid value".to_owned()));
+                return Err(vm.new_value_error("invalid value"));
             }
 
             let value = args.value as u32;
@@ -1081,7 +1117,15 @@ mod _multiprocessing {
             full.push('/');
         }
         full.push_str(name);
-        CString::new(full).map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+        CString::new(full).map_err(|_| vm.new_value_error("embedded null character"))
+    }
+
+    fn handle_wait_error(vm: &VirtualMachine, saved_errno: Errno) -> PyResult<bool> {
+        match saved_errno {
+            Errno::EAGAIN | Errno::ETIMEDOUT => Ok(false),
+            Errno::EINTR => vm.check_signals().map(|_| false),
+            _ => Err(os_error(vm, saved_errno)),
+        }
     }
 
     fn os_error(vm: &VirtualMachine, err: Errno) -> PyBaseExceptionRef {

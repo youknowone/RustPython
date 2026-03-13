@@ -10,7 +10,7 @@ use rustpython_compiler_core::{
     bytecode::{
         AnyInstruction, Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData,
         ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg,
-        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table,
+        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -342,7 +342,7 @@ impl CodeInfo {
             }
         }
 
-        let mut block_to_offset = vec![Label(0); blocks.len()];
+        let mut block_to_offset = vec![Label::new(0); blocks.len()];
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
@@ -351,7 +351,7 @@ impl CodeInfo {
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
-                block_to_offset[idx.idx()] = Label(num_instructions as u32);
+                block_to_offset[idx.idx()] = Label::new(num_instructions as u32);
                 // block_to_index uses the same value as block_to_offset but as u32
                 // because lasti in frame.rs is the index into instructions array
                 // and instructions array index == byte offset (each instruction is 1 CodeUnit)
@@ -369,7 +369,7 @@ impl CodeInfo {
             while next_block != BlockIdx::NULL {
                 let block = &mut blocks[next_block];
                 // Track current instruction offset for jump direction resolution
-                let mut current_offset = block_to_offset[next_block.idx()].0;
+                let mut current_offset = block_to_offset[next_block.idx()].as_u32();
                 for info in &mut block.instructions {
                     let target = info.target;
                     let mut op = info.instr.expect_real();
@@ -380,7 +380,7 @@ impl CodeInfo {
                     let offset_after = current_offset + old_arg_size as u32 + old_cache_entries;
 
                     if target != BlockIdx::NULL {
-                        let target_offset = block_to_offset[target.idx()].0;
+                        let target_offset = block_to_offset[target.idx()].as_u32();
                         // Direction must be based on concrete instruction offsets.
                         // Empty blocks can share offsets, so block-order-based resolution
                         // may classify some jumps incorrectly.
@@ -691,6 +691,33 @@ impl CodeInfo {
                                 ))
                             } else {
                                 None
+                            }
+                        }
+                        (Instruction::LoadConst { consti }, Instruction::ToBool) => {
+                            let consti = consti.get(curr.arg);
+                            let constant = &self.metadata.consts[consti.as_usize()];
+                            if let ConstantData::Boolean { .. } = constant {
+                                Some((curr_instr, OpArg::from(consti.as_u32())))
+                            } else {
+                                None
+                            }
+                        }
+                        (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
+                            let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
+                            match constant {
+                                ConstantData::Boolean { value } => {
+                                    let (const_idx, _) = self
+                                        .metadata
+                                        .consts
+                                        .insert_full(ConstantData::Boolean { value: !value });
+                                    Some((
+                                        (Instruction::LoadConst {
+                                            consti: Arg::marker(),
+                                        }),
+                                        OpArg::new(const_idx as u32),
+                                    ))
+                                }
+                                _ => None,
                             }
                         }
                         _ => None,
@@ -1073,15 +1100,19 @@ impl CodeInfo {
 
 impl InstrDisplayContext for CodeInfo {
     type Constant = ConstantData;
-    fn get_constant(&self, i: usize) -> &ConstantData {
-        &self.metadata.consts[i]
+
+    fn get_constant(&self, consti: oparg::ConstIdx) -> &ConstantData {
+        &self.metadata.consts[consti.as_usize()]
     }
+
     fn get_name(&self, i: usize) -> &str {
         self.metadata.names[i].as_ref()
     }
-    fn get_varname(&self, i: usize) -> &str {
-        self.metadata.varnames[i].as_ref()
+
+    fn get_varname(&self, var_num: oparg::VarNum) -> &str {
+        self.metadata.varnames[var_num.as_usize()].as_ref()
     }
+
     fn get_cell_name(&self, i: usize) -> &str {
         self.metadata
             .cellvars

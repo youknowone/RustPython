@@ -111,7 +111,7 @@ pub(crate) fn warn_if_bool_fd(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResul
         .class()
         .is(crate::builtins::bool_::PyBool::static_type())
     {
-        crate::stdlib::warnings::warn(
+        crate::stdlib::_warnings::warn(
             vm.ctx.exceptions.runtime_warning,
             "bool is used as a file descriptor".to_owned(),
             1,
@@ -287,7 +287,7 @@ pub(super) mod _os {
     fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         let mut buffer = vec![0u8; n];
         loop {
-            match crt_fd::read(fd, &mut buffer) {
+            match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
                     buffer.truncate(n);
                     return Ok(vm.ctx.new_bytes(buffer));
@@ -309,7 +309,7 @@ pub(super) mod _os {
     ) -> PyResult<usize> {
         buffer.with_ref(|buf| {
             loop {
-                match crt_fd::read(fd, buf) {
+                match vm.allow_threads(|| crt_fd::read(fd, buf)) {
                     Ok(n) => return Ok(n),
                     Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
                         vm.check_signals()?;
@@ -322,8 +322,12 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn write(fd: crt_fd::Borrowed<'_>, data: ArgBytesLike) -> io::Result<usize> {
-        data.with_ref(|b| crt_fd::write(fd, b))
+    fn write(
+        fd: crt_fd::Borrowed<'_>,
+        data: ArgBytesLike,
+        vm: &VirtualMachine,
+    ) -> io::Result<usize> {
+        data.with_ref(|b| vm.allow_threads(|| crt_fd::write(fd, b)))
     }
 
     #[cfg(not(windows))]
@@ -864,7 +868,7 @@ pub(super) mod _os {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'DirEntry' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'DirEntry' object"))
         }
     }
 
@@ -927,14 +931,14 @@ pub(super) mod _os {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object"))
         }
     }
     impl Destructor for ScandirIterator {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if the iterator is not yet exhausted/closed
             if zelf.entries.read().is_some() {
-                let _ = crate::stdlib::warnings::warn(
+                let _ = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed scandir iterator {:?}", zelf.as_object()),
                     1,
@@ -1089,7 +1093,7 @@ pub(super) mod _os {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object"))
         }
     }
 
@@ -1097,7 +1101,7 @@ pub(super) mod _os {
     impl Destructor for ScandirIteratorFd {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.dir.lock().is_some() {
-                let _ = crate::stdlib::warnings::warn(
+                let _ = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed scandir iterator {:?}", zelf.as_object()),
                     1,

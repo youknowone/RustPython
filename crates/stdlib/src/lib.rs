@@ -41,6 +41,8 @@ mod json;
 mod locale;
 
 mod _opcode;
+#[path = "_tokenize.rs"]
+mod _tokenize;
 mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
@@ -225,6 +227,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         ssl::module_def(ctx),
         statistics::module_def(ctx),
         suggestions::module_def(ctx),
+        _tokenize::module_def(ctx),
         #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
         syslog::module_def(ctx),
         #[cfg(all(

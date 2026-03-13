@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
-    CodeObject, ConstantData, Instruction, OpArg, OpArgState,
+    CodeObject, ConstantData, Constants, Instruction, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
@@ -77,7 +77,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
 
         match instruction {
             Instruction::LoadConst { consti } => {
-                stack.push((true, consti.get(arg) as usize));
+                stack.push((true, consti.get(arg).as_usize()));
             }
             Instruction::LoadName { namei } => {
                 stack.push((false, namei.get(arg) as usize));
@@ -99,7 +99,8 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
 
                         // Key should be a const string (parameter name)
                         if key_is_const
-                            && let ConstantData::Str { value } = &code.constants[key_idx]
+                            && let ConstantData::Str { value } =
+                                &code.constants[(key_idx as u32).into()]
                         {
                             let param_name = value;
                             // Value can be a name (type ref) or a const string (forward ref)
@@ -185,7 +186,7 @@ impl StackMachine {
         &mut self,
         instruction: Instruction,
         arg: OpArg,
-        constants: &[ConstantData],
+        constants: &Constants<ConstantData>,
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
@@ -193,8 +194,7 @@ impl StackMachine {
                 // No-op for JIT tests
             }
             Instruction::LoadConst { consti } => {
-                let idx = consti.get(arg);
-                self.stack.push(constants[idx as usize].clone().into())
+                self.stack.push(constants[consti.get(arg)].clone().into())
             }
             Instruction::LoadName { namei } => self
                 .stack
@@ -243,42 +243,40 @@ impl StackMachine {
                 };
                 let attr_value = self.stack.pop().expect("Expected attribute value on stack");
 
-                let flags = flag.get(arg);
+                let flag_value = flag.get(arg);
 
-                // Handle ANNOTATE flag (PEP 649 style - Python 3.14+)
-                // The attr_value is a function that returns annotations when called
-                if flags.contains(rustpython_compiler_core::bytecode::MakeFunctionFlags::ANNOTATE) {
-                    if let StackValue::Function(annotate_func) = attr_value {
-                        // Parse the annotate function's bytecode to extract annotations
-                        // The pattern is: LOAD_CONST (key), LOAD_NAME (value), ... BUILD_MAP
-                        let annotate_code = &annotate_func.code;
-                        let annotations = extract_annotations_from_annotate_code(annotate_code);
+                match flag_value {
+                    rustpython_compiler_core::bytecode::MakeFunctionFlag::Annotate => {
+                        // Handle ANNOTATE flag (PEP 649 style - Python 3.14+)
+                        if let StackValue::Function(annotate_func) = attr_value {
+                            let annotate_code = &annotate_func.code;
+                            let annotations = extract_annotations_from_annotate_code(annotate_code);
 
-                        let updated_func = Function {
-                            code: func.code,
-                            annotations,
-                        };
-                        self.stack.push(StackValue::Function(updated_func));
-                    } else {
-                        panic!("Expected annotate function for ANNOTATE flag");
+                            let updated_func = Function {
+                                code: func.code,
+                                annotations,
+                            };
+                            self.stack.push(StackValue::Function(updated_func));
+                        } else {
+                            panic!("Expected annotate function for ANNOTATE flag");
+                        }
                     }
-                }
-                // Handle old ANNOTATIONS flag (Python 3.12 style)
-                else if flags
-                    .contains(rustpython_compiler_core::bytecode::MakeFunctionFlags::ANNOTATIONS)
-                {
-                    if let StackValue::Map(annotations) = attr_value {
-                        let updated_func = Function {
-                            code: func.code,
-                            annotations,
-                        };
-                        self.stack.push(StackValue::Function(updated_func));
-                    } else {
-                        panic!("Expected annotations to be a map");
+                    rustpython_compiler_core::bytecode::MakeFunctionFlag::Annotations => {
+                        // Handle old ANNOTATIONS flag (Python 3.12 style)
+                        if let StackValue::Map(annotations) = attr_value {
+                            let updated_func = Function {
+                                code: func.code,
+                                annotations,
+                            };
+                            self.stack.push(StackValue::Function(updated_func));
+                        } else {
+                            panic!("Expected annotations to be a map");
+                        }
                     }
-                } else {
-                    // For other attributes, just push the function back unchanged
-                    self.stack.push(StackValue::Function(func));
+                    _ => {
+                        // For other attributes, just push the function back unchanged
+                        self.stack.push(StackValue::Function(func));
+                    }
                 }
             }
             Instruction::ReturnValue => return ControlFlow::Break(()),

@@ -7,7 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
-    stdlib::warnings,
+    stdlib::_warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use core::cell::Cell;
@@ -58,7 +58,7 @@ impl PyPayload for PyComplex {
     }
 
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         COMPLEX_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
@@ -95,7 +95,7 @@ impl PyObjectRef {
 
             let ret_class = result.class().to_owned();
             if let Some(ret) = result.downcast_ref::<PyComplex>() {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
                         "__complex__ returned non-complex (type {ret_class}).  \
@@ -321,8 +321,15 @@ impl PyComplex {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_complex(&zelf.value))
+        let format_spec =
+            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let result = if format_spec.has_locale_format() {
+            let locale = crate::format::get_locale_info();
+            format_spec.format_complex_locale(&zelf.value, &locale)
+        } else {
+            format_spec.format_complex(&zelf.value)
+        };
+        result
             .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -411,7 +418,7 @@ impl AsNumber for PyComplex {
                 let result = value.norm();
                 // Check for overflow: hypot returns inf for finite inputs that overflow
                 if result.is_infinite() && value.re.is_finite() && value.im.is_finite() {
-                    return Err(vm.new_overflow_error("absolute value too large".to_owned()));
+                    return Err(vm.new_overflow_error("absolute value too large"));
                 }
                 result.to_pyresult(vm)
             }),

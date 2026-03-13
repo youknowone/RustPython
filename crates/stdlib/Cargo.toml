@@ -31,6 +31,11 @@ rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 
+ruff_python_parser = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_text_size = { workspace = true }
+ruff_source_file = { workspace = true }
+
 ahash = { workspace = true }
 ascii = { workspace = true }
 cfg-if = { workspace = true }
@@ -102,7 +107,7 @@ chrono.workspace = true
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = "1.1.3"
-uuid = { version = "1.21.0", features = ["v1"] }
+uuid = { version = "1.22.0", features = ["v1"] }
 
 [target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
 termios = "0.3.3"
@@ -112,20 +117,20 @@ rustix = { workspace = true }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-memmap2 = "0.9.9"
+memmap2 = "0.9.10"
 page_size = "0.6"
 gethostname = "1.0.2"
-socket2 = { version = "0.6.0", features = ["all"] }
+socket2 = { version = "0.6.3", features = ["all"] }
 dns-lookup = "3.0"
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)
-openssl = { version = "0.10.72", optional = true }
+openssl = { version = "0.10.76", optional = true }
 openssl-sys = { version = "0.9.110", optional = true }
 openssl-probe = { version = "0.2.1", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)
-rustls = { version = "0.23.36", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
+rustls = { version = "0.23.37", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pemfile = { version = "2.2", optional = true }
 rustls-platform-verifier = { version = "0.6", optional = true }

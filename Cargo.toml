@@ -101,6 +101,7 @@ opt-level = 3
 lto = "thin"
 
 [patch.crates-io]
+parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
@@ -155,17 +156,18 @@ rustpython-sre_engine = { path = "crates/sre_engine", version = "0.4.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.4.0" }
 rustpython-doc = { path = "crates/doc", version = "0.4.0" }
 
-# Ruff tag 0.15.4 is based on commit f14edd8661e2803254f89265548c7487f47a09f6
+# Ruff tag 0.15.5 is based on commit 5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be
 # at the time of this capture. We use the commit hash to ensure reproducible builds.
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "f14edd8661e2803254f89265548c7487f47a09f6" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "f14edd8661e2803254f89265548c7487f47a09f6" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "f14edd8661e2803254f89265548c7487f47a09f6" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "f14edd8661e2803254f89265548c7487f47a09f6" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be" }
 
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
 ascii = "1.1"
 bitflags = "2.11.0"
+bitflagset = "0.0.3"
 bstr = "1"
 bytes = "1.11.1"
 cfg-if = "1.0"
@@ -182,7 +184,7 @@ insta = "1.46"
 itertools = "0.14.0"
 is-macro = "0.3.7"
 junction = "1.4.2"
-libc = "0.2.182"
+libc = "0.2.183"
 libffi = "5"
 log = "0.4.29"
 nix = { version = "0.30", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
@@ -199,7 +201,7 @@ parking_lot = "0.12.3"
 paste = "1.0.15"
 proc-macro2 = "1.0.105"
 pymath = { version = "0.1.5", features = ["mul_add", "malachite-bigint", "complex"] }
-quote = "1.0.44"
+quote = "1.0.45"
 radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }

@@ -37,6 +37,8 @@ pub struct PyMethodDescriptor {
     pub method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
     pub objclass: &'static Py<PyType>, // TODO: move to tp_members
+    /// Prevent HeapMethodDef from being freed while this descriptor references it
+    pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
 impl PyMethodDescriptor {
@@ -49,6 +51,7 @@ impl PyMethodDescriptor {
             },
             method,
             objclass: typ,
+            _method_def_owner: None,
         }
     }
 }
@@ -88,13 +91,12 @@ impl GetDescriptor for PyMethodDescriptor {
                 } else if descr.method.flags.contains(PyMethodFlags::CLASS) {
                     obj.class().to_owned().into()
                 } else {
-                    unimplemented!()
+                    obj
                 }
             }
             None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap(),
             None => return Ok(zelf),
         };
-        // Ok(descr.method.build_bound_method(&vm.ctx, bound, class).into())
         Ok(descr.bind(bound, &vm.ctx).into())
     }
 }
@@ -370,7 +372,7 @@ fn set_slot_at_object(
                     obj.set_slot(offset, Some(v))
                 }
                 PySetterValue::Delete => {
-                    return Err(vm.new_type_error("can't delete numeric/char attribute".to_owned()));
+                    return Err(vm.new_type_error("can't delete numeric/char attribute"));
                 }
             };
         }
@@ -590,9 +592,7 @@ impl SlotFunc {
             }
             SlotFunc::Hash(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
-                    return Err(
-                        vm.new_type_error("__hash__() takes no arguments (1 given)".to_owned())
-                    );
+                    return Err(vm.new_type_error("__hash__() takes no arguments (1 given)"));
                 }
                 let hash = func(&obj, vm)?;
                 Ok(vm.ctx.new_int(hash).into())
@@ -611,26 +611,20 @@ impl SlotFunc {
             }
             SlotFunc::Iter(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
-                    return Err(
-                        vm.new_type_error("__iter__() takes no arguments (1 given)".to_owned())
-                    );
+                    return Err(vm.new_type_error("__iter__() takes no arguments (1 given)"));
                 }
                 func(obj, vm)
             }
             SlotFunc::IterNext(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
-                    return Err(
-                        vm.new_type_error("__next__() takes no arguments (1 given)".to_owned())
-                    );
+                    return Err(vm.new_type_error("__next__() takes no arguments (1 given)"));
                 }
                 func(&obj, vm).to_pyresult(vm)
             }
             SlotFunc::Call(func) => func(&obj, args, vm),
             SlotFunc::Del(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
-                    return Err(
-                        vm.new_type_error("__del__() takes no arguments (1 given)".to_owned())
-                    );
+                    return Err(vm.new_type_error("__del__() takes no arguments (1 given)"));
                 }
                 func(&obj, vm)?;
                 Ok(vm.ctx.none())

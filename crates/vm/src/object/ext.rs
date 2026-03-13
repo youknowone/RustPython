@@ -289,8 +289,12 @@ impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
 impl<T: PyPayload> From<PyRef<T>> for PyAtomicRef<T> {
     fn from(pyref: PyRef<T>) -> Self {
         let py = PyRef::leak(pyref);
+        let ptr = py as *const _ as *mut u8;
+        // Expose provenance so we can re-derive via with_exposed_provenance
+        // without Stacked Borrows tag restrictions during bootstrap
+        ptr.expose_provenance();
         Self {
-            inner: Radium::new(py as *const _ as *mut _),
+            inner: Radium::new(ptr),
             _phantom: Default::default(),
         }
     }
@@ -311,6 +315,14 @@ impl<T: PyPayload> Deref for PyAtomicRef<T> {
 }
 
 impl<T: PyPayload> PyAtomicRef<T> {
+    /// Load the raw pointer without creating a reference.
+    /// Avoids Stacked Borrows retag, safe for use during bootstrap
+    /// when type objects have self-referential pointers being mutated.
+    #[inline(always)]
+    pub(super) fn load_raw(&self) -> *const Py<T> {
+        self.inner.load(Ordering::Relaxed).cast::<Py<T>>()
+    }
+
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()
@@ -343,11 +355,19 @@ impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
 
 impl<T: PyPayload> PyAtomicRef<Option<T>> {
     pub fn deref(&self) -> Option<&Py<T>> {
-        unsafe { self.inner.load(Ordering::Relaxed).cast::<Py<T>>().as_ref() }
+        self.deref_ordering(Ordering::Relaxed)
+    }
+
+    pub fn deref_ordering(&self, ordering: Ordering) -> Option<&Py<T>> {
+        unsafe { self.inner.load(ordering).cast::<Py<T>>().as_ref() }
     }
 
     pub fn to_owned(&self) -> Option<PyRef<T>> {
-        self.deref().map(|x| x.to_owned())
+        self.to_owned_ordering(Ordering::Relaxed)
+    }
+
+    pub fn to_owned_ordering(&self, ordering: Ordering) -> Option<PyRef<T>> {
+        self.deref_ordering(ordering).map(|x| x.to_owned())
     }
 
     /// # Safety
@@ -429,16 +449,19 @@ impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
 
 impl PyAtomicRef<Option<PyObject>> {
     pub fn deref(&self) -> Option<&PyObject> {
-        unsafe {
-            self.inner
-                .load(Ordering::Relaxed)
-                .cast::<PyObject>()
-                .as_ref()
-        }
+        self.deref_ordering(Ordering::Relaxed)
+    }
+
+    pub fn deref_ordering(&self, ordering: Ordering) -> Option<&PyObject> {
+        unsafe { self.inner.load(ordering).cast::<PyObject>().as_ref() }
     }
 
     pub fn to_owned(&self) -> Option<PyObjectRef> {
-        self.deref().map(|x| x.to_owned())
+        self.to_owned_ordering(Ordering::Relaxed)
+    }
+
+    pub fn to_owned_ordering(&self, ordering: Ordering) -> Option<PyObjectRef> {
+        self.deref_ordering(ordering).map(|x| x.to_owned())
     }
 
     /// # Safety
