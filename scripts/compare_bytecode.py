@@ -25,8 +25,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 DIS_DUMP = os.path.join(SCRIPT_DIR, "dis_dump.py")
 DEFAULT_REPORT = os.path.join(PROJECT_ROOT, "compare_bytecode.report")
-
-
 def find_rustpython():
     """Locate the RustPython binary, allowing release builds only."""
     if "RUSTPYTHON" in os.environ:
@@ -307,6 +305,10 @@ def main():
         print("Error: RustPython binary not found.", file=sys.stderr)
         print("  Build with: cargo build --release", file=sys.stderr)
         print("  Or set RUSTPYTHON=/path/to/binary", file=sys.stderr)
+        sys.exit(1)
+    if not os.path.isfile(DIS_DUMP):
+        print("Error: disassembler helper not found: %s" % DIS_DUMP, file=sys.stderr)
+        print("  Expected scripts/dis_dump.py from origin/bytecode-parity", file=sys.stderr)
         sys.exit(1)
 
     targets = collect_targets(args.lib_dir, args.filter)
