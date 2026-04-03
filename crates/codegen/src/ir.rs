@@ -233,6 +233,8 @@ impl CodeInfo {
         duplicate_end_returns(&mut self.blocks);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
+        remove_redundant_nops_and_jumps(&mut self.blocks);
+        self.add_checks_for_loads_of_uninitialized_variables();
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
         self.optimize_load_global_push_null();
@@ -1346,6 +1348,11 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
                         (Instruction::LoadFast { .. }, Instruction::LoadFast { .. }) => {
+                            let line1 = curr.location.line.get() as i32;
+                            let line2 = next.location.line.get() as i32;
+                            if line1 > 0 && line2 > 0 && line1 != line2 {
+                                None
+                            } else {
                             let idx1 = u32::from(curr.arg);
                             let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
@@ -1359,9 +1366,15 @@ impl CodeInfo {
                             } else {
                                 None
                             }
+                            }
                         }
                         // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
                         (Instruction::StoreFast { .. }, Instruction::StoreFast { .. }) => {
+                            let line1 = curr.location.line.get() as i32;
+                            let line2 = next.location.line.get() as i32;
+                            if line1 > 0 && line2 > 0 && line1 != line2 {
+                                None
+                            } else {
                             let idx1 = u32::from(curr.arg);
                             let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
@@ -1374,6 +1387,7 @@ impl CodeInfo {
                                 ))
                             } else {
                                 None
+                            }
                             }
                         }
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
@@ -1694,6 +1708,183 @@ impl CodeInfo {
                         .into();
                     }
                     _ => {}
+                }
+            }
+        }
+    }
+
+    fn add_checks_for_loads_of_uninitialized_variables(&mut self) {
+        let nlocals = self.metadata.varnames.len();
+        if nlocals == 0 {
+            return;
+        }
+
+        let mut nparams = self.metadata.argcount as usize + self.metadata.kwonlyargcount as usize;
+        if self.flags.contains(CodeFlags::VARARGS) {
+            nparams += 1;
+        }
+        if self.flags.contains(CodeFlags::VARKEYWORDS) {
+            nparams += 1;
+        }
+        nparams = nparams.min(nlocals);
+
+        let mut in_masks: Vec<Option<Vec<bool>>> = vec![None; self.blocks.len()];
+        let mut start_mask = vec![false; nlocals];
+        for slot in start_mask.iter_mut().skip(nparams) {
+            *slot = true;
+        }
+        in_masks[0] = Some(start_mask);
+
+        let mut worklist = vec![BlockIdx(0)];
+        while let Some(block_idx) = worklist.pop() {
+            let idx = block_idx.idx();
+            let Some(mut unsafe_mask) = in_masks[idx].clone() else {
+                continue;
+            };
+
+            let old_instructions = self.blocks[idx].instructions.clone();
+            let mut new_instructions = Vec::with_capacity(old_instructions.len());
+            let mut changed = false;
+
+            for info in old_instructions {
+                let mut info = info;
+                if let Some(eh) = info.except_handler {
+                    let target = next_nonempty_block(&self.blocks, eh.handler_block);
+                    if target != BlockIdx::NULL
+                        && merge_unsafe_mask(&mut in_masks[target.idx()], &unsafe_mask)
+                    {
+                        worklist.push(target);
+                    }
+                }
+                match info.instr.real() {
+                    Some(Instruction::DeleteFast { var_num }) => {
+                        let var_idx = usize::from(var_num.get(info.arg));
+                        if var_idx < nlocals {
+                            unsafe_mask[var_idx] = true;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::LoadFastAndClear { var_num }) => {
+                        let var_idx = usize::from(var_num.get(info.arg));
+                        if var_idx < nlocals {
+                            unsafe_mask[var_idx] = true;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::StoreFast { var_num }) => {
+                        let var_idx = usize::from(var_num.get(info.arg));
+                        if var_idx < nlocals {
+                            unsafe_mask[var_idx] = false;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::StoreFastStoreFast { var_nums }) => {
+                        let packed = var_nums.get(info.arg);
+                        let (idx1, idx2) = packed.indexes();
+                        let idx1 = usize::from(idx1);
+                        let idx2 = usize::from(idx2);
+                        if idx1 < nlocals {
+                            unsafe_mask[idx1] = false;
+                        }
+                        if idx2 < nlocals {
+                            unsafe_mask[idx2] = false;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::LoadFastCheck { var_num }) => {
+                        let var_idx = usize::from(var_num.get(info.arg));
+                        if var_idx < nlocals {
+                            unsafe_mask[var_idx] = false;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::LoadFast { var_num }) => {
+                        let var_idx = usize::from(var_num.get(info.arg));
+                        if var_idx < nlocals && unsafe_mask[var_idx] {
+                            info.instr = Instruction::LoadFastCheck {
+                                var_num: Arg::marker(),
+                            }
+                            .into();
+                            changed = true;
+                        }
+                        if var_idx < nlocals {
+                            unsafe_mask[var_idx] = false;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::LoadFastLoadFast { var_nums }) => {
+                        let packed = var_nums.get(info.arg);
+                        let (idx1, idx2) = packed.indexes();
+                        let idx1 = usize::from(idx1);
+                        let idx2 = usize::from(idx2);
+                        let needs_check_1 = idx1 < nlocals && unsafe_mask[idx1];
+                        let needs_check_2 = idx2 < nlocals && unsafe_mask[idx2];
+                        if needs_check_1 || needs_check_2 {
+                            let mut first = info;
+                            first.instr = if needs_check_1 {
+                                Instruction::LoadFastCheck {
+                                    var_num: Arg::marker(),
+                                }
+                            } else {
+                                Instruction::LoadFast {
+                                    var_num: Arg::marker(),
+                                }
+                            }
+                            .into();
+                            first.arg = OpArg::new(idx1 as u32);
+
+                            let mut second = info;
+                            second.instr = if needs_check_2 {
+                                Instruction::LoadFastCheck {
+                                    var_num: Arg::marker(),
+                                }
+                            } else {
+                                Instruction::LoadFast {
+                                    var_num: Arg::marker(),
+                                }
+                            }
+                            .into();
+                            second.arg = OpArg::new(idx2 as u32);
+
+                            new_instructions.push(first);
+                            new_instructions.push(second);
+                            changed = true;
+                        } else {
+                            new_instructions.push(info);
+                        }
+                        if idx1 < nlocals {
+                            unsafe_mask[idx1] = false;
+                        }
+                        if idx2 < nlocals {
+                            unsafe_mask[idx2] = false;
+                        }
+                    }
+                    _ => new_instructions.push(info),
+                }
+            }
+
+            if changed {
+                self.blocks[idx].instructions = new_instructions;
+            }
+
+            let block = &self.blocks[idx];
+            if block_has_fallthrough(block) {
+                let next = next_nonempty_block(&self.blocks, block.next);
+                if next != BlockIdx::NULL
+                    && merge_unsafe_mask(&mut in_masks[next.idx()], &unsafe_mask)
+                {
+                    worklist.push(next);
+                }
+            }
+
+            if let Some(last) = block.instructions.last()
+                && is_jump_instruction(last)
+            {
+                let target = next_nonempty_block(&self.blocks, last.target);
+                if target != BlockIdx::NULL
+                    && merge_unsafe_mask(&mut in_masks[target.idx()], &unsafe_mask)
+                {
+                    worklist.push(target);
                 }
             }
         }
@@ -2164,16 +2355,6 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
 
     for (cold_idx, warm_next) in fixups {
         let jump_block_idx = BlockIdx(blocks.len() as u32);
-        let loc = blocks[cold_idx.idx()]
-            .instructions
-            .last()
-            .map(|i| i.location)
-            .unwrap_or_default();
-        let end_loc = blocks[cold_idx.idx()]
-            .instructions
-            .last()
-            .map(|i| i.end_location)
-            .unwrap_or_default();
         let mut jump_block = Block {
             cold: true,
             ..Block::default()
@@ -2185,10 +2366,10 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             .into(),
             arg: OpArg::new(0),
             target: warm_next,
-            location: loc,
-            end_location: end_loc,
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
             except_handler: None,
-            lineno_override: None,
+            lineno_override: Some(-1),
             cache_entries: 0,
         });
         jump_block.next = blocks[cold_idx.idx()].next;
@@ -2619,6 +2800,126 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
 
         if !changes {
             break;
+        }
+    }
+}
+
+fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
+    let mut changes = 0;
+    let mut block_order = Vec::new();
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        block_order.push(current);
+        current = blocks[current.idx()].next;
+    }
+
+    for block_idx in block_order {
+        let bi = block_idx.idx();
+        let mut src_instructions = core::mem::take(&mut blocks[bi].instructions);
+        let mut kept = Vec::with_capacity(src_instructions.len());
+        let mut prev_lineno = -1i32;
+
+        for src in 0..src_instructions.len() {
+            let instr = src_instructions[src];
+            let lineno = instruction_lineno(&instr);
+            let mut remove = false;
+
+            if matches!(instr.instr.real(), Some(Instruction::Nop)) {
+                if lineno < 0 || prev_lineno == lineno {
+                    remove = true;
+                } else if src < src_instructions.len() - 1 {
+                    let next_lineno = instruction_lineno(&src_instructions[src + 1]);
+                    if next_lineno == lineno {
+                        remove = true;
+                    } else if next_lineno < 0 {
+                        src_instructions[src + 1].lineno_override = Some(lineno);
+                        remove = true;
+                    }
+                } else {
+                    let next = next_nonempty_block(blocks, blocks[bi].next);
+                    if next != BlockIdx::NULL {
+                        let mut next_lineno = None;
+                        for next_instr in &blocks[next.idx()].instructions {
+                            let line = instruction_lineno(next_instr);
+                            if matches!(next_instr.instr.real(), Some(Instruction::Nop)) && line < 0
+                            {
+                                continue;
+                            }
+                            next_lineno = Some(line);
+                            break;
+                        }
+                        if next_lineno.is_some_and(|line| line == lineno) {
+                            remove = true;
+                        }
+                    }
+                }
+            }
+
+            if remove {
+                changes += 1;
+            } else {
+                kept.push(instr);
+                prev_lineno = lineno;
+            }
+        }
+
+        blocks[bi].instructions = kept;
+    }
+
+    changes
+}
+
+fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
+    let mut changes = 0;
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let idx = current.idx();
+        let next = next_nonempty_block(blocks, blocks[idx].next);
+        let jump_target = blocks[idx]
+            .instructions
+            .last()
+            .filter(|ins| ins.instr.is_unconditional_jump() && ins.target != BlockIdx::NULL)
+            .map(|ins| ins.target);
+        if next != BlockIdx::NULL
+            && let Some(target) = jump_target
+            && next_nonempty_block(blocks, target) == next
+            && let Some(last_instr) = blocks[idx].instructions.last_mut()
+        {
+            last_instr.instr = Instruction::Nop.into();
+            last_instr.arg = OpArg::new(0);
+            last_instr.target = BlockIdx::NULL;
+            changes += 1;
+        }
+        current = blocks[idx].next;
+    }
+    changes
+}
+
+fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) {
+    loop {
+        let removed_nops = remove_redundant_nops_in_blocks(blocks);
+        let removed_jumps = remove_redundant_jumps_in_blocks(blocks);
+        if removed_nops + removed_jumps == 0 {
+            break;
+        }
+    }
+}
+
+fn merge_unsafe_mask(slot: &mut Option<Vec<bool>>, incoming: &[bool]) -> bool {
+    match slot {
+        Some(existing) => {
+            let mut changed = false;
+            for (dst, src) in existing.iter_mut().zip(incoming.iter().copied()) {
+                if src && !*dst {
+                    *dst = true;
+                    changed = true;
+                }
+            }
+            changed
+        }
+        None => {
+            *slot = Some(incoming.to_vec());
+            true
         }
     }
 }
