@@ -25,6 +25,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 DIS_DUMP = os.path.join(SCRIPT_DIR, "dis_dump.py")
 DEFAULT_REPORT = os.path.join(PROJECT_ROOT, "compare_bytecode.report")
+
+
 def find_rustpython():
     """Locate the RustPython binary, allowing release builds only."""
     if "RUSTPYTHON" in os.environ:
@@ -47,7 +49,9 @@ def collect_targets(lib_dir, pattern=None):
     """Collect Python files to compare, relative to lib_dir."""
     targets = []
     for root, dirs, files in os.walk(lib_dir):
-        dirs[:] = sorted(d for d in dirs if d != "__pycache__" and not d.startswith("."))
+        dirs[:] = sorted(
+            d for d in dirs if d != "__pycache__" and not d.startswith(".")
+        )
         for fname in sorted(files):
             if not fname.endswith(".py"):
                 continue
@@ -222,7 +226,9 @@ def compare_code_summary(cp_code, rp_code):
         rp_list = rp_by_name.get(name, [])
         for i in range(max(len(cp_list), len(rp_list))):
             if i < len(cp_list) and i < len(rp_list):
-                child_objects, child_insts = compare_code_summary(cp_list[i], rp_list[i])
+                child_objects, child_insts = compare_code_summary(
+                    cp_list[i], rp_list[i]
+                )
                 diff_code_objects += child_objects
                 diff_instructions += child_insts
             else:
@@ -308,7 +314,10 @@ def main():
         sys.exit(1)
     if not os.path.isfile(DIS_DUMP):
         print("Error: disassembler helper not found: %s" % DIS_DUMP, file=sys.stderr)
-        print("  Expected scripts/dis_dump.py from origin/bytecode-parity", file=sys.stderr)
+        print(
+            "  Expected scripts/dis_dump.py from origin/bytecode-parity",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     targets = collect_targets(args.lib_dir, args.filter)
@@ -467,10 +476,16 @@ def main():
         else:
             list_limit = 0 if args.summary_json else max(args.list_limit, 0)
             if diff_summaries and list_limit:
-                p("Top differing files (%d shown of %d):" % (min(list_limit, len(diff_summaries)), len(diff_summaries)))
+                shown = min(list_limit, len(diff_summaries))
+                total = len(diff_summaries)
+                p(f"Top differing files ({shown} shown of {total}):")
                 top = sorted(
                     diff_summaries,
-                    key=lambda item: (item["diff_instructions"], item["diff_code_objects"], item["path"]),
+                    key=lambda item: (
+                        item["diff_instructions"],
+                        item["diff_code_objects"],
+                        item["path"],
+                    ),
                     reverse=True,
                 )[:list_limit]
                 for item in top:
@@ -504,7 +519,11 @@ def main():
             else [item["path"] for item in diff_summaries],
             "top_diff_files": sorted(
                 diff_summaries,
-                key=lambda item: (item["diff_instructions"], item["diff_code_objects"], item["path"]),
+                key=lambda item: (
+                    item["diff_instructions"],
+                    item["diff_code_objects"],
+                    item["path"],
+                ),
                 reverse=True,
             )[: min(20, len(diff_summaries))],
             "rp_error_files": [fp for fp, _ in rp_error_files],

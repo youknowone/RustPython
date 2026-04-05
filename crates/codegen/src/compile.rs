@@ -2624,7 +2624,19 @@ impl Compiler {
                     for elt in value_elts {
                         self.compile_expression(elt)?;
                     }
+                    // Stores happen in reverse (TOS = last value → first store).
+                    // When the same name appears multiple times in the target
+                    // tuple, only the first store (getting the rightmost value)
+                    // matters; later stores to the same name are dead.
+                    // Replace them with POP_TOP (apply_static_swaps).
+                    let mut seen = std::collections::HashSet::new();
                     for target in target_elts.iter().rev() {
+                        if let ast::Expr::Name(ast::ExprName { id, .. }) = target
+                            && !seen.insert(id.as_str())
+                        {
+                            emit!(self, Instruction::PopTop);
+                            continue;
+                        }
                         self.compile_store(target)?;
                     }
                     return Ok(());

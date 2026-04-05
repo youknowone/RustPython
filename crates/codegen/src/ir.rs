@@ -209,6 +209,9 @@ impl CodeInfo {
 
         // DCE always runs (removes dead code after terminal instructions)
         self.dce();
+        // Dead store elimination for duplicate STORE_FAST targets
+        // (apply_static_swaps in CPython's flowgraph.c)
+        self.eliminate_dead_stores();
         // Peephole optimizer creates superinstructions matching CPython
         self.peephole_optimize();
 
@@ -1328,6 +1331,65 @@ impl CodeInfo {
         }
     }
 
+    /// Eliminate dead stores in STORE_FAST sequences (apply_static_swaps).
+    ///
+    /// In sequences of consecutive STORE_FAST instructions (from tuple unpacking),
+    /// if the same variable is stored to more than once, only the first store
+    /// (which gets TOS — the rightmost value) matters. Later stores to the
+    /// same variable are dead and replaced with POP_TOP.
+    /// Simplified apply_static_swaps (CPython flowgraph.c):
+    /// In STORE_FAST sequences that follow UNPACK_SEQUENCE / UNPACK_EX,
+    /// replace duplicate stores to the same variable with POP_TOP.
+    /// UNPACK pushes values so stores execute left-to-right; the LAST
+    /// store to a variable carries the final value, earlier ones are dead.
+    fn eliminate_dead_stores(&mut self) {
+        for block in &mut self.blocks {
+            let instrs = &mut block.instructions;
+            let len = instrs.len();
+            let mut i = 0;
+            while i < len {
+                // Look for UNPACK_SEQUENCE or UNPACK_EX
+                let is_unpack = matches!(
+                    instrs[i].instr,
+                    AnyInstruction::Real(
+                        Instruction::UnpackSequence { .. } | Instruction::UnpackEx { .. }
+                    )
+                );
+                if !is_unpack {
+                    i += 1;
+                    continue;
+                }
+                // Scan the run of STORE_FAST right after the unpack
+                let run_start = i + 1;
+                let mut run_end = run_start;
+                while run_end < len
+                    && matches!(
+                        instrs[run_end].instr,
+                        AnyInstruction::Real(Instruction::StoreFast { .. })
+                    )
+                {
+                    run_end += 1;
+                }
+                if run_end - run_start >= 2 {
+                    // Pass 1: find the LAST occurrence of each variable
+                    let mut last_occurrence = std::collections::HashMap::new();
+                    for (j, instr) in instrs[run_start..run_end].iter().enumerate() {
+                        last_occurrence.insert(u32::from(instr.arg), j);
+                    }
+                    // Pass 2: non-last stores to the same variable are dead
+                    for (j, instr) in instrs[run_start..run_end].iter_mut().enumerate() {
+                        let idx = u32::from(instr.arg);
+                        if last_occurrence[&idx] != j {
+                            instr.instr = AnyInstruction::Real(Instruction::PopTop);
+                            instr.arg = OpArg::new(0);
+                        }
+                    }
+                }
+                i = run_end.max(i + 1);
+            }
+        }
+    }
+
     /// Peephole optimization: combine consecutive instructions into super-instructions
     fn peephole_optimize(&mut self) {
         for block in &mut self.blocks {
@@ -1353,41 +1415,44 @@ impl CodeInfo {
                             if line1 > 0 && line2 > 0 && line1 != line2 {
                                 None
                             } else {
-                            let idx1 = u32::from(curr.arg);
-                            let idx2 = u32::from(next.arg);
-                            if idx1 < 16 && idx2 < 16 {
-                                let packed = (idx1 << 4) | idx2;
-                                Some((
-                                    Instruction::LoadFastLoadFast {
-                                        var_nums: Arg::marker(),
-                                    },
-                                    OpArg::new(packed),
-                                ))
-                            } else {
-                                None
-                            }
+                                let idx1 = u32::from(curr.arg);
+                                let idx2 = u32::from(next.arg);
+                                if idx1 < 16 && idx2 < 16 {
+                                    let packed = (idx1 << 4) | idx2;
+                                    Some((
+                                        Instruction::LoadFastLoadFast {
+                                            var_nums: Arg::marker(),
+                                        },
+                                        OpArg::new(packed),
+                                    ))
+                                } else {
+                                    None
+                                }
                             }
                         }
                         // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
+                        // Dead store elimination: if both store to the same variable,
+                        // the first store is dead. Replace it with POP_TOP (like
+                        // apply_static_swaps in CPython's flowgraph.c).
                         (Instruction::StoreFast { .. }, Instruction::StoreFast { .. }) => {
                             let line1 = curr.location.line.get() as i32;
                             let line2 = next.location.line.get() as i32;
                             if line1 > 0 && line2 > 0 && line1 != line2 {
                                 None
                             } else {
-                            let idx1 = u32::from(curr.arg);
-                            let idx2 = u32::from(next.arg);
-                            if idx1 < 16 && idx2 < 16 {
-                                let packed = (idx1 << 4) | idx2;
-                                Some((
-                                    Instruction::StoreFastStoreFast {
-                                        var_nums: Arg::marker(),
-                                    },
-                                    OpArg::new(packed),
-                                ))
-                            } else {
-                                None
-                            }
+                                let idx1 = u32::from(curr.arg);
+                                let idx2 = u32::from(next.arg);
+                                if idx1 < 16 && idx2 < 16 {
+                                    let packed = (idx1 << 4) | idx2;
+                                    Some((
+                                        Instruction::StoreFastStoreFast {
+                                            var_nums: Arg::marker(),
+                                        },
+                                        OpArg::new(packed),
+                                    ))
+                                } else {
+                                    None
+                                }
                             }
                         }
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a

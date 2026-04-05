@@ -135,9 +135,7 @@ struct ExceptionStack {
 impl Default for ExceptionStack {
     fn default() -> Self {
         // Thread's base `_PyErr_StackItem` – always present.
-        Self {
-            stack: vec![None],
-        }
+        Self { stack: vec![None] }
     }
 }
 

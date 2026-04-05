@@ -873,7 +873,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_unknown_because_del(self):
         def f():
             x = 1
@@ -928,7 +927,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_BORROW')
         self.assertNotInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; L5 to L6 -> L6 [1] lasti
     def test_load_fast_unknown_after_error(self):
         def f():
             try:
@@ -940,7 +938,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         # Assert that it doesn't occur in the LOAD_FAST_CHECK branch.
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; L5 to L6 -> L6 [1] lasti
     def test_load_fast_unknown_after_error_2(self):
         def f():
             try:

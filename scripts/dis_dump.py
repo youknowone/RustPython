@@ -243,7 +243,8 @@ def _extract_instructions(code):
             if target_idx is None or argval_is_raw:
                 target_idx = None  # force recalculation
                 if is_backward:
-                    # Target = current_offset + INSTRUCTION_SIZE + cache_size - arg * INSTRUCTION_SIZE
+                    # Target = current_offset + INSTR_SIZE + cache
+                    #        - arg * INSTR_SIZE
                     # Try different cache sizes (NOT_TAKEN=1 for JUMP_BACKWARD, 0 for NO_INTERRUPT)
                     if "NO_INTERRUPT" in inst.opname:
                         cache_order = (0, 1, 2)
@@ -335,7 +336,9 @@ def main():
         default=None,
         help="Read newline-separated target paths from this file",
     )
-    parser.add_argument("targets", nargs="*", help="Python files or directories to process")
+    parser.add_argument(
+        "targets", nargs="*", help="Python files or directories to process"
+    )
     parser.add_argument(
         "--progress",
         type=int,
