@@ -3166,16 +3166,18 @@ impl Compiler {
                 }
                 self.compile_statements(finalbody)?;
 
-                // Pop FinallyEnd fblock BEFORE emitting RERAISE
-                // This ensures RERAISE routes to outer exception handler, not cleanup block
-                // Cleanup block is only for new exceptions raised during finally body execution
+                // RERAISE must be inside the cleanup handler's exception table
+                // range. When RERAISE re-raises the exception, the cleanup
+                // handler (COPY 3, POP_EXCEPT, RERAISE 1) runs POP_EXCEPT to
+                // restore exc_info before the exception reaches the outer handler.
+                emit!(self, Instruction::Reraise { depth: 0 });
+
+                // PopBlock after RERAISE (dead code, but marks the exception
+                // table range end so the cleanup covers RERAISE).
                 if finally_cleanup_block.is_some() {
                     emit!(self, PseudoInstruction::PopBlock);
                     self.pop_fblock(FBlockType::FinallyEnd);
                 }
-
-                // CPython re-raises first and lets the cleanup block restore prev_exc.
-                emit!(self, Instruction::Reraise { depth: 0 });
             }
 
             if let Some(cleanup) = finally_cleanup_block {
@@ -3432,16 +3434,18 @@ impl Compiler {
             // Run finally body
             self.compile_statements(finalbody)?;
 
-            // Pop FinallyEnd fblock BEFORE emitting RERAISE
-            // This ensures RERAISE routes to outer exception handler, not cleanup block
-            // Cleanup block is only for new exceptions raised during finally body execution
+            // RERAISE must be inside the cleanup handler's exception table
+            // range. The cleanup handler (COPY 3, POP_EXCEPT, RERAISE 1)
+            // runs POP_EXCEPT to restore exc_info before re-raising to
+            // the outer handler.
+            emit!(self, Instruction::Reraise { depth: 0 });
+
+            // PopBlock after RERAISE (dead code, but marks the exception
+            // table range end so the cleanup covers RERAISE).
             if finally_cleanup_block.is_some() {
                 emit!(self, PseudoInstruction::PopBlock);
                 self.pop_fblock(FBlockType::FinallyEnd);
             }
-
-            // CPython re-raises first and lets the cleanup block restore prev_exc.
-            emit!(self, Instruction::Reraise { depth: 0 });
         }
 
         // finally cleanup block
@@ -3473,11 +3477,7 @@ impl Compiler {
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
-        let orelse_block = if orelse.is_empty() {
-            end_block
-        } else {
-            self.new_block()
-        };
+        let orelse_block = self.new_block();
 
         emit!(self, Instruction::Nop);
         emit!(
@@ -3624,16 +3624,16 @@ impl Compiler {
         emit!(self, Instruction::Reraise { depth: 1 });
         self.set_no_location();
 
+        self.switch_to_block(orelse_block);
+        self.set_no_location();
         if !orelse.is_empty() {
-            self.switch_to_block(orelse_block);
-            self.set_no_location();
             self.compile_statements(orelse)?;
-            emit!(
-                self,
-                PseudoInstruction::JumpNoInterrupt { delta: end_block }
-            );
-            self.set_no_location();
         }
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { delta: end_block }
+        );
+        self.set_no_location();
 
         self.switch_to_block(end_block);
         Ok(())

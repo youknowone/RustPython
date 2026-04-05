@@ -6769,7 +6769,6 @@ impl ExecutingFrame<'_> {
             }
             bytecode::RaiseKind::BareRaise => {
                 // RAISE_VARARGS 0: bare `raise` gets exception from VM state
-                // This is the current exception set by PUSH_EXC_INFO
                 vm.topmost_exception()
                     .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))?
             }
