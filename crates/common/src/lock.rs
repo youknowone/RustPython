@@ -8,7 +8,9 @@ use lock_api::{
 
 cfg_select! {
     feature = "threading" => {
-        pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
+        mod detaching;
+        pub use detaching::{BlockingWaitHook, RawMutex, RawRwLock, set_blocking_wait_hook};
+        pub use parking_lot::RawThreadId;
         pub use std::sync::OnceLock as OnceCell;
         pub use core::cell::LazyCell;
     }
@@ -81,7 +83,8 @@ pub type PyMappedRwLockWriteGuard<'a, T> = MappedRwLockWriteGuard<'a, RawRwLock,
 /// Must only be called from the single-threaded child process immediately
 /// after `fork()`, before any other thread is created.
 /// The type `T` must represent the unlocked state as all-zero bytes
-/// (true for `parking_lot::RawMutex`, `RawRwLock`, `RawReentrantMutex`, etc.).
+/// (true for `parking_lot::RawMutex`, `RawRwLock`, `RawReentrantMutex`, and
+/// for the transparent wrappers around them in this module).
 pub unsafe fn zero_reinit_after_fork<T>(lock: *const T) {
     unsafe {
         core::ptr::write_bytes(lock as *mut u8, 0, core::mem::size_of::<T>());
@@ -95,7 +98,7 @@ pub unsafe fn zero_reinit_after_fork<T>(lock: *const T) {
 /// Must only be called from the single-threaded child process immediately
 /// after `fork()`, before any other thread is created.
 #[cfg(unix)]
-pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
+pub unsafe fn reinit_mutex_after_fork<R: lock_api::RawMutex, T: ?Sized>(mutex: &Mutex<R, T>) {
     unsafe { zero_reinit_after_fork(mutex.raw()) }
 }
 
@@ -106,7 +109,7 @@ pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
 /// Must only be called from the single-threaded child process immediately
 /// after `fork()`, before any other thread is created.
 #[cfg(unix)]
-pub unsafe fn reinit_rwlock_after_fork<T: ?Sized>(rwlock: &PyRwLock<T>) {
+pub unsafe fn reinit_rwlock_after_fork<R: lock_api::RawRwLock, T: ?Sized>(rwlock: &RwLock<R, T>) {
     unsafe { zero_reinit_after_fork(rwlock.raw()) }
 }
 

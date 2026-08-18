@@ -427,6 +427,7 @@ impl StopTheWorldState {
     /// `start_the_world`/`reset_after_fork`.
     pub fn stop_the_world(&self, state: &PyGlobalState) {
         self.acquire_exclusion(state);
+        thread::enter_stopped_world();
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
@@ -536,6 +537,7 @@ impl StopTheWorldState {
         self.debug_assert_all_non_requester_detached(state);
         // Release the exclusion last, ending the stop→start span so the next
         // requester (fork or GC) can proceed.
+        thread::leave_stopped_world();
         self.release_exclusion();
         stw_trace(format_args!("start end requester={requester}"));
     }
@@ -546,8 +548,10 @@ impl StopTheWorldState {
         self.world_stopped.store(false, Ordering::Relaxed);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
-        // The surviving child thread inherited the exclusion taken by the
-        // pre-fork `stop_the_world`; release it (no start_the_world runs here).
+        // The surviving child thread inherited the exclusion and the stopped-
+        // world mark taken by the pre-fork `stop_the_world`; give up both here,
+        // since no start_the_world runs in the child.
+        thread::leave_stopped_world();
         self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }

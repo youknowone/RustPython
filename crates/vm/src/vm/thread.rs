@@ -604,6 +604,69 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+#[cfg(feature = "threading")]
+std::thread_local! {
+    /// How many worlds this thread has stopped and not yet restarted.
+    static STOPPED_WORLDS: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Record that this thread has stopped a world, and that it is therefore the
+/// only thread that can start it again.
+#[cfg(feature = "threading")]
+pub(crate) fn enter_stopped_world() {
+    STOPPED_WORLDS.with(|depth| depth.set(depth.get().saturating_add(1)));
+}
+
+/// Undo [`enter_stopped_world`].
+#[cfg(feature = "threading")]
+pub(crate) fn leave_stopped_world() {
+    STOPPED_WORLDS.with(|depth| depth.set(depth.get().saturating_sub(1)));
+}
+
+#[cfg(feature = "threading")]
+fn holds_a_stopped_world() -> bool {
+    STOPPED_WORLDS
+        .try_with(|depth| depth.get() != 0)
+        .unwrap_or(false)
+}
+
+/// Wait for a lock the way a blocking call waits: detached, so a
+/// stop-the-world requester never has to wait for this thread to reach a
+/// safepoint it cannot reach while blocked.
+///
+/// Threads with no interpreter to leave — a native thread, or one whose
+/// locals are already being destroyed — simply block.
+#[cfg(feature = "threading")]
+fn wait_detached_from_interpreter(wait: &dyn Fn()) {
+    // A thread that has stopped a world waits plainly. Detaching would gain it
+    // nothing — every thread that could release the lock is already parked, and
+    // only this one can restart them — while giving up the reclamation barrier
+    // it is holding the world still in order to work behind.
+    if holds_a_stopped_world() {
+        wait();
+        return;
+    }
+    // Read the VM out before waiting: attaching afterwards reaches for the
+    // same thread locals, which must not still be borrowed here.
+    let current = VM_STACK
+        .try_with(|vms| vms.try_borrow().ok()?.last().copied())
+        .ok()
+        .flatten();
+    match current {
+        // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+        // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+        Some(vm) => allow_threads(unsafe { vm.as_ref() }, wait),
+        None => wait(),
+    }
+}
+
+/// Teach the lock types how to detach this thread. Idempotent, so every
+/// interpreter can call it while initializing.
+#[cfg(feature = "threading")]
+pub(crate) fn install_blocking_wait_hook() {
+    rustpython_common::lock::set_blocking_wait_hook(wait_detached_from_interpreter);
+}
+
 /// Called from check_signals when stop-the-world is requested.
 /// Transitions ATTACHED → SUSPENDED and waits until released
 /// (like `_PyThreadState_Suspend` + `_PyThreadState_Attach`).
