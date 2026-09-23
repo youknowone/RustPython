@@ -809,6 +809,10 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
             variable_arity = true;
             continue;
         }
+        if is_named("DirFd") || is_named("FollowSymlinks") {
+            has_keywords = true;
+            continue;
+        }
         fixed_positional += 1;
     }
 
@@ -835,13 +839,33 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
 ///
 /// `implicit_self` is the marker to report for a first argument that the call
 /// binds to without a `&self` receiver.
+fn keyword_only_from_type(ty: &str) -> Option<String> {
+    let compact = ty.replace([' ', '\n'], "");
+    if compact.contains("FollowSymlinks") {
+        return Some("follow_symlinks=True".to_owned());
+    }
+    if compact.contains("DirFd<") || compact.ends_with("DirFd") {
+        let name = if compact.contains("SrcDirFd") {
+            "src_dir_fd"
+        } else if compact.contains("DstDirFd") {
+            "dst_dir_fd"
+        } else {
+            "dir_fd"
+        };
+        return Some(format!("{name}=None"));
+    }
+    None
+}
+
 fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> {
-    let mut params = Vec::new();
+    let mut positional = Vec::new();
+    let mut keyword_only = Vec::new();
+    let mut star_args = None;
     for arg in &sig.inputs {
         let arg = match arg {
             FnArg::Typed(typed) => typed,
             FnArg::Receiver(_) => {
-                params.push("$self".to_owned());
+                positional.push("$self".to_owned());
                 continue;
             }
         };
@@ -850,15 +874,15 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
         if ty == "FuncArgs" {
             // The bundle carries the receiver along with everything else, so
             // report both rather than spending the marker on it.
-            params.extend(implicit_self.take().map(str::to_owned));
-            params.push("*args, **kwargs".to_owned());
+            positional.extend(implicit_self.take().map(str::to_owned));
+            star_args = Some("*args, **kwargs".to_owned());
             continue;
         }
         if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
             continue;
         }
         if let Some(marker) = implicit_self.take() {
-            params.push(marker.to_owned());
+            positional.push(marker.to_owned());
             continue;
         }
         // An argument bound by a destructuring pattern, e.g.
@@ -874,8 +898,20 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
         }
         // A leading `_` only marks the argument unused in Rust. A parameter whose
         // Python name really starts with `_` has to be a FromArgs field instead.
-        params.push(ident.strip_prefix('_').unwrap_or(&ident).to_owned());
+        let ident = ident.strip_prefix('_').unwrap_or(&ident);
+        if let Some(kwonly) = keyword_only_from_type(&ty) {
+            keyword_only.push(kwonly);
+        } else {
+            positional.push(ident.to_owned());
+        }
     }
+    let mut params = positional;
+    if let Some(star_args) = star_args {
+        params.push(star_args);
+    } else if !keyword_only.is_empty() {
+        params.push("*".to_owned());
+    }
+    params.extend(keyword_only);
     Some(params.join(", "))
 }
 
