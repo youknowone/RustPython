@@ -293,8 +293,13 @@ mod _socket {
     #[pyattr]
     const IPPORT_RESERVED: i32 = 1024;
 
+    #[cfg(not(windows))]
     #[pyattr]
     const IPPORT_USERRESERVED: i32 = 5000;
+
+    #[cfg(windows)]
+    #[pyattr]
+    const IPPORT_USERRESERVED: i32 = host_socket::IPPORT_USERRESERVED;
 
     #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
@@ -334,15 +339,15 @@ mod _socket {
         IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
     };
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
     const INADDR_UNSPEC_GROUP: u32 = 0xe0000000;
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
     const INADDR_ALLHOSTS_GROUP: u32 = 0xe0000001;
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
     const INADDR_MAX_LOCAL_GROUP: u32 = 0xe00000ff;
 
@@ -400,13 +405,31 @@ mod _socket {
     //     c::_IO(7, 0xb9)
     // }
 
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        windows
+    )))]
     #[pyattr]
     const SOL_IP: i32 = 0;
 
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    #[cfg(windows)]
+    #[pyattr]
+    const SOL_IP: i32 = host_socket::SOL_IP as i32;
+
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        windows
+    )))]
     #[pyattr]
     const SOL_UDP: i32 = 17;
+
+    #[cfg(windows)]
+    #[pyattr]
+    const SOL_UDP: i32 = host_socket::SOL_UDP;
 
     #[cfg(any(target_os = "android", target_os = "linux", windows))]
     #[pyattr]
@@ -826,11 +849,25 @@ mod _socket {
     #[cfg(windows)]
     #[pyattr]
     use host_socket::{
-        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM, HV_PROTOCOL_RAW,
-        HVSOCKET_ADDRESS_FLAG_PASSTHRU, HVSOCKET_CONNECT_TIMEOUT, HVSOCKET_CONNECT_TIMEOUT_MAX,
-        HVSOCKET_CONNECTED_SUSPEND, IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP,
-        IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST, SIO_TCP_SET_ACK_FREQUENCY,
+        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM,
+        BTHPROTO_RFCOMM as BTPROTO_RFCOMM, HV_PROTOCOL_RAW, HVSOCKET_ADDRESS_FLAG_PASSTHRU,
+        HVSOCKET_CONNECT_TIMEOUT, HVSOCKET_CONNECT_TIMEOUT_MAX, HVSOCKET_CONNECTED_SUSPEND,
+        INADDR_ALLHOSTS_GROUP, INADDR_MAX_LOCAL_GROUP, INADDR_UNSPEC_GROUP,
+        IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+        IP_RECVERR, IP_RECVTOS, IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_CBT, IPPROTO_ICLFXBM,
+        IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST,
+        IPV6_RECVERR, MSG_ERRQUEUE, RCVALL_MAX, SIO_TCP_SET_ACK_FREQUENCY, SO_ACCEPTCONN,
+        SO_BTH_ENCRYPT, SO_BTH_MTU, SO_BTH_MTU_MAX, SO_BTH_MTU_MIN, SO_DEBUG, SO_DONTROUTE,
+        SO_ORIGINAL_DST, SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDLOWAT, SO_SNDTIMEO, SOL_RFCOMM,
+        TCP_FASTOPEN, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL,
     };
+
+    #[cfg(windows)]
+    #[pyattr]
+    const BDADDR_ANY: &str = host_socket::BDADDR_ANY;
+    #[cfg(windows)]
+    #[pyattr]
+    const BDADDR_LOCAL: &str = host_socket::BDADDR_LOCAL;
 
     #[cfg(windows)]
     #[pyattr]
