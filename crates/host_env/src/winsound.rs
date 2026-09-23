@@ -12,10 +12,32 @@ unsafe extern "system" {
     fn MessageBeep(uType: u32) -> i32;
 }
 
-/// `SND_ASYNC` flag value from `mmsystem.h`.
-const SND_ASYNC: u32 = 0x0001;
-/// `SND_MEMORY` flag value from `mmsystem.h`.
-const SND_MEMORY: u32 = 0x0004;
+/// `PlaySoundW` flags from `mmsystem.h`. `SND_SYNC` is the absence of
+/// `SND_ASYNC`, not a bit of its own.
+pub const SND_SYNC: u32 = 0x0000;
+pub const SND_ASYNC: u32 = 0x0001;
+pub const SND_NODEFAULT: u32 = 0x0002;
+pub const SND_MEMORY: u32 = 0x0004;
+pub const SND_LOOP: u32 = 0x0008;
+pub const SND_NOSTOP: u32 = 0x0010;
+pub const SND_PURGE: u32 = 0x0040;
+pub const SND_APPLICATION: u32 = 0x0080;
+pub const SND_NOWAIT: u32 = 0x0000_2000;
+pub const SND_ALIAS: u32 = 0x0001_0000;
+pub const SND_FILENAME: u32 = 0x0002_0000;
+pub const SND_SENTRY: u32 = 0x0008_0000;
+pub const SND_SYSTEM: u32 = 0x0020_0000;
+
+/// `MessageBeep` sound ids from `winuser.h`. Several names are one sound.
+pub const MB_OK: u32 = 0x0000_0000;
+pub const MB_ICONHAND: u32 = 0x0000_0010;
+pub const MB_ICONQUESTION: u32 = 0x0000_0020;
+pub const MB_ICONEXCLAMATION: u32 = 0x0000_0030;
+pub const MB_ICONASTERISK: u32 = 0x0000_0040;
+pub const MB_ICONERROR: u32 = MB_ICONHAND;
+pub const MB_ICONSTOP: u32 = MB_ICONHAND;
+pub const MB_ICONINFORMATION: u32 = MB_ICONASTERISK;
+pub const MB_ICONWARNING: u32 = MB_ICONEXCLAMATION;
 
 /// Source for a `PlaySound` call.
 pub enum PlaySoundSource<'a> {
