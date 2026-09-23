@@ -145,6 +145,9 @@ impl PyMethodDescriptor {
 
     #[pygetset]
     fn __text_signature__(&self) -> Option<String> {
+        if let Some(signature) = self.method.text_signature() {
+            return Some(signature);
+        }
         self.method.doc.and_then(|doc| {
             type_::get_text_signature_from_internal_doc(self.method.name, doc)
                 .map(|signature| signature.to_string())
@@ -306,6 +309,9 @@ impl PyClassMethodDescriptor {
 
     #[pygetset]
     fn __text_signature__(&self) -> Option<String> {
+        if let Some(signature) = self.method.text_signature() {
+            return Some(signature);
+        }
         self.method.doc.and_then(|doc| {
             type_::get_text_signature_from_internal_doc(self.method.name, doc)
                 .map(|signature| signature.to_string())

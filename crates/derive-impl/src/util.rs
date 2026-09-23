@@ -2,7 +2,9 @@ use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{Attribute, FnArg, Ident, Result, Signature, UseTree, ext::IdentExt, spanned::Spanned};
+use syn::{
+    Attribute, FnArg, Ident, Result, Signature, Type, UseTree, ext::IdentExt, spanned::Spanned,
+};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
@@ -758,10 +760,8 @@ pub(crate) fn text_signature(
     Some(signature)
 }
 
-pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
-    // Best-effort mapping of Rust function signatures to CPython-style
-    // METH_* calling convention flags used by CALL specialization.
-    let mut typed_args = Vec::new();
+fn user_arg_types(sig: &Signature, drop_first_typed: usize) -> Vec<Type> {
+    let mut tys = Vec::new();
     for arg in &sig.inputs {
         let FnArg::Typed(typed) = arg else {
             continue;
@@ -773,65 +773,90 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
         if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
             continue;
         }
-        typed_args.push(ty);
+        tys.push((*typed.ty).clone());
     }
+    tys.into_iter().skip(drop_first_typed).collect()
+}
 
-    let mut user_args = typed_args.into_iter();
-    for _ in 0..drop_first_typed {
-        if user_args.next().is_none() {
-            break;
+pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
+    let user_tys = user_arg_types(sig, drop_first_typed);
+    quote! {
+        {
+            const HAS_KEYWORDS: bool = false #(|| <#user_tys as rustpython_vm::function::FromArgs>::TAKES_KEYWORDS)*;
+            const VARIABLE_ARITY: bool = false #(|| <#user_tys as rustpython_vm::function::FromArgs>::VARIABLE_ARITY)*;
+            const POSITIONAL: usize = 0 #(+ <#user_tys as rustpython_vm::function::FromArgs>::MAX_POSITIONAL)*;
+            if HAS_KEYWORDS {
+                rustpython_vm::function::PyMethodFlags::from_bits_retain(
+                    rustpython_vm::function::PyMethodFlags::FASTCALL.bits()
+                        | rustpython_vm::function::PyMethodFlags::KEYWORDS.bits()
+                )
+            } else if VARIABLE_ARITY {
+                rustpython_vm::function::PyMethodFlags::FASTCALL
+            } else {
+                match POSITIONAL {
+                    0 => rustpython_vm::function::PyMethodFlags::NOARGS,
+                    1 => rustpython_vm::function::PyMethodFlags::O,
+                    _ => rustpython_vm::function::PyMethodFlags::FASTCALL,
+                }
+            }
         }
     }
+}
 
-    let mut has_keywords = false;
-    let mut variable_arity = false;
-    let mut fixed_positional = 0usize;
-
-    for ty in user_args {
-        let is_named = |name: &str| {
-            ty == name
-                || ty.starts_with(&format!("{name}<"))
-                || ty.contains(&format!("::{name}<"))
-                || ty.ends_with(&format!("::{name}"))
+/// Tokens for `&[SigPart::from_arg::<Ty>("name"), ...]`, or `None` when a
+/// parameter has no Python name to report.
+pub(crate) fn sig_parts_tokens(
+    sig: &Signature,
+    mut implicit_self: Option<&str>,
+) -> Option<TokenStream> {
+    let mut parts = Vec::new();
+    for arg in &sig.inputs {
+        let arg = match arg {
+            FnArg::Typed(typed) => typed,
+            FnArg::Receiver(_) => {
+                parts.push(quote! {
+                    rustpython_vm::function::SigPart {
+                        name: "$self",
+                        keyword_only: None,
+                        varargs: None,
+                    }
+                });
+                continue;
+            }
         };
-
-        if is_named("FuncArgs") {
-            has_keywords = true;
-            variable_arity = true;
+        let ty = arg.ty.as_ref();
+        let ty_str = quote!(#ty).to_string();
+        if (ty_str.starts_with('&') && ty_str.ends_with("VirtualMachine"))
+            || ty_str.ends_with("Callee")
+        {
             continue;
         }
-        if is_named("KwArgs") {
-            has_keywords = true;
-            variable_arity = true;
+        if let Some(marker) = implicit_self.take() {
+            parts.push(quote! {
+                rustpython_vm::function::SigPart {
+                    name: #marker,
+                    keyword_only: None,
+                    varargs: None,
+                }
+            });
             continue;
         }
-        if is_named("PosArgs") || is_named("OptionalArg") || is_named("OptionalOption") {
-            variable_arity = true;
+        let syn::Pat::Ident(pat) = arg.pat.as_ref() else {
+            return None;
+        };
+        let ident = pat.ident.unraw().to_string();
+        if ident == "vm" {
             continue;
         }
-        if is_named("DirFd") || is_named("FollowSymlinks") {
-            has_keywords = true;
-            continue;
-        }
-        fixed_positional += 1;
+        let ident = ident.strip_prefix('_').unwrap_or(&ident);
+        parts.push(quote! {
+            rustpython_vm::function::SigPart::from_arg::<#ty>(#ident)
+        });
     }
-
-    if has_keywords {
-        quote! {
-            rustpython_vm::function::PyMethodFlags::from_bits_retain(
-                rustpython_vm::function::PyMethodFlags::FASTCALL.bits()
-                    | rustpython_vm::function::PyMethodFlags::KEYWORDS.bits()
-            )
-        }
-    } else if variable_arity {
-        quote! { rustpython_vm::function::PyMethodFlags::FASTCALL }
-    } else {
-        match fixed_positional {
-            0 => quote! { rustpython_vm::function::PyMethodFlags::NOARGS },
-            1 => quote! { rustpython_vm::function::PyMethodFlags::O },
-            _ => quote! { rustpython_vm::function::PyMethodFlags::FASTCALL },
-        }
-    }
+    Some(quote! {{
+        const __SIG_PARTS: &'static [rustpython_vm::function::SigPart] = &[#(#parts),*];
+        __SIG_PARTS
+    }})
 }
 
 /// Returns None when an argument has no name to report, in which case no
@@ -839,27 +864,8 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
 ///
 /// `implicit_self` is the marker to report for a first argument that the call
 /// binds to without a `&self` receiver.
-fn keyword_only_from_type(ty: &str) -> Option<String> {
-    let compact = ty.replace([' ', '\n'], "");
-    if compact.contains("FollowSymlinks") {
-        return Some("follow_symlinks=True".to_owned());
-    }
-    if compact.contains("DirFd<") || compact.ends_with("DirFd") {
-        let name = if compact.contains("SrcDirFd") {
-            "src_dir_fd"
-        } else if compact.contains("DstDirFd") {
-            "dst_dir_fd"
-        } else {
-            "dir_fd"
-        };
-        return Some(format!("{name}=None"));
-    }
-    None
-}
-
 fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> {
     let mut positional = Vec::new();
-    let mut keyword_only = Vec::new();
     let mut star_args = None;
     for arg in &sig.inputs {
         let arg = match arg {
@@ -899,19 +905,12 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
         // A leading `_` only marks the argument unused in Rust. A parameter whose
         // Python name really starts with `_` has to be a FromArgs field instead.
         let ident = ident.strip_prefix('_').unwrap_or(&ident);
-        if let Some(kwonly) = keyword_only_from_type(&ty) {
-            keyword_only.push(kwonly);
-        } else {
-            positional.push(ident.to_owned());
-        }
+        positional.push(ident.to_owned());
     }
     let mut params = positional;
     if let Some(star_args) = star_args {
         params.push(star_args);
-    } else if !keyword_only.is_empty() {
-        params.push("*".to_owned());
     }
-    params.extend(keyword_only);
     Some(params.join(", "))
 }
 

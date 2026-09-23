@@ -99,6 +99,11 @@ impl From<KwArgs> for FuncArgs {
 }
 
 impl FromArgs for FuncArgs {
+    const TAKES_KEYWORDS: bool = true;
+    const VARIABLE_ARITY: bool = true;
+    const MAX_POSITIONAL: usize = 0;
+    const VARARGS_SIGNATURE: Option<&'static str> = Some("*args, **kwargs");
+
     fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(core::mem::take(args))
     }
@@ -519,6 +524,17 @@ pub trait FromArgs: Sized {
         0..=0
     }
 
+    /// True when this parameter may consume names from the keyword map.
+    const TAKES_KEYWORDS: bool = false;
+    /// True when the number of positionals this parameter accepts is not fixed.
+    const VARIABLE_ARITY: bool = false;
+    /// Maximum positional arguments this parameter consumes.
+    const MAX_POSITIONAL: usize = 1;
+    /// Keyword-only text-signature fragment, e.g. `"dir_fd=None"`.
+    const KEYWORD_ONLY_SIGNATURE: Option<&'static str> = None;
+    /// Varargs text-signature fragment, e.g. `"*args, **kwargs"`.
+    const VARARGS_SIGNATURE: Option<&'static str> = None;
+
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
 }
@@ -662,6 +678,10 @@ impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
+    const TAKES_KEYWORDS: bool = true;
+    const VARIABLE_ARITY: bool = true;
+    const MAX_POSITIONAL: usize = 0;
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = KwArgsMap::default();
         for (name, value) in args.remaining_keywords() {
@@ -736,6 +756,9 @@ impl<T> FromArgs for PosArgs<T>
 where
     T: TryFromObject,
 {
+    const VARIABLE_ARITY: bool = true;
+    const MAX_POSITIONAL: usize = 0;
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.take_positional() {
@@ -808,6 +831,8 @@ impl<T> FromArgs for OptionalArg<T>
 where
     T: TryFromObject,
 {
+    const VARIABLE_ARITY: bool = true;
+
     fn arity() -> RangeInclusive<usize> {
         0..=1
     }
@@ -825,6 +850,8 @@ where
 // For functions that accept no arguments. Implemented explicitly instead of via
 // macro below to avoid unused warnings.
 impl FromArgs for () {
+    const MAX_POSITIONAL: usize = 0;
+
     fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
@@ -842,6 +869,10 @@ macro_rules! tuple_from_py_func_args {
         where
             $($T: FromArgs),+
         {
+            const TAKES_KEYWORDS: bool = $($T::TAKES_KEYWORDS ||)+ false;
+            const VARIABLE_ARITY: bool = $($T::VARIABLE_ARITY ||)+ false;
+            const MAX_POSITIONAL: usize = 0 $(+ $T::MAX_POSITIONAL)+;
+
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
                 let mut max = 0;

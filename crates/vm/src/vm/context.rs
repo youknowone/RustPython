@@ -364,6 +364,7 @@ impl Context {
             Some(
                 "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
             ),
+            &[],
         );
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
@@ -649,6 +650,7 @@ impl Context {
             func: Box::leak(Box::new(f.into_func())),
             flags,
             doc,
+            sig_parts: &[],
         };
         let payload = HeapMethodDef::new(def);
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)

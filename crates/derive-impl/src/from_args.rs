@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
 use syn::meta::ParseNestedMeta;
-use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token, parse_quote};
+use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Result, Token, parse_quote};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
@@ -229,28 +229,104 @@ fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     (min_arity, max_arity)
 }
 
+fn python_default_repr(default: Option<&DefaultValue>) -> Option<String> {
+    match default {
+        None => None,
+        Some(None) => Some("None".to_owned()),
+        Some(Some(expr)) => match expr {
+            Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
+                Lit::Bool(b) => Some(if b.value {
+                    "True".to_owned()
+                } else {
+                    "False".to_owned()
+                }),
+                Lit::Int(i) => Some(i.base10_digits().to_owned()),
+                Lit::Float(f) => Some(f.base10_digits().to_owned()),
+                Lit::Str(s) => Some(format!("'{}'", s.value())),
+                _ => Some("None".to_owned()),
+            },
+            _ => Some("None".to_owned()),
+        },
+    }
+}
+
 pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    let (fields, field_attrs) = match input.data {
-        Data::Struct(syn::DataStruct { fields, .. }) => (
-            fields
-                .iter()
-                .enumerate()
-                .map(generate_field)
-                .collect::<Result<TokenStream>>()?,
-            fields
-                .iter()
-                .filter_map(|field| field.try_into().ok())
-                .collect::<Vec<ArgAttribute>>(),
-        ),
+    let struct_fields = match input.data {
+        Data::Struct(syn::DataStruct { fields, .. }) => fields,
         _ => bail_span!(input, "FromArgs input must be a struct"),
     };
 
+    let generated_fields = struct_fields
+        .iter()
+        .enumerate()
+        .map(generate_field)
+        .collect::<Result<TokenStream>>()?;
+    let field_attrs = struct_fields
+        .iter()
+        .filter_map(|field| field.try_into().ok())
+        .collect::<Vec<ArgAttribute>>();
+
     let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
+
+    let takes_keywords_named = field_attrs.iter().any(|attr| {
+        matches!(
+            attr.kind,
+            ParameterKind::KeywordOnly | ParameterKind::PositionalOrKeyword
+        )
+    });
+    let flatten_tys = struct_fields
+        .iter()
+        .zip(&field_attrs)
+        .filter(|(_, attr)| attr.kind == ParameterKind::Flatten)
+        .map(|(field, _)| field.ty.clone())
+        .collect::<Vec<_>>();
+    let takes_keywords = quote! {
+        #takes_keywords_named #(|| <#flatten_tys as ::rustpython_vm::function::FromArgs>::TAKES_KEYWORDS)*
+    };
+    let variable_arity = {
+        let from_bounds = min_arity != max_arity;
+        quote! {
+            #from_bounds #(|| <#flatten_tys as ::rustpython_vm::function::FromArgs>::VARIABLE_ARITY)*
+        }
+    };
+
+    let all_keyword_only = !field_attrs.is_empty()
+        && field_attrs
+            .iter()
+            .all(|attr| attr.kind == ParameterKind::KeywordOnly);
+    let keyword_only_signature = if all_keyword_only {
+        let mut parts = Vec::new();
+        for (field, attr) in struct_fields.iter().zip(&field_attrs) {
+            let Some(name) = attr
+                .name
+                .clone()
+                .or_else(|| field.ident.as_ref().map(|ident| ident.unraw().to_string()))
+            else {
+                continue;
+            };
+            if let Some(default) = python_default_repr(attr.default.as_ref()) {
+                parts.push(format!("{name}={default}"));
+            } else {
+                parts.push(name);
+            }
+        }
+        let joined = parts.join(", ");
+        quote!(Some(#joined))
+    } else {
+        quote!(None)
+    };
+
+    let max_positional = if all_keyword_only { 0 } else { max_arity };
 
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
+            const TAKES_KEYWORDS: bool = #takes_keywords;
+            const VARIABLE_ARITY: bool = #variable_arity;
+            const MAX_POSITIONAL: usize = #max_positional;
+            const KEYWORD_ONLY_SIGNATURE: Option<&'static str> = #keyword_only_signature;
+
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 #min_arity..=#max_arity
             }
@@ -259,7 +335,7 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 vm: &::rustpython_vm::VirtualMachine,
                 args: &mut ::rustpython_vm::function::FuncArgs
             ) -> ::core::result::Result<Self, ::rustpython_vm::function::ArgumentError> {
-                Ok(Self { #fields })
+                Ok(Self { #generated_fields })
             }
         }
     };

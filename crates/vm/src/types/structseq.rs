@@ -20,6 +20,7 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     },
     PyMethodFlags::METHOD,
     None,
+    &[],
 );
 
 /// The arguments every struct sequence constructor takes.

@@ -43,6 +43,7 @@ pub(crate) mod _ast {
                 },
                 PyMethodFlags::METHOD,
                 None,
+                &[],
             );
             const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
                 "__replace__",
@@ -51,6 +52,7 @@ pub(crate) mod _ast {
                 },
                 PyMethodFlags::METHOD,
                 None,
+                &[],
             );
             const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_const(
                 "__deepcopy__",
@@ -59,6 +61,7 @@ pub(crate) mod _ast {
                 },
                 PyMethodFlags::METHOD,
                 None,
+                &[],
             );
 
             class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
@@ -598,6 +601,7 @@ This will become an error in Python 3.15.",
             },
             PyMethodFlags::METHOD,
             None,
+            &[],
         );
         const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
             "__replace__",
@@ -606,6 +610,7 @@ This will become an error in Python 3.15.",
             },
             PyMethodFlags::METHOD,
             None,
+            &[],
         );
         let base_type = NodeAst::static_type();
         ast_type.set_str_attr(

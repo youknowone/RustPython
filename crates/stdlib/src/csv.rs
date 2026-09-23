@@ -624,6 +624,9 @@ mod _csv {
     }
 
     impl FromArgs for FormatOptions {
+        const TAKES_KEYWORDS: bool = true;
+        const VARIABLE_ARITY: bool = true;
+
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let dialect = if let Some(dialect) = args.kwargs.swap_remove("dialect") {
                 prase_dialect_item_from_arg(vm, dialect)?

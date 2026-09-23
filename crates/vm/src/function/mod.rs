@@ -26,7 +26,7 @@ pub use fspath::FsPath;
 pub(crate) use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
-pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
+pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags, SigPart, compose_text_signature};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use time::TimeoutSeconds;

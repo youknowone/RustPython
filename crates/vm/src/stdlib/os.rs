@@ -36,24 +36,28 @@ const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::bor
 
 pub trait DirFdKeyword: Clone + Copy + Eq + PartialEq {
     const NAME: &'static str;
+    const SIGNATURE: &'static str;
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct DefaultDirFd;
 impl DirFdKeyword for DefaultDirFd {
     const NAME: &'static str = "dir_fd";
+    const SIGNATURE: &'static str = "dir_fd=None";
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct SrcDirFd;
 impl DirFdKeyword for SrcDirFd {
     const NAME: &'static str = "src_dir_fd";
+    const SIGNATURE: &'static str = "src_dir_fd=None";
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct DstDirFd;
 impl DirFdKeyword for DstDirFd {
     const NAME: &'static str = "dst_dir_fd";
+    const SIGNATURE: &'static str = "dst_dir_fd=None";
 }
 
 // XXX: AVAILABLE should be a bool, but we can't yet have it as a bool and just cast it to usize
@@ -91,6 +95,10 @@ impl<'fd, KW: DirFdKeyword> DirFd<'fd, 1, KW> {
 }
 
 impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE, KW> {
+    const TAKES_KEYWORDS: bool = true;
+    const MAX_POSITIONAL: usize = 0;
+    const KEYWORD_ONLY_SIGNATURE: Option<&'static str> = Some(KW::SIGNATURE);
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword(KW::NAME) {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),

@@ -198,10 +198,13 @@ impl PyNativeFunction {
     }
 
     #[pygetset]
-    fn __text_signature__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
-        let doc = zelf.0.value.doc?;
-        let signature = type_::get_text_signature_from_internal_doc(zelf.0.value.name, doc)?;
-        Some(signature)
+    fn __text_signature__(zelf: NativeFunctionOrMethod) -> Option<String> {
+        let def = zelf.0.value;
+        if let Some(signature) = def.text_signature() {
+            return Some(signature);
+        }
+        let doc = def.doc?;
+        type_::get_text_signature_from_internal_doc(def.name, doc).map(str::to_owned)
     }
 }
 

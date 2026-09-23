@@ -2,7 +2,7 @@ use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, infer_native_call_flags,
-    pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
+    pyclass_ident_and_attrs, pyexception_ident_and_attrs, sig_parts_tokens, text_signature,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -1125,6 +1125,12 @@ where
         let drop_first_typed = usize::from(implicit_self.is_some());
         let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
+        let sig_parts = sig_parts_tokens(func.sig(), implicit_self).unwrap_or_else(|| {
+            quote! {{
+                const __SIG_PARTS: &'static [rustpython_vm::function::SigPart] = &[];
+                __SIG_PARTS
+            }}
+        });
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
         let method_name = ident.to_string();
@@ -1147,6 +1153,7 @@ where
             coexist,
             attr_name: self.inner.attr_name,
             call_flags,
+            sig_parts,
         });
         Ok(())
     }
@@ -1376,6 +1383,7 @@ struct MethodNurseryItem {
     doc: Option<String>,
     attr_name: AttrName,
     call_flags: TokenStream,
+    sig_parts: TokenStream,
 }
 
 impl MethodNursery {
@@ -1441,6 +1449,7 @@ impl ToTokens for MethodNursery {
             } else {
                 quote!(new_const)
             };
+            let sig_parts = &item.sig_parts;
             inner_tokens.extend(quote! [
                 #(#cfgs)*
                 rustpython_vm::function::PyMethodDef::#method_new(
@@ -1448,6 +1457,7 @@ impl ToTokens for MethodNursery {
                     Self::#ident,
                     #flags,
                     #doc,
+                    #sig_parts,
                 ),
             ]);
         }

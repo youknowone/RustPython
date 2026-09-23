@@ -60,8 +60,60 @@ macro_rules! define_methods {
             func: $crate::function::static_func($func),
             flags: $crate::function::PyMethodFlags::$flags,
             doc: None,
+            sig_parts: &[],
         }),+ ]
     };
+}
+
+/// One parameter in a generated text signature.
+#[derive(Clone, Copy, Debug)]
+pub struct SigPart {
+    pub name: &'static str,
+    pub keyword_only: Option<&'static str>,
+    pub varargs: Option<&'static str>,
+}
+
+impl SigPart {
+    #[must_use]
+    pub const fn from_arg<T: super::FromArgs>(name: &'static str) -> Self {
+        Self {
+            name,
+            keyword_only: T::KEYWORD_ONLY_SIGNATURE,
+            varargs: T::VARARGS_SIGNATURE,
+        }
+    }
+}
+
+/// Build `name(params)` / `name(params, /)` from [`SigPart`]s.
+#[must_use]
+pub fn compose_text_signature(name: &str, parts: &[SigPart]) -> String {
+    let mut positional = Vec::new();
+    let mut keyword_only = Vec::new();
+    let mut varargs = None;
+    for part in parts {
+        if let Some(frag) = part.varargs {
+            varargs = Some(frag);
+            continue;
+        }
+        if let Some(frag) = part.keyword_only {
+            keyword_only.push(frag);
+        } else {
+            positional.push(part.name);
+        }
+    }
+    let mut params: Vec<&str> = positional;
+    if let Some(varargs) = varargs {
+        params.push(varargs);
+    } else if !keyword_only.is_empty() {
+        params.push("*");
+    }
+    params.extend(keyword_only);
+    let joined = params.join(", ");
+    if joined.is_empty() || joined.contains('*') {
+        format!("{name}({joined})")
+    } else {
+        format!("{name}({joined}, /)")
+    }
 }
 
 #[derive(Clone)]
@@ -70,6 +122,7 @@ pub struct PyMethodDef {
     pub func: &'static dyn PyNativeFn,
     pub flags: PyMethodFlags,
     pub doc: Option<&'static str>, // TODO: interned
+    pub sig_parts: &'static [SigPart],
 }
 
 impl PyMethodDef {
@@ -79,12 +132,23 @@ impl PyMethodDef {
         func: impl IntoPyNativeFn<Kind>,
         flags: PyMethodFlags,
         doc: Option<&'static str>,
+        sig_parts: &'static [SigPart],
     ) -> Self {
         Self {
             name,
             func: super::static_func(func),
             flags,
             doc,
+            sig_parts,
+        }
+    }
+
+    #[must_use]
+    pub fn text_signature(&self) -> Option<String> {
+        if self.sig_parts.is_empty() {
+            None
+        } else {
+            Some(compose_text_signature(self.name, self.sig_parts))
         }
     }
 
@@ -94,12 +158,14 @@ impl PyMethodDef {
         func: impl PyNativeFn,
         flags: PyMethodFlags,
         doc: Option<&'static str>,
+        sig_parts: &'static [SigPart],
     ) -> Self {
         Self {
             name,
             func: super::static_raw_func(func),
             flags,
             doc,
+            sig_parts,
         }
     }
 
@@ -234,6 +300,7 @@ impl PyMethodDef {
             func: &|_, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
             doc: None,
+            sig_parts: &[],
         };
         let mut all_methods = [NULL_METHOD; SUM_LEN];
         let mut all_idx = 0;
@@ -258,6 +325,7 @@ impl PyMethodDef {
             func: self.func,
             flags: self.flags,
             doc: self.doc,
+            sig_parts: self.sig_parts,
         }
     }
 }

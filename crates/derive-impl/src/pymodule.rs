@@ -3,7 +3,8 @@ use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, format_doc,
-    infer_native_call_flags, iter_use_idents, pyclass_ident_and_attrs, text_signature,
+    infer_native_call_flags, iter_use_idents, pyclass_ident_and_attrs, sig_parts_tokens,
+    text_signature,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -526,6 +527,7 @@ struct FunctionNurseryItem {
     ident: Ident,
     doc: Option<String>,
     call_flags: TokenStream,
+    sig_parts: TokenStream,
 }
 
 impl FunctionNursery {
@@ -561,6 +563,7 @@ impl ToTokens for ValidatedFunctionNursery {
                 None => quote!(None),
             };
             let flags = &item.call_flags;
+            let sig_parts = &item.sig_parts;
 
             inner_tokens.extend(quote![
                 #(
@@ -570,6 +573,7 @@ impl ToTokens for ValidatedFunctionNursery {
                         #ident,
                         #flags,
                         #doc,
+                        #sig_parts,
                     ),
                 )*
             ]);
@@ -665,6 +669,12 @@ impl ModuleItem for FunctionItem {
 
         let py_name = item_meta.simple_name()?;
         let sig_doc = text_signature(func.sig(), &py_name, None);
+        let sig_parts = sig_parts_tokens(func.sig(), None).unwrap_or_else(|| {
+            quote! {{
+                const __SIG_PARTS: &'static [rustpython_vm::function::SigPart] = &[];
+                __SIG_PARTS
+            }}
+        });
 
         let module = args.module_name();
         // TODO: doc must exist at least one of code or CPython
@@ -716,6 +726,7 @@ impl ModuleItem for FunctionItem {
             cfgs: args.cfgs.to_vec(),
             doc,
             call_flags,
+            sig_parts,
         });
         Ok(())
     }

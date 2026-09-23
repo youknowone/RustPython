@@ -2730,6 +2730,7 @@ mod posix_sched {
                     },
                     crate::function::PyMethodFlags::METHOD,
                     None,
+                    &[],
                 );
             class.set_attr(
                 ctx.intern_str("__reduce__"),
