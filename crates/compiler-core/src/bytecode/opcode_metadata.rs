@@ -811,6 +811,7 @@ impl super::Opcode {
             Self::UnpackSequenceList => (oparg, 1),
             Self::UnpackSequenceTuple => (oparg, 1),
             Self::UnpackSequenceTwoTuple => (2, 1),
+            Self::BuildListFromArg => (2, 1),
             Self::InstrumentedEndFor => (1, 2),
             Self::InstrumentedPopIter => (0, 1),
             Self::InstrumentedEndSend => (1, 2),

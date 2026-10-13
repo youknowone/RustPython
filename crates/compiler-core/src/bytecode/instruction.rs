@@ -674,6 +674,10 @@ define_opcodes!(
         UnpackSequenceList = 209,
         UnpackSequenceTuple = 210,
         UnpackSequenceTwoTuple = 211,
+        /// Pop the iterator, push an empty list sized from its length hint,
+        /// then push the iterator back. Used by a single-generator, no-`if`
+        /// list comprehension (`ast.ListComp.build_container_and_load_iter`).
+        BuildListFromArg = 212,
         InstrumentedEndFor = 234,
         InstrumentedPopIter = 235,
         InstrumentedEndSend = 236,
